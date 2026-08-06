@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="auth-shell">
+  <h2>{% if current_language == 'en' %}🔐 Access to the control panel{% else %}🔐 Вхід у панель{% endif %}</h2>
+  <p class="subtitle">{% if current_language == 'en' %}A single secure sign-in form for users and developers.{% else %}Єдина захищена форма входу для користувачів і розробника.{% endif %}</p>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="POST" class="stack-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+      <input type="text" name="username" placeholder="{% if current_language == 'en' %}Username{% else %}Логін{% endif %}" required>
+      <input type="password" name="password" placeholder="{% if current_language == 'en' %}Password{% else %}Пароль{% endif %}" required>
+      <button type="submit">{% if current_language == 'en' %}Sign in{% else %}Увійти{% endif %}</button>
+  </form>
+  <div class="auth-actions">
+      <a class="ghost-btn" href="/">{% if current_language == 'en' %}← Back home{% else %}← На головну{% endif %}</a>
+  </div>
+</div>
+{% endblock %}

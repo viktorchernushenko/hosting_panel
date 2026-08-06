@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card">
+    <div>
+      <p class="eyebrow">{% if current_language == 'en' %}Infrastructure control plane{% else %}Infrastructure control plane{% endif %}</p>
+      <h2>{% if current_language == 'en' %}Infrastructure Center{% else %}Infrastructure Center{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}Topology, agents, jobs, services, and backup posture in one view.{% else %}Топологія, агенти, завдання, сервіси та стан резервного копіювання в одному огляді.{% endif %}</p>
+    </div>
+    <div class="hero-actions">
+      <a class="ghost-btn" href="{{ url_for('developer_dashboard') }}">{% if current_language == 'en' %}← Back to panel{% else %}← До панелі{% endif %}</a>
+      <a class="link-btn" href="{{ url_for('developer_dns_ssl') }}">DNS & SSL</a>
+      <a class="link-btn" href="{{ url_for('developer_users') }}">{% if current_language == 'en' %}Users & Sites{% else %}Користувачі &amp; сайти{% endif %}</a>
+    </div>
+  </header>
+
+  <section class="topology-grid">
+    <article class="topology-card">
+      <div class="widget-title">{% if current_language == 'en' %}Users{% else %}Користувачі{% endif %}</div>
+      <div class="widget-value">{{ topology.users }}</div>
+      <div class="widget-caption">{% if current_language == 'en' %}managed accounts{% else %}керованих облікових записів{% endif %}</div>
+    </article>
+    <article class="topology-card">
+      <div class="widget-title">Sites</div>
+      <div class="widget-value">{{ topology.sites }}</div>
+      <div class="widget-caption">{% if current_language == 'en' %}deployed sites{% else %}розгорнутих сайтів{% endif %}</div>
+    </article>
+    <article class="topology-card">
+      <div class="widget-title">Agents</div>
+      <div class="widget-value">{{ topology.agents }}</div>
+      <div class="widget-caption">{% if current_language == 'en' %}registered nodes{% else %}зареєстрованих вузлів{% endif %}</div>
+    </article>
+    <article class="topology-card">
+      <div class="widget-title">Jobs</div>
+      <div class="widget-value">{{ topology.jobs }}</div>
+      <div class="widget-caption">{% if current_language == 'en' %}execution history{% else %}історія виконання{% endif %}</div>
+    </article>
+  </section>
+
+  <section class="panel-grid">
+    <article class="panel-card">
+      <div class="panel-head">
+        <h3>{% if current_language == 'en' %}Control plane services{% else %}Служби control plane{% endif %}</h3>
+        <span class="status-pill online">{{ services|length }} {% if current_language == 'en' %}services{% else %}служб{% endif %}</span>
+      </div>
+      <div class="service-list">
+        {% for label, service_name in services %}
+        <div class="service-row">
+          <div>
+            <strong>{{ label }}</strong>
+            <div class="service-meta">{{ service_name }}</div>
+          </div>
+          <span class="chip">managed</span>
+        </div>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="panel-card">
+      <div class="panel-head">
+        <h3>{% if current_language == 'en' %}Backup posture{% else %}Стан резервного копіювання{% endif %}</h3>
+        <span class="status-pill online">{{ topology.backups }} {% if current_language == 'en' %}archives{% else %}архівів{% endif %}</span>
+      </div>
+      <div class="service-list">
+        <div class="service-row"><strong>{% if current_language == 'en' %}Active agents{% else %}Активні агенти{% endif %}</strong><span>{{ overview.active_agents }}</span></div>
+        <div class="service-row"><strong>{% if current_language == 'en' %}Pending jobs{% else %}Очікувані завдання{% endif %}</strong><span>{{ overview.pending_jobs }}</span></div>
+        <div class="service-row"><strong>{% if current_language == 'en' %}Custom domains{% else %}Кастомні домени{% endif %}</strong><span>{{ overview.custom_domains }}</span></div>
+        <div class="service-row"><strong>{% if current_language == 'en' %}Disk usage{% else %}Використання диска{% endif %}</strong><span>{{ overview.total_usage_gb }} GB</span></div>
+      </div>
+    </article>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}Registered agents{% else %}Зареєстровані агенти{% endif %}</h3>
+      <span class="status-pill online">{{ agents|length }} {% if current_language == 'en' %}nodes{% else %}вузлів{% endif %}</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Name</th><th>Platform</th><th>Role</th><th>Status</th><th>IP</th><th>Last seen</th><th>Capabilities</th></tr></thead>
+        <tbody>
+          {% for agent in agents %}
+          <tr>
+            <td><strong>{{ agent.name }}</strong><div class="service-meta">{{ agent.version }}</div></td>
+            <td>{{ agent.platform }}</td>
+            <td>{{ agent.role }}</td>
+            <td><span class="status-badge {{ 'success' if agent.status == 'online' else 'danger' }}">{{ agent.status }}</span></td>
+            <td>{{ agent.host_ip or '—' }}</td>
+            <td>{{ agent.last_seen_at.strftime('%d.%m %H:%M') if agent.last_seen_at else '—' }}</td>
+            <td>{{ agent.capabilities_json }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="empty-state">{% if current_language == 'en' %}No agents yet. Connect the first node via /api/agents/heartbeat.{% else %}Агентів ще немає. Підключіть перший вузол через /api/agents/heartbeat.{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}Recent jobs{% else %}Останні завдання{% endif %}</h3>
+      <span class="status-pill online">{{ jobs|length }} {% if current_language == 'en' %}recent{% else %}останніх{% endif %}</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>ID</th><th>Type</th><th>Target</th><th>Status</th><th>Progress</th><th>Message</th><th>Updated</th></tr></thead>
+        <tbody>
+          {% for job in jobs %}
+          <tr>
+            <td>#{{ job.id }}</td>
+            <td>{{ job_type_labels[job.job_type] if job.job_type in job_type_labels else job.job_type }}</td>
+            <td>{{ job.target or '—' }}</td>
+            <td><span class="status-badge {{ 'danger' if job.status == 'failed' else 'success' }}">{{ job.status }}</span></td>
+            <td>
+              <div class="progress-track"><div class="progress-fill" style="width: {{ job.progress }}%"></div></div>
+              <div class="service-meta">{{ job.progress }}%</div>
+            </td>
+            <td>{{ job.message }}</td>
+            <td>{{ job.updated_at.strftime('%d.%m %H:%M') }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="empty-state">{% if current_language == 'en' %}Job queue is empty.{% else %}Черга завдань порожня.{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

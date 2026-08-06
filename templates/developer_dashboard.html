@@ -1,0 +1,775 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card">
+    <div>
+      <p class="eyebrow">myh.guru {% if current_language == 'en' %}developer console{% else %}консоль розробника{% endif %}</p>
+      <h2>{% if current_language == 'en' %}myh.guru developer panel{% else %}Розробницька панель myh.guru{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}Monitoring, sites, files, and secure server diagnostics in one place.{% else %}Моніторинг, сайти, файли та безпечна діагностика сервера в одному місці.{% endif %}</p>
+    </div>
+    <div class="hero-actions">
+      <a class="ghost-btn" href="{{ url_for('developer_dns_ssl') }}">🌐 {% if current_language == 'en' %}DNS & SSL{% else %}DNS & SSL{% endif %}</a>
+      <a class="ghost-btn" href="{{ url_for('developer_infrastructure') }}">🧩 {% if current_language == 'en' %}Infrastructure{% else %}Infrastructure{% endif %}</a>
+      <a class="ghost-btn" href="{{ url_for('developer_logs') }}">📜 {% if current_language == 'en' %}Logs{% else %}Логи{% endif %}</a>
+      <a class="ghost-btn" href="{{ url_for('developer_docker') }}">🐳 {% if current_language == 'en' %}Docker{% else %}Docker{% endif %}</a>
+      <a class="ghost-btn" href="{{ url_for('developer_deploy') }}">🚀 {% if current_language == 'en' %}Deploy{% else %}Розгортання{% endif %}</a>
+      <a class="ghost-btn" href="{{ url_for('developer_notifications') }}">🔔 {% if current_language == 'en' %}Alerts{% else %}Сповіщення{% endif %}</a>
+      <a class="ghost-btn" href="{{ url_for('developer_marketplace') }}">🛒 {% if current_language == 'en' %}Marketplace{% else %}Marketplace{% endif %}</a>
+      <a class="ghost-btn" href="{{ url_for('developer_backup_center') }}">💾 {% if current_language == 'en' %}Backup Center{% else %}Backup Center{% endif %}</a>
+      <a class="ghost-btn" href="{{ url_for('developer_users') }}">👥 {% if current_language == 'en' %}Users & sites{% else %}Користувачі &amp; сайти{% endif %}</a>
+      <form method="POST" action="{{ url_for('logout') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button class="danger-btn" type="submit">{% if current_language == 'en' %}Sign out{% else %}Вийти{% endif %}</button></form>
+    </div>
+  </header>
+
+  <section class="panel-card full-width">
+    <div class="lite-toolbar">
+      <p class="service-meta">{% if current_language == 'en' %}Platform controls are now in quick popups for cleaner navigation.{% else %}Керування платформою винесено у швидкі popup-вікна для чистішого інтерфейсу.{% endif %}</p>
+    </div>
+  </section>
+
+  <section class="metrics-grid">
+    <article class="card-widget" id="cpu-card">
+      <div class="widget-title">CPU</div>
+      <div class="widget-value" id="cpu-value">{{ metrics.cpu }}%</div>
+      <div class="widget-caption">{% if current_language == 'en' %}System load{% else %}Системне навантаження{% endif %}: <span id="load-value">{{ metrics.load }}</span></div>
+    </article>
+    <article class="card-widget" id="ram-card">
+      <div class="widget-title">RAM</div>
+      <div class="widget-value" id="ram-value">{{ metrics.ram_percent }}%</div>
+      <div class="widget-caption">{{ metrics.ram_used_mb }} / {{ metrics.ram_total_mb }} MB</div>
+    </article>
+    <article class="card-widget">
+      <div class="widget-title">{% if current_language == 'en' %}Disk{% else %}Диск{% endif %}</div>
+      <div class="widget-value" id="disk-value">{{ metrics.disk_percent }}%</div>
+      <div class="widget-caption">{{ metrics.disk_free_gb }} {% if current_language == 'en' %}GB free{% else %}GB вільно{% endif %}</div>
+    </article>
+    <article class="card-widget">
+      <div class="widget-title">{% if current_language == 'en' %}Status{% else %}Статус{% endif %}</div>
+      <div class="widget-value" id="timestamp-value">{{ metrics.timestamp }}</div>
+      <div class="widget-caption">{% if current_language == 'en' %}Auto-refresh 3s{% else %}Автооновлення 3 с{% endif %}</div>
+    </article>
+  </section>
+
+  <section class="metrics-grid">
+    <article class="card-widget">
+      <div class="widget-title">{% if current_language == 'en' %}Users{% else %}Користувачі{% endif %}</div>
+      <div class="widget-value">{{ overview.users_active }} / {{ overview.users_total }}</div>
+      <div class="widget-caption">{% if current_language == 'en' %}active / total{% else %}активні / усього{% endif %}</div>
+    </article>
+    <article class="card-widget">
+      <div class="widget-title">{% if current_language == 'en' %}Sites{% else %}Сайти{% endif %}</div>
+      <div class="widget-value">{{ overview.sites_active }} / {{ overview.sites_total }}</div>
+      <div class="widget-caption">{% if current_language == 'en' %}ready / total{% else %}онлайн-готові / усього{% endif %}</div>
+    </article>
+    <article class="card-widget">
+      <div class="widget-title">{% if current_language == 'en' %}Custom domains{% else %}Custom domains{% endif %}</div>
+      <div class="widget-value">{{ overview.custom_domains }}</div>
+      <div class="widget-caption">{% if current_language == 'en' %}bound domains{% else %}прив’язаних доменів{% endif %}</div>
+    </article>
+    <article class="card-widget">
+      <div class="widget-title">{% if current_language == 'en' %}Storage{% else %}Сховище{% endif %}</div>
+      <div class="widget-value">{{ overview.total_usage_gb }} GB</div>
+      <div class="widget-caption">{% if current_language == 'en' %}total usage{% else %}сумарне використання{% endif %}</div>
+    </article>
+      <article class="card-widget">
+        <div class="widget-title">{% if current_language == 'en' %}Jobs{% else %}Завдання{% endif %}</div>
+        <div class="widget-value">{{ overview.pending_jobs }}</div>
+        <div class="widget-caption">{% if current_language == 'en' %}pending / running{% else %}очікують / виконуються{% endif %}</div>
+      </article>
+      <article class="card-widget">
+        <div class="widget-title">{% if current_language == 'en' %}Agents{% else %}Агенти{% endif %}</div>
+        <div class="widget-value">{{ overview.active_agents }}</div>
+        <div class="widget-caption">{% if current_language == 'en' %}online nodes{% else %}онлайн-вузлів{% endif %}</div>
+      </article>
+  </section>
+
+
+  <div class="modal-backdrop" id="versions-modal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>🧾 {% if current_language == 'en' %}Release roadmap{% else %}Версії платформи{% endif %}</h3>
+        <button class="modal-close" type="button" data-close-modal>{% if current_language == 'en' %}Close{% else %}Закрити{% endif %}</button>
+      </div>
+      <div class="version-list">
+        <div class="version-item"><strong>v1.0</strong><div>{% if current_language == 'en' %}Auth, user/site management, multilingual shell.{% else %}Авторизація, керування користувачами/сайтами, двомовний інтерфейс.{% endif %}</div></div>
+        <div class="version-item"><strong>v1.1</strong><div>{% if current_language == 'en' %}Metrics, health checks, service controls, logs, Docker view.{% else %}Метрики, health-check, керування сервісами, логи, Docker-огляд.{% endif %}</div></div>
+        <div class="version-item"><strong>v1.2</strong><div>{% if current_language == 'en' %}ZIP/Git deploy, deployment history, webhook-triggered deploy.{% else %}ZIP/Git розгортання, історія деплоїв, запуск через webhook.{% endif %}</div></div>
+        <div class="version-item"><strong>v1.5</strong><div>{% if current_language == 'en' %}Webhook secret+branch filters, Cloudflare token/zone UI, terminal admin recovery.{% else %}Webhook secret+branch фільтри, форма Cloudflare токена/зони, відновлення адміна з консолі.{% endif %}</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="privacy-modal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>🛡️ {% if current_language == 'en' %}Privacy controls{% else %}Приватність метрик{% endif %}</h3>
+        <div class="toolbar-actions">
+          <span class="status-pill" id="privacy-status-pill">{% if current_language == 'en' %}public{% else %}публічно{% endif %}</span>
+          <button class="modal-close" type="button" data-close-modal>{% if current_language == 'en' %}Close{% else %}Закрити{% endif %}</button>
+        </div>
+      </div>
+      <div class="form-grid">
+        <label class="service-row" style="justify-content:flex-start; gap:10px;"><input type="checkbox" id="toggle-show-cpu" checked><span>{% if current_language == 'en' %}Show CPU block{% else %}Показувати блок CPU{% endif %}</span></label>
+        <label class="service-row" style="justify-content:flex-start; gap:10px;"><input type="checkbox" id="toggle-show-ram" checked><span>{% if current_language == 'en' %}Show RAM block{% else %}Показувати блок RAM{% endif %}</span></label>
+        <label class="service-row" style="justify-content:flex-start; gap:10px;"><input type="checkbox" id="toggle-private-metrics"><span>{% if current_language == 'en' %}Private mode (mask CPU/RAM){% else %}Приватний режим (маскувати CPU/RAM){% endif %}</span></label>
+        <button class="tiny-btn" id="toggle-reveal-metrics" type="button">{% if current_language == 'en' %}Show values{% else %}Показати значення{% endif %}</button>
+      </div>
+      <div style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px;">
+        <div class="service-meta" style="margin-bottom: 8px;">{% if current_language == 'en' %}Homepage controls (https://myh.guru/){% else %}Керування головною сторінкою (https://myh.guru/){% endif %}</div>
+        <div class="form-grid">
+          <label class="service-row" style="justify-content:flex-start; gap:10px;"><input type="checkbox" id="public-home-show-cpu" checked><span>{% if current_language == 'en' %}Show CPU on homepage{% else %}Показувати CPU на головній{% endif %}</span></label>
+          <label class="service-row" style="justify-content:flex-start; gap:10px;"><input type="checkbox" id="public-home-show-ram" checked><span>{% if current_language == 'en' %}Show RAM on homepage{% else %}Показувати RAM на головній{% endif %}</span></label>
+          <label class="service-row" style="justify-content:flex-start; gap:10px;"><input type="checkbox" id="public-home-private-mode"><span>{% if current_language == 'en' %}Private mode on homepage{% else %}Приватний режим на головній{% endif %}</span></label>
+          <button class="tiny-btn" id="save-public-home-prefs" type="button">{% if current_language == 'en' %}Save homepage settings{% else %}Зберегти налаштування головної{% endif %}</button>
+        </div>
+        <div class="service-meta" id="public-home-prefs-status" style="margin-top: 8px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <section class="panel-grid">
+    <article class="panel-card">
+      <div class="panel-head">
+        <h3>➕ {% if current_language == 'en' %}Create site{% else %}Додати сайт{% endif %}</h3>
+        <span class="status-pill online">Wildcard DNS</span>
+      </div>
+      <form method="POST" class="stack-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <input type="text" name="site_name" placeholder="{% if current_language == 'en' %}project-name{% else %}назва-проєкту{% endif %}" pattern="[a-z0-9-]+" required>
+        <select name="owner_id" required>{% for owner in users %}<option value="{{ owner.id }}">{{ owner.username }}</option>{% endfor %}</select>
+        <div class="service-meta">{% if current_language == 'en' %}Type: static site (HTML, CSS, JS){% else %}Тип: статичний сайт (HTML, CSS, JS){% endif %}</div>
+        <button type="submit">{% if current_language == 'en' %}Create site{% else %}Створити сайт{% endif %}</button>
+      </form>
+    </article>
+
+    <article class="panel-card">
+      <div class="panel-head">
+        <h3>🛠️ {% if current_language == 'en' %}Server services{% else %}Служби сервера{% endif %}</h3>
+        <span class="status-pill online">{% if current_language == 'en' %}Online{% else %}Онлайн{% endif %}</span>
+      </div>
+      <div class="service-list">
+        {% for item in services.values() %}
+        <div class="service-row">
+          <div>
+            <strong>{{ item.name }}</strong>
+            <div class="service-meta">{{ item.detail }}</div>
+          </div>
+          <span class="status-badge {{ 'success' if item.active else 'danger' }}">{% if item.active %}{% if current_language == 'en' %}Active{% else %}Активна{% endif %}{% else %}{% if current_language == 'en' %}Inactive{% else %}Неактивна{% endif %}{% endif %}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </article>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>⌨️ {% if current_language == 'en' %}System console{% else %}Системна консоль{% endif %}</h3>
+      <span class="status-pill online">{% if current_language == 'en' %}Safe mode{% else %}Безпечний режим{% endif %}</span>
+    </div>
+    <p class="service-meta console-note">{% if current_language == 'en' %}Diagnostic commands only, without shell, sudo, or arbitrary arguments.{% else %}Лише діагностичні команди без shell, sudo та довільних аргументів.{% endif %}</p>
+    <div class="console-form">
+      <select id="console-command">
+        <option value="uptime">{% if current_language == 'en' %}Uptime and load{% else %}Uptime і навантаження{% endif %}</option>
+        <option value="memory">{% if current_language == 'en' %}Memory{% else %}Оперативна пам’ять{% endif %}</option>
+        <option value="disk">{% if current_language == 'en' %}Disk usage{% else %}Використання диска{% endif %}</option>
+        <option value="processes">{% if current_language == 'en' %}Processes by RAM{% else %}Процеси за RAM{% endif %}</option>
+        <option value="services">{% if current_language == 'en' %}Active services{% else %}Активні служби{% endif %}</option>
+        <option value="failed_services">{% if current_language == 'en' %}Failed services{% else %}Failed-служби{% endif %}</option>
+        <option value="listeners">{% if current_language == 'en' %}Network listeners{% else %}Мережеві listeners{% endif %}</option>
+        <option value="docker_ps">{% if current_language == 'en' %}Docker containers{% else %}Docker контейнери{% endif %}</option>
+        <option value="docker_restarting">{% if current_language == 'en' %}Restarting Docker{% else %}Docker restarting{% endif %}</option>
+        <option value="firewall">{% if current_language == 'en' %}UFW rules{% else %}UFW правила{% endif %}</option>
+        <option value="panel_logs">{% if current_language == 'en' %}Panel logs{% else %}Логи панелі{% endif %}</option>
+        <option value="tunnel_logs">{% if current_language == 'en' %}Tunnel logs{% else %}Логи тунелю{% endif %}</option>
+      </select>
+      <button id="console-run" class="tiny-btn" type="button">{% if current_language == 'en' %}Run{% else %}Виконати{% endif %}</button>
+    </div>
+    <pre id="console-output" class="console-output">{% if current_language == 'en' %}Select a command to inspect server status.{% else %}Оберіть команду для перегляду стану сервера.{% endif %}</pre>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>📈 {% if current_language == 'en' %}Live performance{% else %}Живе навантаження{% endif %}</h3>
+      <span class="status-pill" id="perf-updated-at">{% if current_language == 'en' %}loading…{% else %}loading…{% endif %}</span>
+    </div>
+    <div class="metrics-grid">
+      <article class="card-widget" id="perf-cpu-card">
+        <div class="widget-title">CPU</div>
+        <div class="widget-value" id="perf-cpu">0%</div>
+        <div class="chart-track"><div class="chart-fill cpu" id="perf-cpu-bar"></div></div>
+        <div class="widget-caption">{% if current_language == 'en' %}system load{% else %}системне навантаження{% endif %}</div>
+      </article>
+      <article class="card-widget" id="perf-ram-card">
+        <div class="widget-title">RAM</div>
+        <div class="widget-value" id="perf-ram">0%</div>
+        <div class="chart-track"><div class="chart-fill ram" id="perf-ram-bar"></div></div>
+        <div class="widget-caption">{% if current_language == 'en' %}memory usage{% else %}використання пам’яті{% endif %}</div>
+      </article>
+      <article class="card-widget">
+        <div class="widget-title">Disk</div>
+        <div class="widget-value" id="perf-disk">0%</div>
+        <div class="chart-track"><div class="chart-fill disk" id="perf-disk-bar"></div></div>
+        <div class="widget-caption">{% if current_language == 'en' %}storage usage{% else %}використання сховища{% endif %}</div>
+      </article>
+      <article class="card-widget">
+        <div class="widget-title">Alerts</div>
+        <div class="widget-value" id="perf-alerts-count">0</div>
+        <div class="widget-caption">{% if current_language == 'en' %}active issues{% else %}активних проблем{% endif %}</div>
+      </article>
+    </div>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>🧭 {% if current_language == 'en' %}Operations Center{% else %}Центр операцій{% endif %}</h3>
+      <span class="status-pill" id="ops-updated-at">{% if current_language == 'en' %}loading…{% else %}loading…{% endif %}</span>
+    </div>
+    <div id="ops-alerts" style="margin-bottom: 12px;"></div>
+    <div class="metrics-grid">
+      <article class="card-widget"><div class="widget-title">{% if current_language == 'en' %}Services{% else %}Сервіси{% endif %}</div><div class="widget-value" id="ops-services">0/0</div><div class="widget-caption">{% if current_language == 'en' %}active / total{% else %}active / total{% endif %}</div></article>
+      <article class="card-widget"><div class="widget-title">{% if current_language == 'en' %}Failed units{% else %}Failed units{% endif %}</div><div class="widget-value" id="ops-failed">0</div><div class="widget-caption">{% if current_language == 'en' %}systemd failed{% else %}systemd failed{% endif %}</div></article>
+      <article class="card-widget"><div class="widget-title">{% if current_language == 'en' %}Restarting containers{% else %}Restarting containers{% endif %}</div><div class="widget-value" id="ops-restarting">0</div><div class="widget-caption">{% if current_language == 'en' %}docker restart loops{% else %}docker restart loops{% endif %}</div></article>
+      <article class="card-widget"><div class="widget-title">{% if current_language == 'en' %}Actions{% else %}Дії{% endif %}</div><div class="widget-value" id="ops-actions">{% if current_language == 'en' %}manual{% else %}manual{% endif %}</div><div class="widget-caption">{% if current_language == 'en' %}managed restart{% else %}керований restart{% endif %}</div></article>
+    </div>
+    <div class="table-wrap" style="margin-top: 12px;">
+      <table class="data-table">
+        <thead><tr><th>{% if current_language == 'en' %}Service{% else %}Сервіс{% endif %}</th><th>{% if current_language == 'en' %}Status{% else %}Статус{% endif %}</th><th>{% if current_language == 'en' %}Detail{% else %}Detail{% endif %}</th><th>{% if current_language == 'en' %}Action{% else %}Дія{% endif %}</th></tr></thead>
+        <tbody id="ops-services-body"><tr><td colspan="4" class="empty-state">{% if current_language == 'en' %}Loading...{% else %}Завантаження...{% endif %}</td></tr></tbody>
+      </table>
+    </div>
+    <div class="panel-grid" style="margin-top: 12px; grid-template-columns: 1fr 1fr;">
+      <article class="panel-card">
+        <div class="panel-head"><h3>{% if current_language == 'en' %}Failed systemd units{% else %}Failed systemd units{% endif %}</h3></div>
+        <div id="ops-failed-list" class="service-list"><p class="empty-state">{% if current_language == 'en' %}No data.{% else %}Немає даних.{% endif %}</p></div>
+      </article>
+      <article class="panel-card">
+        <div class="panel-head"><h3>{% if current_language == 'en' %}Restarting containers{% else %}Restarting containers{% endif %}</h3></div>
+        <div id="ops-restarting-list" class="service-list"><p class="empty-state">{% if current_language == 'en' %}No data.{% else %}Немає даних.{% endif %}</p></div>
+      </article>
+    </div>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>⏳ {% if current_language == 'en' %}Job Queue{% else %}Job Queue{% endif %}</h3>
+      <span class="status-pill" id="jobs-summary">{% if current_language == 'en' %}loading…{% else %}loading…{% endif %}</span>
+    </div>
+    <div class="metrics-grid">
+      <article class="card-widget"><div class="widget-title">{% if current_language == 'en' %}Pending{% else %}Pending{% endif %}</div><div class="widget-value" id="jobs-pending">0</div><div class="widget-caption">{% if current_language == 'en' %}queued{% else %}queued{% endif %}</div></article>
+      <article class="card-widget"><div class="widget-title">{% if current_language == 'en' %}Running{% else %}Running{% endif %}</div><div class="widget-value" id="jobs-running">0</div><div class="widget-caption">{% if current_language == 'en' %}in progress{% else %}in progress{% endif %}</div></article>
+      <article class="card-widget"><div class="widget-title">{% if current_language == 'en' %}Succeeded{% else %}Succeeded{% endif %}</div><div class="widget-value" id="jobs-succeeded">0</div><div class="widget-caption">{% if current_language == 'en' %}ok{% else %}ok{% endif %}</div></article>
+      <article class="card-widget"><div class="widget-title">{% if current_language == 'en' %}Failed{% else %}Failed{% endif %}</div><div class="widget-value" id="jobs-failed">0</div><div class="widget-caption">{% if current_language == 'en' %}needs attention{% else %}needs attention{% endif %}</div></article>
+    </div>
+    <div class="table-wrap" style="margin-top: 12px;">
+      <table class="data-table">
+        <thead><tr><th>ID</th><th>{% if current_language == 'en' %}Type{% else %}Тип{% endif %}</th><th>{% if current_language == 'en' %}Target{% else %}Ціль{% endif %}</th><th>{% if current_language == 'en' %}Status{% else %}Статус{% endif %}</th><th>{% if current_language == 'en' %}Progress{% else %}Прогрес{% endif %}</th><th>{% if current_language == 'en' %}Message{% else %}Повідомлення{% endif %}</th></tr></thead>
+        <tbody id="jobs-body"><tr><td colspan="6" class="empty-state">{% if current_language == 'en' %}Loading...{% else %}Завантаження...{% endif %}</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>🌐 {% if current_language == 'en' %}All sites{% else %}Усі сайти{% endif %}</h3>
+      <span class="status-pill online">{{ sites|length }} {% if current_language == 'en' %}records{% else %}записів{% endif %}</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr><th>{% if current_language == 'en' %}Site{% else %}Сайт{% endif %}</th><th>{% if current_language == 'en' %}Owner{% else %}Власник{% endif %}</th><th>{% if current_language == 'en' %}Type{% else %}Тип{% endif %}</th><th>{% if current_language == 'en' %}Status{% else %}Статус{% endif %}</th><th>{% if current_language == 'en' %}Actions{% else %}Дії{% endif %}</th></tr>
+        </thead>
+        <tbody>
+          {% for site in sites %}
+          <tr>
+            <td>{{ site.name }}</td>
+            <td>{{ site.owner.username if site.owner else '—' }}</td>
+            <td>{% if current_language == 'en' %}Static{% else %}Статичний{% endif %}</td>
+            <td>{% if site.is_banned %}<span class="status-badge danger">{% if current_language == 'en' %}Blocked{% else %}Заблоковано{% endif %}</span>{% else %}<span class="status-badge success" data-site-status="{{ site.id }}">{% if current_language == 'en' %}Checking…{% else %}Перевірка…{% endif %}</span>{% endif %}</td>
+            <td>
+              <div class="site-actions">
+                <a class="link-btn" href="/site/{{ site.folder_name }}">{% if current_language == 'en' %}Manage{% else %}Керувати{% endif %}</a>
+                <a class="link-btn" href="https://{{ site.name }}.myh.guru/" target="_blank" rel="noopener">{% if current_language == 'en' %}Open{% else %}Відкрити{% endif %}</a>
+                <button class="tiny-btn" type="button" data-queue-backup="{{ site.id }}" data-queue-name="{{ site.name }}">{% if current_language == 'en' %}Queue backup{% else %}Queue backup{% endif %}</button>
+                <form action="{{ url_for('developer_site_backup', site_id=site.id) }}" method="POST">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                  <button class="tiny-btn" type="submit">{% if current_language == 'en' %}Backup{% else %}Backup{% endif %}</button>
+                </form>
+                <form action="/delete-site/{{ site.id }}" method="POST" onsubmit="return confirm('{% if current_language == 'en' %}Delete this site?{% else %}Видалити сайт?{% endif %}');">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                  <button class="danger-link" type="submit">{% if current_language == 'en' %}Delete{% else %}Видалити{% endif %}</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="empty-state">{% if current_language == 'en' %}No sites yet.{% else %}Немає сайтів.{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}Recent activity{% else %}Останні дії{% endif %}</h3><a class="ghost-btn" href="{{ url_for('developer_users') }}#audit">{% if current_language == 'en' %}Full log{% else %}Увесь журнал{% endif %}</a></div>
+    <div class="audit-list">
+      {% for entry in recent_logs %}<div class="audit-row"><strong>{{ entry.username }}</strong><span>{{ entry.action }}</span><span>{{ entry.detail }}</span><time>{{ entry.created_at.strftime('%d.%m %H:%M') }}</time></div>{% else %}<p class="empty-state">{% if current_language == 'en' %}The log is empty.{% else %}Журнал порожній.{% endif %}</p>{% endfor %}
+    </div>
+  </section>
+</div>
+
+<script nonce="{{ csp_nonce }}">
+  const isEnglish = '{{ current_language }}' === 'en';
+
+  function closeAllModals() {
+    document.querySelectorAll('.modal-backdrop.open').forEach((modal) => {
+      modal.classList.remove('open');
+      modal.setAttribute('aria-hidden', 'true');
+    });
+  }
+
+  function bindModals() {
+    document.querySelectorAll('[data-open-modal]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const modal = document.getElementById(button.dataset.openModal);
+        if (!modal) return;
+        closeAllModals();
+        modal.classList.add('open');
+        modal.setAttribute('aria-hidden', 'false');
+      });
+    });
+    document.querySelectorAll('[data-close-modal]').forEach((button) => {
+      button.addEventListener('click', closeAllModals);
+    });
+    document.querySelectorAll('.modal-backdrop').forEach((backdrop) => {
+      backdrop.addEventListener('click', (event) => {
+        if (event.target === backdrop) {
+          closeAllModals();
+        }
+      });
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        closeAllModals();
+      }
+    });
+  }
+  const METRIC_PREFS_KEY = 'myh.dashboard.metricPrefs.v1';
+  const metricPrefs = {
+    showCpu: true,
+    showRam: true,
+    privateMode: false,
+    revealValues: false,
+  };
+  const publicHomePrefs = {
+    show_cpu: true,
+    show_ram: true,
+    private_mode: false,
+  };
+  let latestMainMetrics = {
+    cpu: {{ metrics.cpu }},
+    load: '{{ metrics.load }}',
+    ram: {{ metrics.ram_percent }},
+    disk: {{ metrics.disk_percent }},
+    timestamp: '{{ metrics.timestamp }}',
+  };
+  let latestPerfMetrics = { cpu: 0, ram: 0, disk: 0 };
+
+  function saveMetricPrefs() {
+    localStorage.setItem(METRIC_PREFS_KEY, JSON.stringify(metricPrefs));
+  }
+
+  function loadMetricPrefs() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(METRIC_PREFS_KEY) || '{}');
+      metricPrefs.showCpu = parsed.showCpu !== false;
+      metricPrefs.showRam = parsed.showRam !== false;
+      metricPrefs.privateMode = parsed.privateMode === true;
+      metricPrefs.revealValues = parsed.revealValues === true;
+    } catch (_) {}
+  }
+
+  function displayMetricValue(value, suffix = '%') {
+    if (metricPrefs.privateMode && !metricPrefs.revealValues) {
+      return '•••';
+    }
+    return `${value}${suffix}`;
+  }
+
+  function applyMetricPrefsUi() {
+    const cpuCards = [document.getElementById('cpu-card'), document.getElementById('perf-cpu-card')];
+    const ramCards = [document.getElementById('ram-card'), document.getElementById('perf-ram-card')];
+    cpuCards.forEach((card) => { if (card) card.style.display = metricPrefs.showCpu ? '' : 'none'; });
+    ramCards.forEach((card) => { if (card) card.style.display = metricPrefs.showRam ? '' : 'none'; });
+
+    const statusPill = document.getElementById('privacy-status-pill');
+    if (statusPill) {
+      statusPill.textContent = metricPrefs.privateMode ? (isEnglish ? 'private' : 'приватно') : (isEnglish ? 'public' : 'публічно');
+    }
+
+    const revealBtn = document.getElementById('toggle-reveal-metrics');
+    if (revealBtn) {
+      revealBtn.textContent = metricPrefs.privateMode && !metricPrefs.revealValues
+        ? (isEnglish ? 'Show values' : 'Показати значення')
+        : (isEnglish ? 'Hide values' : 'Приховати значення');
+      revealBtn.disabled = !metricPrefs.privateMode;
+    }
+
+    const cpuToggle = document.getElementById('toggle-show-cpu');
+    const ramToggle = document.getElementById('toggle-show-ram');
+    const privateToggle = document.getElementById('toggle-private-metrics');
+    if (cpuToggle) cpuToggle.checked = metricPrefs.showCpu;
+    if (ramToggle) ramToggle.checked = metricPrefs.showRam;
+    if (privateToggle) privateToggle.checked = metricPrefs.privateMode;
+  }
+
+  function renderMetricValues() {
+    document.getElementById('cpu-value').textContent = displayMetricValue(latestMainMetrics.cpu);
+    document.getElementById('load-value').textContent = metricPrefs.privateMode && !metricPrefs.revealValues ? '•••' : latestMainMetrics.load;
+    document.getElementById('ram-value').textContent = displayMetricValue(latestMainMetrics.ram);
+    document.getElementById('disk-value').textContent = `${latestMainMetrics.disk}%`;
+    document.getElementById('timestamp-value').textContent = latestMainMetrics.timestamp;
+
+    document.getElementById('perf-cpu').textContent = displayMetricValue(latestPerfMetrics.cpu);
+    document.getElementById('perf-ram').textContent = displayMetricValue(latestPerfMetrics.ram);
+    document.getElementById('perf-disk').textContent = `${latestPerfMetrics.disk}%`;
+    document.getElementById('perf-cpu-bar').style.width = metricPrefs.privateMode && !metricPrefs.revealValues ? '0%' : `${Math.min(latestPerfMetrics.cpu, 100)}%`;
+    document.getElementById('perf-ram-bar').style.width = metricPrefs.privateMode && !metricPrefs.revealValues ? '0%' : `${Math.min(latestPerfMetrics.ram, 100)}%`;
+    document.getElementById('perf-disk-bar').style.width = `${Math.min(latestPerfMetrics.disk, 100)}%`;
+  }
+
+  function bindMetricPrivacyControls() {
+    const cpuToggle = document.getElementById('toggle-show-cpu');
+    const ramToggle = document.getElementById('toggle-show-ram');
+    const privateToggle = document.getElementById('toggle-private-metrics');
+    const revealBtn = document.getElementById('toggle-reveal-metrics');
+
+    if (cpuToggle) {
+      cpuToggle.addEventListener('change', () => {
+        metricPrefs.showCpu = cpuToggle.checked;
+        saveMetricPrefs();
+        applyMetricPrefsUi();
+      });
+    }
+    if (ramToggle) {
+      ramToggle.addEventListener('change', () => {
+        metricPrefs.showRam = ramToggle.checked;
+        saveMetricPrefs();
+        applyMetricPrefsUi();
+      });
+    }
+    if (privateToggle) {
+      privateToggle.addEventListener('change', () => {
+        metricPrefs.privateMode = privateToggle.checked;
+        metricPrefs.revealValues = false;
+        saveMetricPrefs();
+        applyMetricPrefsUi();
+        renderMetricValues();
+      });
+    }
+    if (revealBtn) {
+      revealBtn.addEventListener('click', () => {
+        if (!metricPrefs.privateMode) return;
+        metricPrefs.revealValues = !metricPrefs.revealValues;
+        saveMetricPrefs();
+        applyMetricPrefsUi();
+        renderMetricValues();
+      });
+    }
+  }
+
+  function applyPublicHomePrefsUi() {
+    const cpuToggle = document.getElementById('public-home-show-cpu');
+    const ramToggle = document.getElementById('public-home-show-ram');
+    const privateToggle = document.getElementById('public-home-private-mode');
+    if (cpuToggle) cpuToggle.checked = publicHomePrefs.show_cpu;
+    if (ramToggle) ramToggle.checked = publicHomePrefs.show_ram;
+    if (privateToggle) privateToggle.checked = publicHomePrefs.private_mode;
+  }
+
+  function setPublicHomePrefsStatus(message, isError = false) {
+    const status = document.getElementById('public-home-prefs-status');
+    if (!status) return;
+    status.textContent = message;
+    status.style.color = isError ? 'var(--danger)' : 'var(--muted)';
+  }
+
+  async function loadPublicHomePrefs() {
+    try {
+      const response = await fetch('/api/public-status');
+      if (!response.ok) throw new Error('failed to load public status');
+      const data = await response.json();
+      const prefs = data.prefs || {};
+      publicHomePrefs.show_cpu = prefs.show_cpu !== false;
+      publicHomePrefs.show_ram = prefs.show_ram !== false;
+      publicHomePrefs.private_mode = prefs.private_mode === true;
+      applyPublicHomePrefsUi();
+      setPublicHomePrefsStatus(isEnglish ? 'Loaded current homepage settings.' : 'Поточні налаштування головної завантажено.');
+    } catch (_) {
+      setPublicHomePrefsStatus(isEnglish ? 'Could not load homepage settings.' : 'Не вдалося завантажити налаштування головної.', true);
+    }
+  }
+
+  function bindPublicHomePrefsControls() {
+    const saveButton = document.getElementById('save-public-home-prefs');
+    if (!saveButton) return;
+    saveButton.addEventListener('click', async () => {
+      const cpuToggle = document.getElementById('public-home-show-cpu');
+      const ramToggle = document.getElementById('public-home-show-ram');
+      const privateToggle = document.getElementById('public-home-private-mode');
+      const payload = {
+        show_cpu: !!(cpuToggle && cpuToggle.checked),
+        show_ram: !!(ramToggle && ramToggle.checked),
+        private_mode: !!(privateToggle && privateToggle.checked),
+      };
+      saveButton.disabled = true;
+      setPublicHomePrefsStatus(isEnglish ? 'Saving…' : 'Збереження…');
+      try {
+        const response = await fetch('/api/public-status/preferences', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': '{{ csrf_token }}'
+          },
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'save failed');
+        }
+        publicHomePrefs.show_cpu = data.prefs.show_cpu;
+        publicHomePrefs.show_ram = data.prefs.show_ram;
+        publicHomePrefs.private_mode = data.prefs.private_mode;
+        applyPublicHomePrefsUi();
+        setPublicHomePrefsStatus(isEnglish ? 'Homepage settings saved.' : 'Налаштування головної збережено.');
+      } catch (_) {
+        setPublicHomePrefsStatus(isEnglish ? 'Could not save homepage settings.' : 'Не вдалося зберегти налаштування головної.', true);
+      } finally {
+        saveButton.disabled = false;
+      }
+    });
+  }
+
+  function refreshMetrics() {
+    fetch('/api/metrics').then(r => r.json()).then(data => {
+      latestMainMetrics = {
+        cpu: data.cpu,
+        load: data.load,
+        ram: data.ram_percent,
+        disk: data.disk_percent,
+        timestamp: data.timestamp,
+      };
+      renderMetricValues();
+    }).catch(() => {});
+  }
+
+  setInterval(refreshMetrics, 3000);
+
+  document.querySelectorAll('[data-site-status]').forEach(async element => {
+    try {
+      const response = await fetch(`/api/sites/${element.dataset.siteStatus}/status`);
+      const data = await response.json();
+      element.textContent = data.online ? (isEnglish ? `Online · ${data.latency_ms} ms` : `Онлайн · ${data.latency_ms} ms`) : (isEnglish ? 'Unavailable' : 'Недоступний');
+      element.classList.toggle('danger', !data.online);
+    } catch (_) { element.textContent = isEnglish ? 'Unknown' : 'Невідомо'; }
+  });
+
+  const consoleButton = document.getElementById('console-run');
+  if (consoleButton) {
+    consoleButton.addEventListener('click', async () => {
+      const button = consoleButton;
+      const output = document.getElementById('console-output');
+      button.disabled = true;
+      output.textContent = isEnglish ? 'Running…' : 'Виконання…';
+      try {
+        const payload = { command: document.getElementById('console-command').value };
+        const response = await fetch('/api/console', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const result = await response.json();
+        output.textContent = result.output || (isEnglish ? 'No data.' : 'Немає даних.');
+      } catch (error) {
+        output.textContent = isEnglish ? 'Command failed.' : 'Команду не виконано.';
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+
+  function renderSimpleList(targetId, items) {
+    const target = document.getElementById(targetId);
+    if (!items.length) {
+      target.innerHTML = `<p class="empty-state">${isEnglish ? 'No data.' : 'Немає даних.'}</p>`;
+      return;
+    }
+    target.innerHTML = items.map(item => `<div class="service-row"><strong>${item}</strong></div>`).join('');
+  }
+
+  function renderJobs(summary, jobs) {
+    document.getElementById('jobs-summary').textContent = isEnglish ? `pending ${summary.pending} · running ${summary.running} · failed ${summary.failed}` : `очікує ${summary.pending} · виконується ${summary.running} · не вдалося ${summary.failed}`;
+    document.getElementById('jobs-pending').textContent = summary.pending;
+    document.getElementById('jobs-running').textContent = summary.running;
+    document.getElementById('jobs-succeeded').textContent = summary.succeeded;
+    document.getElementById('jobs-failed').textContent = summary.failed;
+    const body = document.getElementById('jobs-body');
+    if (!jobs.length) {
+      body.innerHTML = `<tr><td colspan="6" class="empty-state">${isEnglish ? 'The queue is empty.' : 'Черга порожня.'}</td></tr>`;
+      return;
+    }
+    body.innerHTML = jobs.map(job => `
+      <tr>
+        <td>#${job.id}</td>
+        <td>${job.type}</td>
+        <td>${job.target || '—'}</td>
+        <td><span class="status-badge ${job.status === 'failed' ? 'danger' : 'success'}">${job.status}</span></td>
+        <td>
+          <div class="progress-track"><div class="progress-fill" style="width:${job.progress}%"></div></div>
+          <div class="service-meta">${job.progress}%</div>
+        </td>
+        <td>
+          ${job.message}
+          ${job.status === 'pending' ? `<div style="margin-top:6px"><button class="tiny-btn" data-cancel-job="${job.id}">Cancel</button></div>` : ''}
+        </td>
+      </tr>
+    `).join('');
+
+    document.querySelectorAll('[data-cancel-job]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+          const response = await fetch(`/api/jobs/${button.dataset.cancelJob}/cancel`, {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': '{{ csrf_token }}' }
+          });
+          const data = await response.json();
+          alert(data.success ? `Job #${data.job_id} cancelled` : (data.error || (isEnglish ? 'Could not cancel the job.' : 'Не вдалося скасувати job')));
+        } catch (_) {
+          alert(isEnglish ? 'Error while cancelling the job.' : 'Помилка під час скасування job');
+        } finally {
+          button.disabled = false;
+          refreshJobs();
+        }
+      });
+    });
+  }
+
+  function renderServiceRows(services) {
+    const body = document.getElementById('ops-services-body');
+    if (!services.length) {
+      body.innerHTML = `<tr><td colspan="4" class="empty-state">${isEnglish ? 'No services found.' : 'Сервіси не знайдено.'}</td></tr>`;
+      return;
+    }
+    body.innerHTML = services.map(item => `
+      <tr>
+        <td>${item.service}</td>
+        <td><span class="status-badge ${item.active ? 'success' : 'danger'}">${item.active ? (isEnglish ? 'active' : 'активний') : (isEnglish ? 'inactive' : 'неактивний')}</span></td>
+        <td>${item.detail || '—'}</td>
+        <td><div class="action-btns"><button class="tiny-btn" data-service-action="start" data-service-id="${item.id}">${isEnglish ? 'Start' : 'Старт'}</button><button class="tiny-btn" data-service-action="stop" data-service-id="${item.id}">${isEnglish ? 'Stop' : 'Стоп'}</button><button class="tiny-btn" data-service-action="restart" data-service-id="${item.id}">${isEnglish ? 'Restart' : 'Рестарт'}</button></div></td>
+      </tr>
+    `).join('');
+
+    document.querySelectorAll('[data-service-action]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        const serviceId = button.dataset.serviceId;
+        const action = button.dataset.serviceAction;
+        try {
+          const response = await fetch(`/api/platform/service/${serviceId}/${action}`, {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': '{{ csrf_token }}' }
+          });
+          const data = await response.json();
+          alert(data.success ? (isEnglish ? `Service ${data.service} ${action}ed` : `Сервіс ${data.service} ${action === 'restart' ? 'перезапущено' : action === 'start' ? 'запущено' : 'зупинено'}`) : (data.error || (isEnglish ? 'Could not change the service state.' : 'Не вдалося змінити стан сервісу')));
+        } catch (_) {
+          alert(isEnglish ? 'Error while changing the service state.' : 'Помилка під час зміни стану сервісу');
+        } finally {
+          button.disabled = false;
+          refreshPlatformOverview();
+        }
+      });
+    });
+  }
+
+  function renderAlerts(alerts) {
+    const container = document.getElementById('ops-alerts');
+    if (!container) return;
+    if (!alerts.length) {
+      container.innerHTML = `<div class="alert-card">${isEnglish ? 'No active alerts.' : 'Немає активних алертів.'}</div>`;
+      return;
+    }
+    container.innerHTML = alerts.map(item => `<div class="alert-card ${item.level}"><strong>${item.title}</strong><div class="service-meta">${item.detail}</div></div>`).join('');
+  }
+
+  async function refreshPlatformOverview() {
+    try {
+      const response = await fetch('/api/platform/overview');
+      const data = await response.json();
+      document.getElementById('ops-updated-at').textContent = data.generated_at;
+      document.getElementById('perf-updated-at').textContent = data.generated_at;
+      document.getElementById('ops-services').textContent = `${data.summary.services_active}/${data.summary.services_total}`;
+      document.getElementById('ops-failed').textContent = data.summary.failed_services;
+      document.getElementById('ops-restarting').textContent = data.summary.restarting_containers;
+      document.getElementById('perf-alerts-count').textContent = (data.alerts || []).length;
+      latestPerfMetrics = {
+        cpu: data.metrics?.cpu ?? 0,
+        ram: data.metrics?.ram_percent ?? 0,
+        disk: data.metrics?.disk_percent ?? 0,
+      };
+      renderMetricValues();
+      renderServiceRows(data.services || []);
+      renderAlerts(data.alerts || []);
+      renderSimpleList('ops-failed-list', data.failed_services || []);
+      renderSimpleList('ops-restarting-list', data.restarting_containers || []);
+    } catch (_) {
+      document.getElementById('ops-updated-at').textContent = 'error';
+    }
+  }
+
+  async function refreshJobs() {
+    try {
+      const response = await fetch('/api/jobs?limit=25');
+      const data = await response.json();
+      renderJobs(data.summary || { pending: 0, running: 0, succeeded: 0, failed: 0 }, data.jobs || []);
+    } catch (_) {
+      document.getElementById('jobs-summary').textContent = 'error';
+    }
+  }
+
+  async function queueBackup(siteId, siteName) {
+    try {
+      const response = await fetch('/api/jobs/enqueue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '{{ csrf_token }}' },
+        body: JSON.stringify({
+          job_type: 'site.backup',
+          target: siteName,
+          payload: { site_id: Number(siteId) }
+        })
+      });
+      const data = await response.json();
+      alert(data.success ? (isEnglish ? `Backup queued as job #${data.job_id}` : `Резервну копію поставлено в чергу як job #${data.job_id}`) : (data.error || (isEnglish ? 'Could not add the job.' : 'Не вдалося додати job')));
+      refreshJobs();
+    } catch (_) {
+      alert(isEnglish ? 'Error while queueing backup.' : 'Помилка черги backup');
+    }
+  }
+
+  document.querySelectorAll('[data-queue-backup]').forEach((button) => {
+    button.addEventListener('click', () => queueBackup(button.dataset.queueBackup, button.dataset.queueName));
+  });
+
+  loadMetricPrefs();
+  bindModals();
+  applyMetricPrefsUi();
+  bindMetricPrivacyControls();
+  bindPublicHomePrefsControls();
+  renderMetricValues();
+  loadPublicHomePrefs();
+
+  refreshPlatformOverview();
+  refreshJobs();
+  setInterval(refreshPlatformOverview, 15000);
+  setInterval(refreshJobs, 10000);
+</script>
+{% endblock %}

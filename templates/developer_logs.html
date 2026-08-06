@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card">
+    <div>
+      <p class="eyebrow">{% if current_language == 'en' %}Server log center{% else %}Центр логів сервера{% endif %}</p>
+      <h2>{% if current_language == 'en' %}Live logs{% else %}Живі логи{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}Inspect recent panel, tunnel, and system activity without leaving the control plane.{% else %}Переглядайте останню активність панелі, тунелю й системи без виходу з control plane.{% endif %}</p>
+    </div>
+    <div class="hero-actions">
+      <a class="ghost-btn" href="{{ url_for('developer_dashboard') }}">← {% if current_language == 'en' %}Back to panel{% else %}До панелі{% endif %}</a>
+    </div>
+  </header>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}Log source{% else %}Джерело логів{% endif %}</h3>
+      <div class="hero-actions" style="margin:0;">
+        <form method="GET" class="hero-actions" style="margin:0;">
+          <select name="source">
+            {% for key, config in log_sources.items() %}
+            <option value="{{ key }}" {% if source == key %}selected{% endif %}>{{ config.label }}</option>
+            {% endfor %}
+          </select>
+          <input type="number" name="lines" value="{{ lines }}" min="50" max="500" style="max-width: 120px;">
+          <button type="submit" class="tiny-btn">{% if current_language == 'en' %}Refresh{% else %}Оновити{% endif %}</button>
+        </form>
+      </div>
+    </div>
+    <pre class="console-output" style="min-height: 460px;">{% if log_lines %}{% for line in log_lines %}{{ line }}\n{% endfor %}{% else %}{% if current_language == 'en' %}No log data.{% else %}Немає даних логів.{% endif %}{% endif %}</pre>
+  </section>
+</div>
+{% endblock %}

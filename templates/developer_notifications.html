@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="stack">
+  <div class="card">
+    <div class="card-header">
+      <h2>{% if current_language == 'en' %}Notifications & Webhooks{% else %}Сповіщення та вебхуки{% endif %}</h2>
+      <p>{% if current_language == 'en' %}Send alerts to Telegram or email and trigger notifications from external systems.{% else %}Надсилайте сповіщення в Telegram або email і запускайте повідомлення з зовнішніх систем.{% endif %}</p>
+    </div>
+    <form method="post" class="stack">
+      <label>{% if current_language == 'en' %}Message{% else %}Повідомлення{% endif %}
+        <textarea name="message" rows="4" placeholder="{% if current_language == 'en' %}Deployment finished successfully{% else %}Розгортання успішно завершено{% endif %}"></textarea>
+      </label>
+      <button class="btn" type="submit">{% if current_language == 'en' %}Send alert{% else %}Надіслати сповіщення{% endif %}</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h3>{% if current_language == 'en' %}Webhook endpoint{% else %}Webhook endpoint{% endif %}</h3>
+      <p>{% if current_language == 'en' %}Send a POST request with a JSON payload to trigger the same notification.{% else %}Надішліть POST-запит із JSON-пayload, щоб відправити те саме сповіщення.{% endif %}</p>
+    </div>
+    <code>POST /api/webhook/notify<br>{"message":"Deployment completed"}</code>
+  </div>
+</div>
+{% endblock %}

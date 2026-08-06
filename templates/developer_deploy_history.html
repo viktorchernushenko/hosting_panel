@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="stack">
+  <div class="card">
+    <div class="card-header">
+      <h2>{% if current_language == 'en' %}Deployment history{% else %}Історія розгортань{% endif %}</h2>
+      <p>{% if current_language == 'en' %}Recent deployment events and webhook activity.{% else %}Останні події розгортань і активність webhook.{% endif %}</p>
+    </div>
+    {% if events %}
+    <div class="table-card">
+      <table>
+        <thead>
+          <tr>
+            <th>{% if current_language == 'en' %}Site{% else %}Сайт{% endif %}</th>
+            <th>{% if current_language == 'en' %}Mode{% else %}Режим{% endif %}</th>
+            <th>{% if current_language == 'en' %}Status{% else %}Статус{% endif %}</th>
+            <th>{% if current_language == 'en' %}Detail{% else %}Деталі{% endif %}</th>
+            <th>{% if current_language == 'en' %}Time{% else %}Час{% endif %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for event in events %}
+          <tr>
+            <td>{{ event.site_name }}</td>
+            <td>{{ event.deploy_mode }}</td>
+            <td>{{ event.status }}</td>
+            <td>{{ event.detail }}</td>
+            <td>{{ event.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p>{% if current_language == 'en' %}No deployment events yet.{% else %}Ще немає подій розгортання.{% endif %}</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="auth-shell">
+  <h2>404</h2>
+  <p class="subtitle">{% if current_language == 'en' %}The page you requested could not be found. It may have been removed or the link is outdated.{% else %}Сторінку, яку ви запросили, не знайдено. Можливо, вона була видалена або посилання застаріло.{% endif %}</p>
+  <div class="auth-actions">
+    <a class="ghost-btn" href="/">{% if current_language == 'en' %}Back home{% else %}На головну{% endif %}</a>
+    <a class="tiny-btn" href="/login">{% if current_language == 'en' %}Open panel{% else %}У панель{% endif %}</a>
+  </div>
+</div>
+{% endblock %}

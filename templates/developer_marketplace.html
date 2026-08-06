@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card">
+    <div>
+      <p class="eyebrow">{% if current_language == 'en' %}Module registry{% else %}Module registry{% endif %}</p>
+      <h2>{% if current_language == 'en' %}Marketplace{% else %}Marketplace{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}A managed catalog of built-in and custom panel modules.{% else %}Керований каталог вбудованих і кастомних модулів панелі.{% endif %}</p>
+    </div>
+    <div class="hero-actions">
+      <a class="ghost-btn" href="{{ url_for('developer_dashboard') }}">{% if current_language == 'en' %}← Back to panel{% else %}← До панелі{% endif %}</a>
+      <a class="link-btn" href="{{ url_for('developer_infrastructure') }}">{% if current_language == 'en' %}Infrastructure{% else %}Infrastructure{% endif %}</a>
+    </div>
+  </header>
+
+  <section class="metrics-grid">
+    <article class="card-widget"><div class="widget-title">{% if current_language == 'en' %}Total{% else %}Всього{% endif %}</div><div class="widget-value">{{ summary.total }}</div><div class="widget-caption">{% if current_language == 'en' %}modules in the registry{% else %}модулів у registry{% endif %}</div></article>
+    <article class="card-widget"><div class="widget-title">{% if current_language == 'en' %}Enabled{% else %}Увімкнено{% endif %}</div><div class="widget-value">{{ summary.enabled }}</div><div class="widget-caption">{% if current_language == 'en' %}active modules{% else %}активних модулів{% endif %}</div></article>
+    <article class="card-widget"><div class="widget-title">{% if current_language == 'en' %}Built-in{% else %}Вбудовані{% endif %}</div><div class="widget-value">{{ summary.built_in }}</div><div class="widget-caption">{% if current_language == 'en' %}built-in modules{% else %}вбудованих модулів{% endif %}</div></article>
+    <article class="card-widget"><div class="widget-title">{% if current_language == 'en' %}Custom{% else %}Кастомні{% endif %}</div><div class="widget-value">{{ summary.total - summary.built_in }}</div><div class="widget-caption">{% if current_language == 'en' %}manually added{% else %}доданих вручну{% endif %}</div></article>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}Add module{% else %}Додати модуль{% endif %}</h3>
+      <span class="status-pill online">{% if current_language == 'en' %}Registry{% else %}Registry{% endif %}</span>
+    </div>
+    <form method="POST" class="stack-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="action" value="create_module">
+      <div class="form-grid">
+        <input name="slug" placeholder="slug-with-dashes" required>
+        <input name="name" placeholder="{% if current_language == 'en' %}Module name{% else %}Назва модуля{% endif %}" required>
+        <input name="category" placeholder="{% if current_language == 'en' %}Category{% else %}Категорія{% endif %}" value="custom" required>
+        <input name="version" placeholder="{% if current_language == 'en' %}Version{% else %}Версія{% endif %}" value="1.0.0" required>
+      </div>
+      <input name="source_url" placeholder="{% if current_language == 'en' %}Source URL or repository{% else %}Source URL або repo{% endif %}">
+      <textarea name="description" class="code-editor" style="min-height:160px" placeholder="{% if current_language == 'en' %}Module description{% else %}Опис модуля{% endif %}" spellcheck="false"></textarea>
+      <button type="submit">{% if current_language == 'en' %}Add module{% else %}Додати модуль{% endif %}</button>
+    </form>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}Modules{% else %}Модулі{% endif %}</h3>
+      <span class="status-pill online">{{ modules|length }} {% if current_language == 'en' %}entries{% else %}записів{% endif %}</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Name</th><th>Category</th><th>Version</th><th>Source</th><th>Status</th><th>Built-in</th><th>Actions</th></tr></thead>
+        <tbody>
+          {% for module in modules %}
+          <tr>
+            <td><strong>{{ module.name }}</strong><div class="service-meta">{{ module.slug }}</div></td>
+            <td>{{ module.category }}</td>
+            <td>{{ module.version }}</td>
+            <td>{{ module.source_url or '—' }}</td>
+            <td><span class="status-badge {{ 'success' if module.enabled else 'danger' }}">{{ 'enabled' if module.enabled else 'disabled' }}</span></td>
+            <td>{{ 'yes' if module.built_in else 'no' }}</td>
+            <td>
+              <div class="site-actions">
+                <form action="{{ url_for('toggle_module', module_id=module.id) }}" method="POST">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                  <button type="submit" class="tiny-btn">{{ 'Disable' if module.enabled else 'Enable' }}</button>
+                </form>
+                {% if not module.built_in %}
+                <form action="{{ url_for('delete_module', module_id=module.id) }}" method="POST" onsubmit="return confirm('Видалити модуль?');">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                  <button type="submit" class="danger-link">Delete</button>
+                </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="empty-state">{% if current_language == 'en' %}The registry is empty.{% else %}Registry порожній.{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

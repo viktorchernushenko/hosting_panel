@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card">
+    <div>
+      <p class="eyebrow">{% if current_language == 'en' %}Backup & recovery{% else %}Backup & recovery{% endif %}</p>
+      <h2>{% if current_language == 'en' %}Backup Center{% else %}Backup Center{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}A single view of backups, restore status, and backup queues across all sites.{% else %}Єдиний огляд резервних копій, restore-стану та черги бекапів по всіх сайтах.{% endif %}</p>
+    </div>
+    <div class="hero-actions">
+      <a class="ghost-btn" href="{{ url_for('developer_dashboard') }}">{% if current_language == 'en' %}← Back to panel{% else %}← До панелі{% endif %}</a>
+      <a class="link-btn" href="{{ url_for('developer_infrastructure') }}">{% if current_language == 'en' %}Infrastructure{% else %}Infrastructure{% endif %}</a>
+      <a class="link-btn" href="{{ url_for('developer_marketplace') }}">{% if current_language == 'en' %}Marketplace{% else %}Marketplace{% endif %}</a>
+    </div>
+  </header>
+
+  <section class="metrics-grid">
+    <article class="card-widget"><div class="widget-title">{% if current_language == 'en' %}Backups{% else %}Резервні копії{% endif %}</div><div class="widget-value">{{ summary.total_backups }}</div><div class="widget-caption">{% if current_language == 'en' %}total archives{% else %}усього архівів{% endif %}</div></article>
+    <article class="card-widget"><div class="widget-title">{% if current_language == 'en' %}Sites with backups{% else %}Сайти з backup{% endif %}</div><div class="widget-value">{{ summary.sites_with_backups }}</div><div class="widget-caption">{% if current_language == 'en' %}with backup copies{% else %}з резервними копіями{% endif %}</div></article>
+    <article class="card-widget"><div class="widget-title">{% if current_language == 'en' %}Storage{% else %}Сховище{% endif %}</div><div class="widget-value">{{ summary.total_size_gb }} GB</div><div class="widget-caption">{% if current_language == 'en' %}archive footprint{% else %}розмір архівів{% endif %}</div></article>
+    <article class="card-widget"><div class="widget-title">{% if current_language == 'en' %}Pending jobs{% else %}Очікувані завдання{% endif %}</div><div class="widget-value">{{ summary.pending_jobs }}</div><div class="widget-caption">{% if current_language == 'en' %}backup/restore queue{% else %}черга backup/restore{% endif %}</div></article>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}Per-site backup inventory{% else %}Інвентар резервних копій по сайтах{% endif %}</h3>
+      <span class="status-pill online">{{ backup_rows|length }} {% if current_language == 'en' %}sites{% else %}сайтів{% endif %}</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Site</th><th>Owner</th><th>Backup count</th><th>Latest</th><th>Size</th><th>Actions</th></tr></thead>
+        <tbody>
+          {% for row in backup_rows %}
+          <tr>
+            <td><strong>{{ row.site.name }}</strong><div class="service-meta">{{ row.site.folder_name }}</div></td>
+            <td>{{ row.site.owner.username if row.site.owner else '—' }}</td>
+            <td>{{ row.count }}</td>
+            <td>{{ row.latest.name if row.latest else '—' }}</td>
+            <td>{{ '%.1f'|format(row.size / 1024) }} KB</td>
+            <td>
+              <div class="site-actions">
+                <form action="{{ url_for('queue_site_backup', site_id=row.site.id) }}" method="POST">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                  <button class="tiny-btn" type="submit">Queue backup</button>
+                </form>
+                {% if row.latest %}
+                <form action="{{ url_for('queue_restore_site_backup', site_id=row.site.id, backup_name=row.latest.name) }}" method="POST" onsubmit="return confirm('Queue restore останньої копії?');">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                  <button class="ghost-btn" type="submit">Queue restore latest</button>
+                </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="empty-state">{% if current_language == 'en' %}Backups not found.{% else %}Резервні копії не знайдено.{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}Recent backup jobs{% else %}Останні backup-завдання{% endif %}</h3>
+      <span class="status-pill online">{{ recent_jobs|length }} {% if current_language == 'en' %}recent{% else %}останніх{% endif %}</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>ID</th><th>Type</th><th>Target</th><th>Status</th><th>Progress</th><th>Message</th><th>Updated</th></tr></thead>
+        <tbody>
+          {% for job in recent_jobs %}
+          <tr>
+            <td>#{{ job.id }}</td>
+            <td>{{ job.job_type }}</td>
+            <td>{{ job.target or '—' }}</td>
+            <td><span class="status-badge {{ 'danger' if job.status == 'failed' else 'success' }}">{{ job.status }}</span></td>
+            <td>
+              <div class="progress-track"><div class="progress-fill" style="width: {{ job.progress }}%"></div></div>
+              <div class="service-meta">{{ job.progress }}%</div>
+            </td>
+            <td>{{ job.message }}</td>
+            <td>{{ job.updated_at.strftime('%d.%m %H:%M') }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="empty-state">{% if current_language == 'en' %}Backup jobs not found.{% else %}Backup-завдання не знайдено.{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

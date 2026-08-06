@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card">
+    <div>
+      <p class="eyebrow">{% if current_language == 'en' %}Developer mode{% else %}Режим розробника{% endif %}</p>
+      <h2>{% if current_language == 'en' %}Users and sites{% else %}Користувачі та сайти{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}Access management without system privileges.{% else %}Керування доступом без системних прав.{% endif %}</p>
+    </div>
+    <a href="{{ url_for('dashboard') }}" class="ghost-btn">{% if current_language == 'en' %}← Back to panel{% else %}← До панелі{% endif %}</a>
+  </header>
+
+  <section class="panel-card full-width">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}Add user{% else %}Додати користувача{% endif %}</h3><span class="status-pill online">{% if current_language == 'en' %}Administrator only{% else %}Лише адміністратор{% endif %}</span></div>
+    <form action="{{ url_for('developer_create_user') }}" method="POST" class="stack-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+      <div class="form-grid">
+        <input name="username" placeholder="{% if current_language == 'en' %}Username{% else %}Логін{% endif %}" pattern="[a-z0-9_-]{3,32}" required>
+        <input name="email" type="email" placeholder="Email" required>
+        <input name="first_name" placeholder="{% if current_language == 'en' %}First name{% else %}Ім’я{% endif %}" required>
+        <input name="last_name" placeholder="{% if current_language == 'en' %}Last name{% else %}Прізвище{% endif %}" required>
+        <input name="quota_mb" type="number" min="64" max="51200" value="51200" aria-label="{% if current_language == 'en' %}Quota in megabytes{% else %}Квота у мегабайтах{% endif %}" required>
+      </div>
+      <input name="password" type="password" minlength="12" placeholder="{% if current_language == 'en' %}Temporary password — minimum 12 characters{% else %}Тимчасовий пароль — мінімум 12 символів{% endif %}" required>
+      <button type="submit">{% if current_language == 'en' %}Create user{% else %}Створити користувача{% endif %}</button>
+    </form>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}Users{% else %}Користувачі{% endif %}</h3>
+      <input id="user-filter" placeholder="{% if current_language == 'en' %}Search: username, email, name{% else %}Пошук: логін, email, імʼя{% endif %}" aria-label="{% if current_language == 'en' %}User filter{% else %}Фільтр користувачів{% endif %}">
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>{% if current_language == 'en' %}User{% else %}Користувач{% endif %}</th><th>{% if current_language == 'en' %}Status and quota{% else %}Статус і квота{% endif %}</th><th>{% if current_language == 'en' %}Sites{% else %}Сайти{% endif %}</th><th>{% if current_language == 'en' %}Management{% else %}Керування{% endif %}</th></tr></thead>
+        <tbody>
+        {% for user in users %}
+          <tr data-user-row="{{ user.username }} {{ user.email }} {{ user.first_name }} {{ user.last_name }}">
+            <td>
+              <strong>{{ user.username }}</strong>
+              <div class="service-meta">{{ user.email }}</div>
+              <div class="service-meta">{{ user.first_name }} {{ user.last_name }}</div>
+            </td>
+            <td>
+              <span class="status-badge {{ 'danger' if user.is_banned else 'success' }}">{% if user.is_banned %}{% if current_language == 'en' %}Blocked{% else %}Заблокований{% endif %}{% else %}{% if current_language == 'en' %}Active{% else %}Активний{% endif %}{% endif %}</span>
+              <div class="service-meta">{% if current_language == 'en' %}Used {{ '%.1f'|format(usage.get(user.id, 0) / 1048576) }} MB of {{ user.quota_mb }} MB{% else %}Використано {{ '%.1f'|format(usage.get(user.id, 0) / 1048576) }} MB з {{ user.quota_mb }} MB{% endif %}</div>
+              <div class="service-meta">{% if current_language == 'en' %}Role: {{ 'Administrator' if user.is_admin else 'User' }}{% if user.must_change_password %} · Password change required{% endif %}{% else %}Роль: {{ 'Адміністратор' if user.is_admin else 'Користувач' }}{% if user.must_change_password %} · Потрібна зміна пароля{% endif %}{% endif %}</div>
+            </td>
+            <td>
+              <div class="service-list">
+              {% for site in user.sites %}
+                <div class="service-row">
+                  <span>{{ site.name }}</span>
+                  <form action="{{ url_for('toggle_site', site_id=site.id) }}" method="POST">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                    <button class="tiny-btn" type="submit">{{ 'Розблокувати' if site.is_banned else 'Заблокувати' }}</button>
+                  </form>
+                </div>
+              {% else %}<span class="service-meta">{% if current_language == 'en' %}No sites yet.{% else %}Немає сайтів.{% endif %}</span>{% endfor %}
+              </div>
+            </td>
+            <td>
+              <div class="action-group">
+                <form action="{{ url_for('developer_update_user', user_id=user.id) }}" method="POST" class="compact-form">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                  <input name="first_name" value="{{ user.first_name }}" required>
+                  <input name="last_name" value="{{ user.last_name }}" required>
+                  <input name="email" type="email" value="{{ user.email }}" required>
+                  <input name="quota_mb" type="number" min="64" max="51200" value="{{ user.quota_mb }}" required>
+                  <select name="must_change_password">
+                    <option value="0" {{ '' if user.must_change_password else 'selected' }}>{% if current_language == 'en' %}No password change enforcement{% else %}Без примусу зміни пароля{% endif %}</option>
+                    <option value="1" {{ 'selected' if user.must_change_password else '' }}>{% if current_language == 'en' %}Force password change{% else %}Примусити зміну пароля{% endif %}</option>
+                  </select>
+                  <button class="tiny-btn" type="submit">{% if current_language == 'en' %}Update{% else %}Оновити{% endif %}</button>
+                </form>
+                <form action="{{ url_for('developer_reset_password', user_id=user.id) }}" method="POST" onsubmit="return confirm('{% if current_language == 'en' %}Reset the password for this user?{% else %}Скинути пароль цьому користувачу?{% endif %}');">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                  <button class="ghost-btn" type="submit">{% if current_language == 'en' %}Reset password{% else %}Скинути пароль{% endif %}</button>
+                </form>
+                <form action="{{ url_for('developer_toggle_admin', user_id=user.id) }}" method="POST" onsubmit="return confirm('{% if current_language == 'en' %}Change this user\'s role?{% else %}Змінити роль користувача?{% endif %}');">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                  <button class="tiny-btn" type="submit">{{ 'Remove admin' if user.is_admin else 'Make admin' if current_language == 'en' else 'Зняти admin' if user.is_admin else 'Зробити admin' }}</button>
+                </form>
+                {% if not user.is_admin %}
+                <form action="{{ url_for('toggle_user', user_id=user.id) }}" method="POST">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                  <button class="{{ 'tiny-btn' if user.is_banned else 'danger-btn' }}" type="submit">{{ 'Unblock' if user.is_banned else 'Block' if current_language == 'en' else 'Розблокувати' if user.is_banned else 'Заблокувати' }}</button>
+                </form>
+                <form action="{{ url_for('delete_user', user_id=user.id) }}" method="POST" onsubmit="return confirm('{% if current_language == 'en' %}Delete this user and all their sites?{% else %}Видалити користувача та всі його сайти?{% endif %}');">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                  <button class="danger-btn" type="submit">{% if current_language == 'en' %}Delete{% else %}Видалити{% endif %}</button>
+                </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}Bulk site operations{% else %}Bulk-операції по сайтах{% endif %}</h3>
+      <span class="status-pill">{{ sites|length }} {% if current_language == 'en' %}sites{% else %}сайтів{% endif %}</span>
+    </div>
+    <form action="{{ url_for('developer_bulk_sites') }}" method="POST" class="stack-form" onsubmit="return confirm('{% if current_language == 'en' %}Run a bulk operation for the selected sites?{% else %}Виконати bulk-операцію для вибраних сайтів?{% endif %}');">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+      <div class="action-group">
+        <select name="action" required>
+          <option value="ban">{% if current_language == 'en' %}Block{% else %}Заблокувати{% endif %}</option>
+          <option value="unban">{% if current_language == 'en' %}Unblock{% else %}Розблокувати{% endif %}</option>
+          <option value="delete">{% if current_language == 'en' %}Delete (with backup){% else %}Видалити (з backup){% endif %}</option>
+        </select>
+        <button type="button" class="ghost-btn" id="bulk-select-all">{% if current_language == 'en' %}Select all{% else %}Вибрати все{% endif %}</button>
+        <button type="button" class="ghost-btn" id="bulk-clear-all">{% if current_language == 'en' %}Clear{% else %}Очистити{% endif %}</button>
+        <button type="submit">{% if current_language == 'en' %}Execute{% else %}Виконати{% endif %}</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th></th><th>{% if current_language == 'en' %}Site{% else %}Сайт{% endif %}</th><th>{% if current_language == 'en' %}Owner{% else %}Власник{% endif %}</th><th>{% if current_language == 'en' %}Domain{% else %}Домен{% endif %}</th><th>{% if current_language == 'en' %}Status{% else %}Статус{% endif %}</th></tr></thead>
+          <tbody>
+            {% for site in sites %}
+            <tr>
+              <td><input type="checkbox" name="site_ids" value="{{ site.id }}"></td>
+              <td>{{ site.name }}</td>
+              <td>{{ site.owner.username if site.owner else '—' }}</td>
+              <td>{{ site.custom_domain or '—' }}</td>
+              <td><span class="status-badge {{ 'danger' if site.is_banned else 'success' }}">{% if site.is_banned %}{% if current_language == 'en' %}Blocked{% else %}Заблоковано{% endif %}{% else %}{% if current_language == 'en' %}Active{% else %}Активний{% endif %}{% endif %}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="empty-state">{% if current_language == 'en' %}No sites available.{% else %}Сайтів немає.{% endif %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel-card full-width" id="audit">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}Audit log{% else %}Журнал дій{% endif %}</h3><span class="status-pill">{% if current_language == 'en' %}latest {{ logs|length }}{% else %}останні {{ logs|length }}{% endif %}</span></div>
+    <div class="audit-list">
+      {% for log in logs %}
+      <div class="audit-row">
+        <time>{{ log.created_at.strftime('%d.%m %H:%M') }}</time>
+        <strong>{{ log.username or 'system' }}</strong>
+        <code>{{ log.action }}</code>
+        <span>{{ log.detail or '—' }}</span>
+        <small>{{ log.ip_address or '—' }}</small>
+      </div>
+      {% else %}<p class="empty-state">{% if current_language == 'en' %}The log is empty.{% else %}Журнал поки порожній.{% endif %}</p>{% endfor %}
+    </div>
+  </section>
+</div>
+
+<script nonce="{{ csp_nonce }}">
+  const userFilter = document.getElementById('user-filter');
+  if (userFilter) {
+    userFilter.addEventListener('input', () => {
+      const query = userFilter.value.trim().toLowerCase();
+      document.querySelectorAll('[data-user-row]').forEach((row) => {
+        row.style.display = row.dataset.userRow.toLowerCase().includes(query) ? '' : 'none';
+      });
+    });
+  }
+
+  const selectAll = document.getElementById('bulk-select-all');
+  const clearAll = document.getElementById('bulk-clear-all');
+  if (selectAll && clearAll) {
+    selectAll.addEventListener('click', () => {
+      document.querySelectorAll('input[name="site_ids"]').forEach((checkbox) => { checkbox.checked = true; });
+    });
+    clearAll.addEventListener('click', () => {
+      document.querySelectorAll('input[name="site_ids"]').forEach((checkbox) => { checkbox.checked = false; });
+    });
+  }
+</script>
+
+<style nonce="{{ csp_nonce }}">
+  .compact-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+  }
+
+  .compact-form input,
+  .compact-form select,
+  .compact-form button {
+    min-width: 0;
+  }
+
+  @media (max-width: 900px) {
+    .compact-form {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+{% endblock %}

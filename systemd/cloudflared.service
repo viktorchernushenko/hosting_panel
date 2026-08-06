@@ -1,0 +1,14 @@
+[Unit]
+Description=Cloudflare Tunnel client
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+TimeoutStartSec=30
+Type=notify
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel --protocol http2 --config /etc/cloudflared/config.yml run
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

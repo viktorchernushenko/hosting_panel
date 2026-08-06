@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card">
+    <div>
+      <p class="eyebrow">{% if current_language == 'en' %}Cloudflare control plane{% else %}Cloudflare control plane{% endif %}</p>
+      <h2>{% if current_language == 'en' %}DNS & SSL Center — {{ zone_name }}{% else %}DNS & SSL Center — {{ zone_name }}{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}Manage DNS records, TLS settings, and zone policy directly from the panel.{% else %}Керування DNS-записами, TLS-параметрами та базовою zone policy прямо з панелі.{% endif %}</p>
+    </div>
+    <div class="hero-actions">
+      <a class="ghost-btn" href="{{ url_for('developer_dashboard') }}">{% if current_language == 'en' %}← Back to panel{% else %}← До панелі{% endif %}</a>
+      <a class="link-btn" href="{{ url_for('developer_users') }}">{% if current_language == 'en' %}Users & Sites{% else %}Користувачі &amp; сайти{% endif %}</a>
+    </div>
+  </header>
+
+  {% if error_message %}
+  <div class="flash error">{{ error_message }}</div>
+  {% endif %}
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}Cloudflare credentials{% else %}Cloudflare credentials{% endif %}</h3>
+      <span class="status-pill online">{{ cloudflare_config.token_source }}</span>
+    </div>
+    <form method="POST" class="stack-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="action" value="save_cloudflare_credentials">
+      <div class="form-grid">
+        <input name="zone_name" value="{{ cloudflare_config.zone_name }}" placeholder="myh.guru">
+        <input name="api_token" type="password" placeholder="{% if current_language == 'en' %}Cloudflare API token{% else %}Cloudflare API токен{% endif %}">
+      </div>
+      <p class="service-meta">
+        {% if current_language == 'en' %}
+        Current token: {{ cloudflare_config.masked_token or 'missing' }}. Leave token empty to keep existing value.
+        {% else %}
+        Поточний токен: {{ cloudflare_config.masked_token or 'відсутній' }}. Залиште поле токена пустим, щоб не змінювати поточне значення.
+        {% endif %}
+      </p>
+      <button type="submit">{% if current_language == 'en' %}Save Cloudflare data{% else %}Зберегти Cloudflare дані{% endif %}</button>
+    </form>
+  </section>
+
+  <section class="metrics-grid">
+    <article class="card-widget">
+      <div class="widget-title">Zone ID</div>
+      <div class="widget-value">{{ zone_id[:10] if zone_id else '—' }}</div>
+      <div class="widget-caption">{% if current_language == 'en' %}Cloudflare zone{% else %}Cloudflare зона{% endif %}</div>
+    </article>
+    <article class="card-widget">
+      <div class="widget-title">{% if current_language == 'en' %}DNS records{% else %}DNS-записи{% endif %}</div>
+      <div class="widget-value">{{ records|length }}</div>
+      <div class="widget-caption">per_page: 200</div>
+    </article>
+    <article class="card-widget">
+      <div class="widget-title">{% if current_language == 'en' %}SSL verification{% else %}SSL верифікація{% endif %}</div>
+      <div class="widget-value">{{ 'OK' if ssl_summary.success else 'Check' }}</div>
+      <div class="widget-caption">{{ ssl_summary.result.certificate_status if ssl_summary.result is defined and ssl_summary.result else 'n/a' }}</div>
+    </article>
+    <article class="card-widget">
+      <div class="widget-title">{% if current_language == 'en' %}Security level{% else %}Рівень безпеки{% endif %}</div>
+      <div class="widget-value">{{ settings.security_level or '—' }}</div>
+      <div class="widget-caption">{% if current_language == 'en' %}Current edge policy{% else %}Поточна edge policy{% endif %}</div>
+    </article>
+  </section>
+
+  <section class="panel-grid">
+    <article class="panel-card">
+      <div class="panel-head"><h3>{% if current_language == 'en' %}Create DNS record{% else %}Створити DNS запис{% endif %}</h3><span class="status-pill online">Cloudflare API</span></div>
+      <form method="POST" class="stack-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="action" value="create_record">
+        <div class="form-grid">
+          <select name="record_type" required>
+            <option value="A">A</option>
+            <option value="AAAA">AAAA</option>
+            <option value="CNAME">CNAME</option>
+            <option value="TXT">TXT</option>
+            <option value="MX">MX</option>
+            <option value="SRV">SRV</option>
+            <option value="CAA">CAA</option>
+          </select>
+          <input name="name" placeholder="{% if current_language == 'en' %}app or www.app{% else %}app або www.app{% endif %}" required>
+          <input name="content" placeholder="{% if current_language == 'en' %}IP or target host{% else %}IP або target host{% endif %}" required>
+          <input name="ttl" type="number" min="1" value="1" required>
+          <input name="priority" type="number" min="0" placeholder="{% if current_language == 'en' %}Priority (MX/SRV){% else %}Priority (MX/SRV){% endif %}">
+          <label class="service-row" style="justify-content:flex-start; gap:10px;">
+            <input type="checkbox" name="proxied" value="1"> Proxied (A/AAAA/CNAME)
+          </label>
+        </div>
+        <button type="submit">{% if current_language == 'en' %}Create record{% else %}Створити запис{% endif %}</button>
+      </form>
+    </article>
+
+    <article class="panel-card">
+      <div class="panel-head"><h3>{% if current_language == 'en' %}SSL & zone settings{% else %}SSL & zone settings{% endif %}</h3><span class="status-pill online">{{ ssl_summary.result.certificate_status if ssl_summary.result is defined and ssl_summary.result else 'unknown' }}</span></div>
+      <form method="POST" class="stack-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="action" value="update_setting">
+        <div class="form-grid">
+          <select name="setting_key" required>
+            <option value="ssl">ssl</option>
+            <option value="min_tls_version">min_tls_version</option>
+            <option value="tls_1_3">tls_1_3</option>
+            <option value="always_use_https">always_use_https</option>
+            <option value="automatic_https_rewrites">automatic_https_rewrites</option>
+            <option value="opportunistic_encryption">opportunistic_encryption</option>
+            <option value="browser_check">browser_check</option>
+            <option value="security_level">security_level</option>
+            <option value="challenge_ttl">challenge_ttl</option>
+            <option value="http3">http3</option>
+            <option value="early_hints">early_hints</option>
+          </select>
+          <input name="setting_value" placeholder="value" required>
+        </div>
+        <button type="submit">{% if current_language == 'en' %}Update settings{% else %}Оновити налаштування{% endif %}</button>
+      </form>
+      <div class="audit-list">
+        {% for key, value in settings.items() %}
+        <div class="audit-row">
+          <time>{{ key }}</time>
+          <strong>{{ value }}</strong>
+          <span>{{ raw_settings[key].result.id if raw_settings.get(key) and raw_settings[key].result is defined and raw_settings[key].result else '—' }}</span>
+          <small>{{ raw_settings[key].result.modified_on if raw_settings.get(key) and raw_settings[key].result is defined and raw_settings[key].result else '' }}</small>
+        </div>
+        {% endfor %}
+      </div>
+    </article>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}DNS records{% else %}DNS-записи{% endif %}</h3><span class="status-pill online">{{ records|length }} {% if current_language == 'en' %}rows{% else %}рядків{% endif %}</span></div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Type</th><th>Name</th><th>Content</th><th>Proxy</th><th>TTL</th><th>Actions</th></tr></thead>
+        <tbody>
+          {% for record in records %}
+          <tr>
+            <td>{{ record.type }}</td>
+            <td>{{ record.name }}</td>
+            <td>{{ record.content }}</td>
+            <td>{{ 'proxied' if record.proxied else 'dns-only' }}</td>
+            <td>{{ record.ttl }}</td>
+            <td>
+              <form action="{{ url_for('developer_delete_dns_record', record_id=record.id) }}" method="POST" onsubmit="return confirm('Видалити DNS-запис?');">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="danger-link">{% if current_language == 'en' %}Delete{% else %}Видалити{% endif %}</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="empty-state">{% if current_language == 'en' %}No DNS records yet.{% else %}DNS-записів немає.{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

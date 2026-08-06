@@ -1,0 +1,11 @@
+[Unit]
+Description=Run myh platform watchdog every 2 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+Unit=platform-watchdog.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

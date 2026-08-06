@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card">
+    <div>
+      <p class="eyebrow">{% if current_language == 'en' %}Docker control plane{% else %}Docker control plane{% endif %}</p>
+      <h2>{% if current_language == 'en' %}Container manager{% else %}Менеджер контейнерів{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}Start, stop, and restart Docker containers directly from the panel.{% else %}Запускайте, зупиняйте й перезапускайте Docker-контейнери прямо з панелі.{% endif %}</p>
+    </div>
+    <div class="hero-actions">
+      <a class="ghost-btn" href="{{ url_for('developer_dashboard') }}">← {% if current_language == 'en' %}Back to panel{% else %}До панелі{% endif %}</a>
+    </div>
+  </header>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>🐳 {% if current_language == 'en' %}Containers{% else %}Контейнери{% endif %}</h3>
+      <span class="status-pill online">{{ containers|length }} {% if current_language == 'en' %}records{% else %}записів{% endif %}</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>{% if current_language == 'en' %}Name{% else %}Назва{% endif %}</th><th>{% if current_language == 'en' %}Status{% else %}Статус{% endif %}</th><th>{% if current_language == 'en' %}Image{% else %}Image{% endif %}</th><th>{% if current_language == 'en' %}Ports{% else %}Порти{% endif %}</th><th>{% if current_language == 'en' %}Actions{% else %}Дії{% endif %}</th></tr></thead>
+        <tbody>
+          {% for container in containers %}
+          <tr>
+            <td><strong>{{ container.name }}</strong><div class="service-meta">{{ container.id }}</div></td>
+            <td><span class="status-badge {{ 'success' if container.state == 'running' else 'danger' }}">{{ container.status }}</span></td>
+            <td>{{ container.image }}</td>
+            <td>{{ container.ports or '—' }}</td>
+            <td>
+              <div class="site-actions">
+                <button class="tiny-btn" type="button" data-docker-action="start" data-container-name="{{ container.name }}">{% if current_language == 'en' %}Start{% else %}Старт{% endif %}</button>
+                <button class="tiny-btn" type="button" data-docker-action="stop" data-container-name="{{ container.name }}">{% if current_language == 'en' %}Stop{% else %}Стоп{% endif %}</button>
+                <button class="tiny-btn" type="button" data-docker-action="restart" data-container-name="{{ container.name }}">{% if current_language == 'en' %}Restart{% else %}Рестарт{% endif %}</button>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="empty-state">{% if current_language == 'en' %}No containers found.{% else %}Контейнери не знайдено.{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+<script nonce="{{ csp_nonce }}">
+  document.querySelectorAll('[data-docker-action]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const action = button.dataset.dockerAction;
+      const containerName = button.dataset.containerName;
+      button.disabled = true;
+      try {
+        const response = await fetch(`/api/docker/container/${encodeURIComponent(containerName)}/${action}`, {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': '{{ csrf_token }}' }
+        });
+        const data = await response.json();
+        alert(data.success ? `${action} ${containerName}` : (data.error || 'Action failed'));
+        window.location.reload();
+      } catch (_) {
+        alert('Action failed');
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+</script>
+{% endblock %}

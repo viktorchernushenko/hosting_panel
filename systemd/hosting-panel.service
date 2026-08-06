@@ -1,0 +1,42 @@
+[Unit]
+Description=myh.guru Hosting Panel
+After=network-online.target cups.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=myserver
+Group=myserver
+WorkingDirectory=/home/myserver/hosting_panel
+EnvironmentFile=/etc/hosting-panel.env
+Environment=TMPDIR=/run/myh-guru
+RuntimeDirectory=myh-guru
+RuntimeDirectoryMode=0755
+ExecStart=/home/myserver/hosting_panel/venv/bin/gunicorn --workers 1 --threads 4 --bind 127.0.0.1:5000 --bind 127.0.0.1:5001 --worker-tmp-dir /run/myh-guru --timeout 30 --access-logfile - --error-logfile - app:app
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+UMask=0077
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/myserver/hosting_panel/instance /home/myserver/hosting_panel/user_sites
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RemoveIPC=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card">
+    <div>
+      <p class="eyebrow">{% if current_language == 'en' %}Deployment studio{% else %}Студія розгортання{% endif %}</p>
+      <h2>{% if current_language == 'en' %}Deploy a starter page{% else %}Розгорнути стартову сторінку{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}Create a simple static deployment for an existing site in one click.{% else %}Створіть просте статичне розгортання для існуючого сайту в один клік.{% endif %}</p>
+    </div>
+    <div class="hero-actions">
+      <a class="ghost-btn" href="{{ url_for('developer_deploy_history') }}">📜 {% if current_language == 'en' %}Deployment history{% else %}Історія розгортань{% endif %}</a>
+      <a class="ghost-btn" href="{{ url_for('developer_dashboard') }}">← {% if current_language == 'en' %}Back to panel{% else %}До панелі{% endif %}</a>
+    </div>
+  </header>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>🚀 {% if current_language == 'en' %}Quick deploy{% else %}Швидке розгортання{% endif %}</h3>
+      <span class="status-pill online">{% if current_language == 'en' %}Static starter{% else %}Статичний старт{% endif %}</span>
+    </div>
+    <form method="POST" enctype="multipart/form-data" class="stack-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+      <select name="deploy_mode">
+        <option value="zip">ZIP archive</option>
+        <option value="git">Git repository</option>
+      </select>
+      <input type="text" name="target_name" placeholder="example-site" required>
+      <input type="file" name="archive" accept=".zip,application/zip">
+      <input type="text" name="repo_url" placeholder="https://github.com/example/project.git">
+      <p class="service-meta">{% if current_language == 'en' %}Upload a ZIP archive or provide a Git repo URL to deploy static content.{% else %}Завантажте ZIP-архів або вкажіть URL Git-репозиторію для розгортання статичного контенту.{% endif %}</p>
+      <button type="submit">{% if current_language == 'en' %}Deploy{% else %}Розгорнути{% endif %}</button>
+    </form>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>🔐 {% if current_language == 'en' %}Webhook config{% else %}Налаштування webhook{% endif %}</h3>
+      <span class="status-pill online">{% if current_language == 'en' %}Secure deploy trigger{% else %}Безпечний тригер{% endif %}</span>
+    </div>
+    <form method="POST" class="stack-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="action" value="save_webhook_config">
+      <input type="text" name="site_name" placeholder="demo-site" required>
+      <input type="text" name="webhook_secret" placeholder="shared-secret">
+      <input type="text" name="webhook_branch" placeholder="main">
+      <p class="service-meta">{% if current_language == 'en' %}Save a secret and branch for GitHub webhook-triggered deployment.{% else %}Збережіть секрет і гілку для розгортання по GitHub webhook.{% endif %}</p>
+      <button type="submit">{% if current_language == 'en' %}Save{% else %}Зберегти{% endif %}</button>
+    </form>
+  </section>
+</div>
+{% endblock %}
