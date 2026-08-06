@@ -58,6 +58,15 @@ DEFAULT_PUBLIC_HOME_PREFS = {
     'show_ram': True,
     'private_mode': False,
 }
+REQUIRED_CORE_TABLES = {
+    'user',
+    'site',
+    'audit_log',
+    'job_task',
+    'agent_node',
+    'plugin_module',
+    'deployment_event',
+}
 _db_repair_lock = threading.Lock()
 _db_ready = False
 SUPPORTED_LANGUAGES = {'uk': 'Українська', 'en': 'English'}
@@ -519,6 +528,20 @@ def get_server_metrics():
         'disk_percent': round(disk.percent, 1),
         'timestamp': datetime.now().strftime('%H:%M:%S')
     }
+
+
+def check_database_health():
+    try:
+        db.session.execute(text("SELECT 1"))
+        inspector = inspect(db.engine)
+        table_names = set(inspector.get_table_names())
+        missing = sorted(REQUIRED_CORE_TABLES - table_names)
+        if missing:
+            return False, f"missing tables: {', '.join(missing)}"
+        return True, 'ok'
+    except Exception as exc:
+        db.session.rollback()
+        return False, str(exc)
 
 
 def get_service_status(service_name):
@@ -1878,6 +1901,29 @@ def api_metrics():
     if not user or not user.is_admin:
         return jsonify({'error': translate('api_forbidden')}), 403
     return jsonify(get_server_metrics())
+
+
+@app.route('/healthz')
+def healthz():
+    db_ok, detail = check_database_health()
+    repaired = False
+    if not db_ok:
+        try:
+            ensure_database_schema(force=True)
+            repaired = True
+            db_ok, detail = check_database_health()
+        except Exception as exc:
+            db_ok = False
+            detail = str(exc)
+
+    status_code = 200 if db_ok else 503
+    return jsonify({
+        'ok': db_ok,
+        'db_ok': db_ok,
+        'repaired': repaired,
+        'detail': detail,
+        'timestamp': datetime.now().strftime('%Y-%m-%dT%H:%M:%S'),
+    }), status_code
 
 
 @app.route('/api/public-status')

@@ -172,11 +172,76 @@ UNIT
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME.service"
 
-echo "[8/10] Starting service"
+echo "[8/12] Starting service"
 systemctl restart "$SERVICE_NAME.service"
 systemctl --no-pager --full status "$SERVICE_NAME.service" | sed -n '1,30p'
 
-echo "[9/10] Configuring nginx (optional)"
+echo "[9/12] Installing watchdog"
+WATCHDOG_SCRIPT="/usr/local/sbin/${SERVICE_NAME}-watchdog.sh"
+WATCHDOG_SERVICE="/etc/systemd/system/${SERVICE_NAME}-watchdog.service"
+WATCHDOG_TIMER="/etc/systemd/system/${SERVICE_NAME}-watchdog.timer"
+cat > "$WATCHDOG_SCRIPT" <<WATCHDOG
+#!/usr/bin/env bash
+set -euo pipefail
+
+SERVICE_NAME="$SERVICE_NAME"
+HEALTH_URL="http://$BIND_HOST:$BIND_PORT/healthz"
+
+log() {
+  logger -t "
+${SERVICE_NAME}-watchdog" "\$1"
+}
+
+if ! systemctl is-active --quiet "\$SERVICE_NAME"; then
+  log "service down: \$SERVICE_NAME; restarting"
+  systemctl restart "\$SERVICE_NAME" || log "restart failed: \$SERVICE_NAME"
+fi
+
+if command -v curl >/dev/null 2>&1; then
+  if ! curl -fsS --max-time 8 "\$HEALTH_URL" | grep -q '"ok"[[:space:]]*:[[:space:]]*true'; then
+    log "health check failed: \$HEALTH_URL; restarting \$SERVICE_NAME"
+    systemctl restart "\$SERVICE_NAME" || log "restart failed: \$SERVICE_NAME"
+  fi
+fi
+WATCHDOG
+chmod 755 "$WATCHDOG_SCRIPT"
+
+cat > "$WATCHDOG_SERVICE" <<WATCHDOG_SVC
+[Unit]
+Description=Hosting Panel Watchdog ($SERVICE_NAME)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=$WATCHDOG_SCRIPT
+User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log
+WATCHDOG_SVC
+
+cat > "$WATCHDOG_TIMER" <<WATCHDOG_TMR
+[Unit]
+Description=Run watchdog for $SERVICE_NAME every 2 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+Unit=$(basename "$WATCHDOG_SERVICE")
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+WATCHDOG_TMR
+
+systemctl daemon-reload
+systemctl enable --now "$(basename "$WATCHDOG_TIMER")"
+
+echo "[10/12] Configuring nginx (optional)"
 if [[ "$INSTALL_NGINX" -eq 1 ]] && command -v nginx >/dev/null 2>&1; then
   NGINX_CONF="/etc/nginx/sites-available/$SERVICE_NAME.conf"
   SERVER_NAMES="$DOMAIN"
@@ -204,12 +269,13 @@ else
   echo "nginx skipped"
 fi
 
-echo "[10/11] Installing admin helper command"
+echo "[11/12] Installing admin helper command"
 cat > /usr/local/bin/admin <<ADMIN
 #!/usr/bin/env bash
 set -euo pipefail
 APP_DIR="$INSTALL_DIR"
 APP_USER="$APP_USER"
+ENV_FILE="$ENV_FILE"
 PYTHON_BIN="\$APP_DIR/venv/bin/python"
 
 if [[ ! -x "\$PYTHON_BIN" ]]; then
@@ -220,20 +286,21 @@ fi
 USERNAME="\${1:-developer}"
 PASSWORD="\${2:-\$(openssl rand -hex 12)}"
 
-if [[ \${EUID} -eq 0 ]]; then
-  sudo -u "\$APP_USER" "\$PYTHON_BIN" "\$APP_DIR/app.py" --create-admin --username "\$USERNAME" --password "\$PASSWORD" --force
-else
-  "\$PYTHON_BIN" "\$APP_DIR/app.py" --create-admin --username "\$USERNAME" --password "\$PASSWORD" --force
+if [[ ! -r "\$ENV_FILE" ]]; then
+  echo "Cannot read env file: \$ENV_FILE"
+  exit 1
 fi
+
+sudo sh -c "set -a; . '\$ENV_FILE'; set +a; cd '\$APP_DIR'; '\$PYTHON_BIN' app.py --create-admin --username '\$USERNAME' --password '\$PASSWORD' --force"
 
 echo "admin_username=\$USERNAME"
 echo "admin_password=\$PASSWORD"
 ADMIN
 chmod 755 /usr/local/bin/admin
 
-echo "[11/11] Health check"
-HTTP_CODE="$(curl -sS -o /dev/null -w "%{http_code}" "http://$BIND_HOST:$BIND_PORT" || true)"
-echo "local_panel=$HTTP_CODE"
+echo "[12/12] Health check"
+HTTP_CODE="$(curl -sS -o /dev/null -w "%{http_code}" "http://$BIND_HOST:$BIND_PORT/healthz" || true)"
+echo "local_healthz=$HTTP_CODE"
 if [[ "$HTTP_CODE" != "200" ]]; then
   echo "Panel health check failed"
   exit 1
@@ -244,4 +311,5 @@ echo "Service: $SERVICE_NAME.service"
 echo "Install dir: $INSTALL_DIR"
 echo "Env file: $ENV_FILE"
 echo "Admin helper: /usr/local/bin/admin"
+echo "Watchdog timer: $(basename "$WATCHDOG_TIMER")"
 echo "Logs: journalctl -u $SERVICE_NAME.service -f"
