@@ -4,6 +4,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 from functools import wraps
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import OperationalError
 import json
 import psutil
 import os
@@ -57,6 +58,8 @@ DEFAULT_PUBLIC_HOME_PREFS = {
     'show_ram': True,
     'private_mode': False,
 }
+_db_repair_lock = threading.Lock()
+_db_ready = False
 SUPPORTED_LANGUAGES = {'uk': 'Українська', 'en': 'English'}
 DEFAULT_LANGUAGE = 'uk'
 TRANSLATIONS = {
@@ -249,99 +252,121 @@ BUILTIN_MODULES = [
     {'slug': 'site-manager', 'name': 'Site Manager', 'category': 'hosting', 'description': 'File, domain, and backup management for hosted sites.', 'version': '1.0.0'},
 ]
 
-with app.app_context():
-    db.create_all()
-    inspector = inspect(db.engine)
-    site_columns = [column['name'] for column in inspector.get_columns('site')]
-    if 'php_version' not in site_columns:
+def ensure_database_schema(force=False):
+    global _db_ready
+    if _db_ready and not force:
+        return
+    with _db_repair_lock:
+        if _db_ready and not force:
+            return
+
+        db.create_all()
+        inspector = inspect(db.engine)
+        table_names = set(inspector.get_table_names())
+
+        if 'user' in table_names:
+            user_columns = {column['name'] for column in inspector.get_columns('user')}
+        else:
+            user_columns = set()
+        if 'site' in table_names:
+            site_columns = {column['name'] for column in inspector.get_columns('site')}
+        else:
+            site_columns = set()
+
+        migrations = [
+            ('user', 'quota_mb', "ALTER TABLE user ADD COLUMN quota_mb INTEGER NOT NULL DEFAULT 51200", user_columns),
+            ('user', 'must_change_password', "ALTER TABLE user ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT 0", user_columns),
+            ('user', 'last_login_at', "ALTER TABLE user ADD COLUMN last_login_at DATETIME", user_columns),
+            ('site', 'php_version', "ALTER TABLE site ADD COLUMN php_version VARCHAR(20) NOT NULL DEFAULT '8.2'", site_columns),
+            ('site', 'custom_domain', "ALTER TABLE site ADD COLUMN custom_domain VARCHAR(255)", site_columns),
+            ('site', 'webhook_secret', "ALTER TABLE site ADD COLUMN webhook_secret VARCHAR(255)", site_columns),
+            ('site', 'webhook_branch', "ALTER TABLE site ADD COLUMN webhook_branch VARCHAR(120)", site_columns),
+            ('site', 'created_at', "ALTER TABLE site ADD COLUMN created_at DATETIME", site_columns),
+        ]
+
         with db.engine.begin() as conn:
-            conn.execute(text("ALTER TABLE site ADD COLUMN php_version VARCHAR(20) NOT NULL DEFAULT '8.2'"))
-    user_columns = {column['name'] for column in inspector.get_columns('user')}
-    site_columns = {column['name'] for column in inspector.get_columns('site')}
-    migrations = [
-        ('user', 'quota_mb', "ALTER TABLE user ADD COLUMN quota_mb INTEGER NOT NULL DEFAULT 51200", user_columns),
-        ('user', 'must_change_password', "ALTER TABLE user ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT 0", user_columns),
-        ('user', 'last_login_at', "ALTER TABLE user ADD COLUMN last_login_at DATETIME", user_columns),
-        ('site', 'custom_domain', "ALTER TABLE site ADD COLUMN custom_domain VARCHAR(255)", site_columns),
-        ('site', 'webhook_secret', "ALTER TABLE site ADD COLUMN webhook_secret VARCHAR(255)", site_columns),
-        ('site', 'webhook_branch', "ALTER TABLE site ADD COLUMN webhook_branch VARCHAR(120)", site_columns),
-        ('site', 'created_at', "ALTER TABLE site ADD COLUMN created_at DATETIME", site_columns),
-    ]
-    with db.engine.begin() as conn:
-        for _, column_name, statement, existing in migrations:
-            if column_name not in existing:
-                conn.execute(text(statement))
-        if 'quota_mb' in user_columns:
-            conn.execute(text("UPDATE user SET quota_mb = 51200 WHERE quota_mb = 256"))
-    job_tables = {table_name for table_name in inspector.get_table_names()}
-    with db.engine.begin() as conn:
-        if 'job_task' not in job_tables:
-            conn.execute(text("""
-                CREATE TABLE job_task (
-                    id INTEGER PRIMARY KEY,
-                    job_type VARCHAR(80) NOT NULL,
-                    target VARCHAR(120),
-                    payload_json TEXT NOT NULL DEFAULT '{}',
-                    status VARCHAR(20) NOT NULL DEFAULT 'pending',
-                    progress INTEGER NOT NULL DEFAULT 0,
-                    message VARCHAR(255) NOT NULL DEFAULT 'queued',
-                    result_json TEXT NOT NULL DEFAULT '{}',
-                    created_by VARCHAR(80) NOT NULL DEFAULT 'system',
-                    created_at DATETIME NOT NULL,
-                    updated_at DATETIME NOT NULL,
-                    started_at DATETIME,
-                    finished_at DATETIME
-                )
-            """))
-        if 'agent_node' not in job_tables:
-            conn.execute(text("""
-                CREATE TABLE agent_node (
-                    id INTEGER PRIMARY KEY,
-                    name VARCHAR(120) UNIQUE NOT NULL,
-                    host_ip VARCHAR(64) NOT NULL DEFAULT '',
-                    platform VARCHAR(80) NOT NULL DEFAULT 'linux',
-                    role VARCHAR(80) NOT NULL DEFAULT 'general',
-                    version VARCHAR(40) NOT NULL DEFAULT '1.0.0',
-                    capabilities_json TEXT NOT NULL DEFAULT '[]',
-                    status VARCHAR(20) NOT NULL DEFAULT 'offline',
-                    last_seen_at DATETIME,
-                    created_at DATETIME NOT NULL,
-                    updated_at DATETIME NOT NULL
-                )
-            """))
-        if 'plugin_module' not in job_tables:
-            conn.execute(text("""
-                CREATE TABLE plugin_module (
-                    id INTEGER PRIMARY KEY,
-                    slug VARCHAR(120) UNIQUE NOT NULL,
-                    name VARCHAR(120) NOT NULL,
-                    category VARCHAR(80) NOT NULL DEFAULT 'platform',
-                    description VARCHAR(500) NOT NULL DEFAULT '',
-                    version VARCHAR(40) NOT NULL DEFAULT '1.0.0',
-                    source_url VARCHAR(255) NOT NULL DEFAULT '',
-                    enabled BOOLEAN NOT NULL DEFAULT 1,
-                    built_in BOOLEAN NOT NULL DEFAULT 0,
-                    created_at DATETIME NOT NULL,
-                    updated_at DATETIME NOT NULL
-                )
-            """))
-    existing_modules = {module.slug for module in PluginModule.query.all()}
-    seeded = False
-    for module_data in BUILTIN_MODULES:
-        if module_data['slug'] not in existing_modules:
-            db.session.add(PluginModule(
-                slug=module_data['slug'],
-                name=module_data['name'],
-                category=module_data['category'],
-                description=module_data['description'],
-                version=module_data['version'],
-                source_url='',
-                enabled=True,
-                built_in=True,
-            ))
-            seeded = True
-    if seeded:
-        db.session.commit()
+            for table_name, column_name, statement, existing in migrations:
+                if table_name in table_names and column_name not in existing:
+                    conn.execute(text(statement))
+            if 'user' in table_names and 'quota_mb' in user_columns:
+                conn.execute(text("UPDATE user SET quota_mb = 51200 WHERE quota_mb = 256"))
+
+        inspector = inspect(db.engine)
+        job_tables = {table_name for table_name in inspector.get_table_names()}
+        with db.engine.begin() as conn:
+            if 'job_task' not in job_tables:
+                conn.execute(text("""
+                    CREATE TABLE job_task (
+                        id INTEGER PRIMARY KEY,
+                        job_type VARCHAR(80) NOT NULL,
+                        target VARCHAR(120),
+                        payload_json TEXT NOT NULL DEFAULT '{}',
+                        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        progress INTEGER NOT NULL DEFAULT 0,
+                        message VARCHAR(255) NOT NULL DEFAULT 'queued',
+                        result_json TEXT NOT NULL DEFAULT '{}',
+                        created_by VARCHAR(80) NOT NULL DEFAULT 'system',
+                        created_at DATETIME NOT NULL,
+                        updated_at DATETIME NOT NULL,
+                        started_at DATETIME,
+                        finished_at DATETIME
+                    )
+                """))
+            if 'agent_node' not in job_tables:
+                conn.execute(text("""
+                    CREATE TABLE agent_node (
+                        id INTEGER PRIMARY KEY,
+                        name VARCHAR(120) UNIQUE NOT NULL,
+                        host_ip VARCHAR(64) NOT NULL DEFAULT '',
+                        platform VARCHAR(80) NOT NULL DEFAULT 'linux',
+                        role VARCHAR(80) NOT NULL DEFAULT 'general',
+                        version VARCHAR(40) NOT NULL DEFAULT '1.0.0',
+                        capabilities_json TEXT NOT NULL DEFAULT '[]',
+                        status VARCHAR(20) NOT NULL DEFAULT 'offline',
+                        last_seen_at DATETIME,
+                        created_at DATETIME NOT NULL,
+                        updated_at DATETIME NOT NULL
+                    )
+                """))
+            if 'plugin_module' not in job_tables:
+                conn.execute(text("""
+                    CREATE TABLE plugin_module (
+                        id INTEGER PRIMARY KEY,
+                        slug VARCHAR(120) UNIQUE NOT NULL,
+                        name VARCHAR(120) NOT NULL,
+                        category VARCHAR(80) NOT NULL DEFAULT 'platform',
+                        description VARCHAR(500) NOT NULL DEFAULT '',
+                        version VARCHAR(40) NOT NULL DEFAULT '1.0.0',
+                        source_url VARCHAR(255) NOT NULL DEFAULT '',
+                        enabled BOOLEAN NOT NULL DEFAULT 1,
+                        built_in BOOLEAN NOT NULL DEFAULT 0,
+                        created_at DATETIME NOT NULL,
+                        updated_at DATETIME NOT NULL
+                    )
+                """))
+
+        existing_modules = {module.slug for module in PluginModule.query.all()}
+        seeded = False
+        for module_data in BUILTIN_MODULES:
+            if module_data['slug'] not in existing_modules:
+                db.session.add(PluginModule(
+                    slug=module_data['slug'],
+                    name=module_data['name'],
+                    category=module_data['category'],
+                    description=module_data['description'],
+                    version=module_data['version'],
+                    source_url='',
+                    enabled=True,
+                    built_in=True,
+                ))
+                seeded = True
+        if seeded:
+            db.session.commit()
+        _db_ready = True
+
+
+with app.app_context():
+    ensure_database_schema(force=True)
 
 
 def ensure_default_admin_user():
@@ -428,6 +453,15 @@ def inject_user():
 @app.before_request
 def prepare_security_context():
     g.csp_nonce = secrets.token_urlsafe(16)
+
+
+@app.before_request
+def ensure_database_health():
+    try:
+        db.session.execute(text("SELECT id FROM user LIMIT 1"))
+    except OperationalError:
+        db.session.rollback()
+        ensure_database_schema(force=True)
 
 
 @app.before_request
