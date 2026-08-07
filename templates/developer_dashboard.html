@@ -1,4 +1,8 @@
 {% extends "base.html" %}
+{% block header_left_extra %}
+<button type="button" id="global-version-btn" class="topbar-pill">{% if current_language == 'en' %}Version v{{ app_version }}{% else %}Версія v{{ app_version }}{% endif %}</button>
+<button type="button" id="global-privacy-btn" class="topbar-pill">{% if current_language == 'en' %}Privacy{% else %}Приватність{% endif %}</button>
+{% endblock %}
 {% block content %}
 <div class="dashboard-shell">
   <header class="hero-card">
@@ -10,14 +14,18 @@
     <div class="hero-actions">
       <a class="ghost-btn" href="{{ url_for('developer_dns_ssl') }}">🌐 {% if current_language == 'en' %}DNS & SSL{% else %}DNS & SSL{% endif %}</a>
       <a class="ghost-btn" href="{{ url_for('developer_infrastructure') }}">🧩 {% if current_language == 'en' %}Infrastructure{% else %}Infrastructure{% endif %}</a>
+      <a class="ghost-btn" href="{{ url_for('developer_system_audit') }}">🧪 {% if current_language == 'en' %}Audit{% else %}Аудит{% endif %}</a>
+      <a class="ghost-btn" href="{{ url_for('developer_applications') }}">🗂️ {% if current_language == 'en' %}Applications{% else %}Сервіси{% endif %}</a>
       <a class="ghost-btn" href="{{ url_for('developer_logs') }}">📜 {% if current_language == 'en' %}Logs{% else %}Логи{% endif %}</a>
       <a class="ghost-btn" href="{{ url_for('developer_docker') }}">🐳 {% if current_language == 'en' %}Docker{% else %}Docker{% endif %}</a>
       <a class="ghost-btn" href="{{ url_for('developer_deploy') }}">🚀 {% if current_language == 'en' %}Deploy{% else %}Розгортання{% endif %}</a>
       <a class="ghost-btn" href="{{ url_for('developer_notifications') }}">🔔 {% if current_language == 'en' %}Alerts{% else %}Сповіщення{% endif %}</a>
       <a class="ghost-btn" href="{{ url_for('developer_marketplace') }}">🛒 {% if current_language == 'en' %}Marketplace{% else %}Marketplace{% endif %}</a>
       <a class="ghost-btn" href="{{ url_for('developer_backup_center') }}">💾 {% if current_language == 'en' %}Backup Center{% else %}Backup Center{% endif %}</a>
+      <a class="ghost-btn" href="{{ url_for('developer_sftp_access') }}">🔐 SFTP Access</a>
+      <a class="ghost-btn" href="{{ url_for('developer_sftp_users') }}">🧾 SFTP Users</a>
+      <a class="ghost-btn" href="{{ url_for('developer_upload_history') }}">📦 Upload History</a>
       <a class="ghost-btn" href="{{ url_for('developer_users') }}">👥 {% if current_language == 'en' %}Users & sites{% else %}Користувачі &amp; сайти{% endif %}</a>
-      <form method="POST" action="{{ url_for('logout') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button class="danger-btn" type="submit">{% if current_language == 'en' %}Sign out{% else %}Вийти{% endif %}</button></form>
     </div>
   </header>
 

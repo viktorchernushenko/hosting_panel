@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card">
+    <div>
+      <p class="eyebrow">Developer SFTP</p>
+      <h2>{% if current_language == 'en' %}SFTP and assigned applications{% else %}SFTP та призначені застосунки{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}Access is limited to assigned applications and allowed roots.{% else %}Доступ обмежений призначеними застосунками та дозволеними коренями.{% endif %}</p>
+    </div>
+    <a class="ghost-btn" href="{{ url_for('dashboard') }}">← {% if current_language == 'en' %}Back to dashboard{% else %}До дашборду{% endif %}</a>
+  </header>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}Connection profiles{% else %}Профілі підключення{% endif %}</h3>
+      <span class="status-pill">SFTP</span>
+    </div>
+    <div class="backup-list">
+      {% for item in sftp_connections %}
+      <div class="backup-row">
+        <span>
+          <strong>{{ item.username }}</strong>
+          <small>Protocol: {{ item.protocol }} | Host: {{ item.host }} | Port: {{ item.port }}</small>
+          <small>Root: {{ item.root }}</small>
+          <small>Auth: {{ item.auth_type }}</small>
+          <small>{% if current_language == 'en' %}Assigned applications{% else %}Призначені застосунки{% endif %}: {% for site in item.assigned_sites %}{{ site.name }}{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</small>
+        </span>
+      </div>
+      {% else %}
+      <p class="empty-state">{% if current_language == 'en' %}No SFTP profiles found.{% else %}SFTP профілі відсутні.{% endif %}</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}Assigned applications{% else %}Призначені застосунки{% endif %}</h3>
+      <span class="status-pill">{{ sites|length }}</span>
+    </div>
+    <div class="site-list">
+      {% for site in sites %}
+      <div class="site-row">
+        <div>
+          <strong>{{ site.name }}</strong>
+          <div class="site-meta">/{{ site.folder_name }}</div>
+        </div>
+        <a class="link-btn" href="{{ url_for('manage_site', folder_name=site.folder_name) }}">{% if current_language == 'en' %}Files{% else %}Файли{% endif %}</a>
+      </div>
+      {% else %}
+      <p class="empty-state">{% if current_language == 'en' %}No assigned applications.{% else %}Немає призначених застосунків.{% endif %}</p>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

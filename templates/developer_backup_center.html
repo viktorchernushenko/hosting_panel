@@ -28,7 +28,7 @@
     </div>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>Site</th><th>Owner</th><th>Backup count</th><th>Latest</th><th>Size</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Site</th><th>Owner</th><th>Backup count</th><th>Latest</th><th>Size</th><th>App quota</th><th>Backup quota</th><th>Actions</th></tr></thead>
         <tbody>
           {% for row in backup_rows %}
           <tr>
@@ -37,6 +37,14 @@
             <td>{{ row.count }}</td>
             <td>{{ row.latest.name if row.latest else '—' }}</td>
             <td>{{ '%.1f'|format(row.size / 1024) }} KB</td>
+            <td>
+              {{ row.access.application_quota_mb }} MB
+              <div class="service-meta">{{ row.quotas.application_ratio }}%</div>
+            </td>
+            <td>
+              {{ row.access.backup_quota_mb }} MB
+              <div class="service-meta">{{ row.quotas.backup_ratio }}%</div>
+            </td>
             <td>
               <div class="site-actions">
                 <form action="{{ url_for('queue_site_backup', site_id=row.site.id) }}" method="POST">
@@ -53,7 +61,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="6" class="empty-state">{% if current_language == 'en' %}Backups not found.{% else %}Резервні копії не знайдено.{% endif %}</td></tr>
+          <tr><td colspan="8" class="empty-state">{% if current_language == 'en' %}Backups not found.{% else %}Резервні копії не знайдено.{% endif %}</td></tr>
           {% endfor %}
         </tbody>
       </table>

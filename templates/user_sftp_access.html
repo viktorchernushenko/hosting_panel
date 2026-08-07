@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card">
+    <div>
+      <p class="eyebrow">SFTP</p>
+      <h2>{% if current_language == 'en' %}SFTP access{% else %}SFTP доступ{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}Use FileZilla via OpenSSH SFTP only. Plain FTP is disabled.{% else %}Використовуйте FileZilla лише через OpenSSH SFTP. Plain FTP вимкнено.{% endif %}</p>
+    </div>
+    <a class="ghost-btn" href="{{ url_for('dashboard') }}">← {% if current_language == 'en' %}Back to panel{% else %}До панелі{% endif %}</a>
+  </header>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}FileZilla connection{% else %}Підключення через FileZilla{% endif %}</h3>
+      <span class="status-pill">SFTP :22</span>
+    </div>
+    <div class="backup-list">
+      {% for item in sftp_connections %}
+      <div class="backup-row">
+        <span>
+          <strong>{{ item.username }}</strong>
+          <small>Protocol: {{ item.protocol }} | Host: {{ item.host }} | Port: {{ item.port }}</small>
+          <small>Root: {{ item.root }}</small>
+          <small>{% if current_language == 'en' %}Authentication{% else %}Автентифікація{% endif %}: {{ item.auth_type }}</small>
+        </span>
+      </div>
+      {% else %}
+      <p class="empty-state">{% if current_language == 'en' %}No active SFTP account assigned. Contact your administrator.{% else %}Немає активного призначеного SFTP акаунта. Зверніться до адміністратора.{% endif %}</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}Assigned resources{% else %}Призначені ресурси{% endif %}</h3>
+      <span class="status-pill">{{ sites|length }}</span>
+    </div>
+    <div class="site-list">
+      {% for site in sites %}
+      <div class="site-row">
+        <div>
+          <strong>{{ site.name }}</strong>
+          <div class="site-meta">/{{ site.folder_name }}</div>
+        </div>
+        <a class="link-btn" href="{{ url_for('manage_site', folder_name=site.folder_name) }}">{% if current_language == 'en' %}Files{% else %}Файли{% endif %}</a>
+      </div>
+      {% else %}
+      <p class="empty-state">{% if current_language == 'en' %}No resources assigned yet.{% else %}Ресурси ще не призначено.{% endif %}</p>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

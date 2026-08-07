@@ -44,6 +44,11 @@ sudo -u hostingpanel ./venv/bin/python app.py --create-admin --username develope
 
 - Generic installation guide: [INSTALL_ANY_SERVER.md](INSTALL_ANY_SERVER.md)
 - Ops runbook: [README_SERVER.md](README_SERVER.md)
+- Server architecture: [SERVER_ARCHITECTURE.md](SERVER_ARCHITECTURE.md)
+- Control panel inventory: [CONTROL_PANEL.md](CONTROL_PANEL.md)
+- Deployment notes: [DEPLOYMENT.md](DEPLOYMENT.md)
+- Backup notes: [BACKUP.md](BACKUP.md)
+- Security notes: [SECURITY.md](SECURITY.md)
 
 ## Local Development
 

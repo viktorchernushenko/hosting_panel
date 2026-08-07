@@ -34,6 +34,26 @@
       <div class="metric-value">{{ site.custom_domain or site.name ~ '.myh.guru' }}</div>
       <div class="metric-caption">{% if current_language == 'en' %}current public endpoint{% else %}поточна публічна точка{% endif %}</div>
     </article>
+    <article class="metric-tile">
+      <div class="metric-label">{% if current_language == 'en' %}App quota{% else %}Квота застосунку{% endif %}</div>
+      <div class="metric-value">{{ access.application_quota_mb }} MB</div>
+      <div class="metric-caption">{{ quota.application_ratio }}% {% if current_language == 'en' %}used{% else %}використано{% endif %}</div>
+    </article>
+    <article class="metric-tile">
+      <div class="metric-label">{% if current_language == 'en' %}Backup quota{% else %}Квота backup{% endif %}</div>
+      <div class="metric-value">{{ access.backup_quota_mb }} MB</div>
+      <div class="metric-caption">{{ quota.backup_ratio }}% {% if current_language == 'en' %}used{% else %}використано{% endif %}</div>
+    </article>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head"><h3>SFTP & Access Scope</h3><span class="status-pill">SFTP :22</span></div>
+    <div class="backup-list">
+      <div class="backup-row"><span><strong>File root</strong><small>{{ access.file_root }}</small></span></div>
+      <div class="backup-row"><span><strong>Upload root</strong><small>{{ access.upload_root }}</small></span></div>
+      <div class="backup-row"><span><strong>Deployment root</strong><small>{{ access.deployment_root }}</small></span></div>
+      <div class="backup-row"><span><strong>Backup root</strong><small>{{ access.backup_root }}</small></span></div>
+    </div>
   </section>
 
   <section class="panel-grid">

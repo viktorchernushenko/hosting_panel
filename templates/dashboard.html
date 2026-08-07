@@ -54,6 +54,10 @@
         <div class="action-title">{% if current_language == 'en' %}Manage sites{% else %}Керувати сайтами{% endif %}</div>
         <div class="action-meta">{% if current_language == 'en' %}Open files, domains, and backups{% else %}Відкрити файли, домени й резервні копії{% endif %}</div>
       </a>
+      <a class="action-card" href="{{ url_for('user_sftp_access') }}">
+        <div class="action-title">SFTP / FileZilla</div>
+        <div class="action-meta">{% if current_language == 'en' %}Connection profile and assigned roots{% else %}Профіль підключення та призначені корені{% endif %}</div>
+      </a>
       <a class="action-card" href="#account-panel">
         <div class="action-title">{% if current_language == 'en' %}Account{% else %}Обліковий запис{% endif %}</div>
         <div class="action-meta">{% if current_language == 'en' %}Reset your password securely{% else %}Безпечно змінити пароль{% endif %}</div>

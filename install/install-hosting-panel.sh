@@ -121,6 +121,12 @@ HOSTING_PANEL_VERSION=1.5.0
 ENV
 fi
 chmod 600 "$ENV_FILE"
+if ! grep -q '^HOSTING_PANEL_SFTP_PROVISION_SERVICE=' "$ENV_FILE"; then
+  echo 'HOSTING_PANEL_SFTP_PROVISION_SERVICE=myh-sftp-provision.service' >> "$ENV_FILE"
+fi
+if ! grep -q '^HOSTING_PANEL_SFTP_PROVISION_WORKER=' "$ENV_FILE"; then
+  echo 'HOSTING_PANEL_SFTP_PROVISION_WORKER=/usr/local/sbin/myh-sftp-provision-worker.sh' >> "$ENV_FILE"
+fi
 
 echo "[7/10] Writing systemd unit"
 UNIT_FILE="/etc/systemd/system/$SERVICE_NAME.service"
@@ -172,11 +178,31 @@ UNIT
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME.service"
 
-echo "[8/12] Starting service"
+echo "[8/13] Installing SFTP root provisioner"
+SFTP_WORKER_SRC="$INSTALL_DIR/systemd/myh-sftp-provision-worker.sh"
+SFTP_WORKER_DST="/usr/local/sbin/myh-sftp-provision-worker.sh"
+SFTP_UNIT_SRC="$INSTALL_DIR/systemd/myh-sftp-provision.service"
+SFTP_UNIT_DST="/etc/systemd/system/myh-sftp-provision.service"
+if [[ -f "$SFTP_WORKER_SRC" && -f "$SFTP_UNIT_SRC" ]]; then
+  install -m 700 "$SFTP_WORKER_SRC" "$SFTP_WORKER_DST"
+  install -m 644 "$SFTP_UNIT_SRC" "$SFTP_UNIT_DST"
+  systemctl daemon-reload
+  systemctl enable myh-sftp-provision.service
+  SYSTEMCTL_BIN="$(command -v systemctl)"
+  SUDOERS_FILE="/etc/sudoers.d/90-hosting-panel-sftp-provision"
+  {
+    echo "Defaults:${APP_USER} !requiretty"
+    echo "${APP_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start myh-sftp-provision.service"
+  } > "$SUDOERS_FILE"
+  chmod 440 "$SUDOERS_FILE"
+  visudo -cf "$SUDOERS_FILE" >/dev/null
+fi
+
+echo "[9/13] Starting service"
 systemctl restart "$SERVICE_NAME.service"
 systemctl --no-pager --full status "$SERVICE_NAME.service" | sed -n '1,30p'
 
-echo "[9/12] Installing watchdog"
+echo "[10/13] Installing watchdog"
 WATCHDOG_SCRIPT="/usr/local/sbin/${SERVICE_NAME}-watchdog.sh"
 WATCHDOG_SERVICE="/etc/systemd/system/${SERVICE_NAME}-watchdog.service"
 WATCHDOG_TIMER="/etc/systemd/system/${SERVICE_NAME}-watchdog.timer"
@@ -241,7 +267,7 @@ WATCHDOG_TMR
 systemctl daemon-reload
 systemctl enable --now "$(basename "$WATCHDOG_TIMER")"
 
-echo "[10/12] Configuring nginx (optional)"
+echo "[11/13] Configuring nginx (optional)"
 if [[ "$INSTALL_NGINX" -eq 1 ]] && command -v nginx >/dev/null 2>&1; then
   NGINX_CONF="/etc/nginx/sites-available/$SERVICE_NAME.conf"
   SERVER_NAMES="$DOMAIN"
@@ -269,7 +295,7 @@ else
   echo "nginx skipped"
 fi
 
-echo "[11/12] Installing admin helper command"
+echo "[12/13] Installing admin helper command"
 cat > /usr/local/bin/admin <<ADMIN
 #!/usr/bin/env bash
 set -euo pipefail
@@ -298,7 +324,7 @@ echo "admin_password=\$PASSWORD"
 ADMIN
 chmod 755 /usr/local/bin/admin
 
-echo "[12/12] Health check"
+echo "[13/13] Health check"
 HTTP_CODE="$(curl -sS -o /dev/null -w "%{http_code}" "http://$BIND_HOST:$BIND_PORT/healthz" || true)"
 echo "local_healthz=$HTTP_CODE"
 if [[ "$HTTP_CODE" != "200" ]]; then

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card">
+    <div>
+      <p class="eyebrow">Uploads</p>
+      <h2>{% if current_language == 'en' %}Upload history{% else %}Історія завантажень{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}SFTP / PANEL / GIT activity timeline.{% else %}Таймлайн активності SFTP / PANEL / GIT.{% endif %}</p>
+    </div>
+    <a class="ghost-btn" href="{{ url_for('dashboard') }}">← {% if current_language == 'en' %}Back{% else %}Назад{% endif %}</a>
+  </header>
+
+  <section class="panel-card full-width">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}Events{% else %}Події{% endif %}</h3><span class="status-pill">{{ rows|length }}</span></div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Timestamp</th>
+            <th>User</th>
+            <th>Role</th>
+            <th>Application</th>
+            <th>Filename</th>
+            <th>Size</th>
+            <th>Source</th>
+            <th>Status</th>
+            <th>Deployment</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>{{ row.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+            <td>{{ row.username }}</td>
+            <td>{{ row.role }}</td>
+            <td>{{ row.application.name if row.application else '—' }}</td>
+            <td>{{ row.filename }}</td>
+            <td>{{ row.size_bytes }}</td>
+            <td>{{ row.source }}</td>
+            <td>{{ row.status }}</td>
+            <td>{{ row.deployment or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="9" class="empty-state">{% if current_language == 'en' %}No upload events found.{% else %}Події завантажень відсутні.{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

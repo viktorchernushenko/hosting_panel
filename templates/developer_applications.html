@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card">
+    <div>
+      <p class="eyebrow">{% if current_language == 'en' %}Consolidated registry{% else %}Централізований registry{% endif %}</p>
+      <h2>{% if current_language == 'en' %}Applications{% else %}Сервіси та додатки{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}A single list of current managed applications, their domains, backups, and health signals.{% else %}Єдиний список керованих додатків, їхніх доменів, резервних копій і сигналів стану.{% endif %}</p>
+    </div>
+    <div class="hero-actions">
+      <a class="ghost-btn" href="{{ url_for('developer_dashboard') }}">{% if current_language == 'en' %}← Back to panel{% else %}← До панелі{% endif %}</a>
+    </div>
+  </header>
+
+  <section class="metrics-grid">
+    <article class="card-widget">
+      <div class="widget-title">Total</div>
+      <div class="widget-value">{{ registry.summary.total }}</div>
+      <div class="widget-caption">applications tracked</div>
+    </article>
+    <article class="card-widget">
+      <div class="widget-title">Online</div>
+      <div class="widget-value">{{ registry.summary.online }}</div>
+      <div class="widget-caption">healthy responders</div>
+    </article>
+    <article class="card-widget">
+      <div class="widget-title">Offline</div>
+      <div class="widget-value">{{ registry.summary.offline }}</div>
+      <div class="widget-caption">failed probes</div>
+    </article>
+    <article class="card-widget">
+      <div class="widget-title">Backups</div>
+      <div class="widget-value">{{ registry.summary.backups }}</div>
+      <div class="widget-caption">available archives</div>
+    </article>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}Application inventory{% else %}Інвентар додатків{% endif %}</h3>
+      <input id="application-filter" class="search-box" placeholder="{% if current_language == 'en' %}Search by name, domain, owner{% else %}Пошук за назвою, доменом, власником{% endif %}">
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Name</th><th>Type</th><th>Owner</th><th>Domain</th><th>Status</th><th>Backups</th><th>Disk</th><th>App quota</th><th>Backup quota</th></tr></thead>
+        <tbody>
+          {% for app in registry.applications %}
+          <tr data-app-row="{{ app.name }} {{ app.domain }} {{ app.owner }}">
+            <td>
+              <strong>{{ app.name }}</strong>
+              <div class="service-meta">{{ app.stack }} · #{{ app.id }}</div>
+            </td>
+            <td>{{ app.type }}</td>
+            <td>{{ app.owner }}</td>
+            <td>{{ app.domain }}</td>
+            <td>
+              <span class="status-badge {{ 'success' if app.status == 'online' else 'warning' if app.status == 'degraded' else 'danger' }}">{{ app.status }}</span>
+              <div class="service-meta">{% if app.health_latency_ms %}{{ app.health_latency_ms }} ms{% else %}{{ app.health_error or '—' }}{% endif %}</div>
+            </td>
+            <td>{{ app.backup_count }} · {{ app.latest_backup }}</td>
+            <td>{{ app.disk_usage_mb }} MB</td>
+            <td>
+              {{ app.application_quota_mb }} MB
+              <div class="service-meta">{{ app.application_usage_ratio }}%</div>
+            </td>
+            <td>
+              {{ app.backup_quota_mb }} MB
+              <div class="service-meta">{{ app.backup_usage_ratio }}%</div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="9" class="empty-state">{% if current_language == 'en' %}No applications registered yet.{% else %}Додатки ще не зареєстровані.{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script nonce="{{ csp_nonce }}">
+  const applicationFilter = document.getElementById('application-filter');
+  if (applicationFilter) {
+    applicationFilter.addEventListener('input', () => {
+      const query = applicationFilter.value.trim().toLowerCase();
+      document.querySelectorAll('[data-app-row]').forEach((row) => {
+        row.style.display = row.dataset.appRow.toLowerCase().includes(query) ? '' : 'none';
+      });
+    });
+  }
+</script>
+{% endblock %}
