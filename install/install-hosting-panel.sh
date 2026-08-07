@@ -117,7 +117,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
   umask 077
   cat > "$ENV_FILE" <<ENV
 HOSTING_PANEL_SECRET=$(openssl rand -hex 48)
-HOSTING_PANEL_VERSION=1.5.0
+HOSTING_PANEL_VERSION=1.6.0
 ENV
 fi
 chmod 600 "$ENV_FILE"
@@ -191,7 +191,6 @@ if [[ -f "$SFTP_WORKER_SRC" && -f "$SFTP_UNIT_SRC" ]]; then
   SYSTEMCTL_BIN="$(command -v systemctl)"
   SUDOERS_FILE="/etc/sudoers.d/90-hosting-panel-sftp-provision"
   {
-    echo "Defaults:${APP_USER} !requiretty"
     echo "${APP_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start myh-sftp-provision.service"
   } > "$SUDOERS_FILE"
   chmod 440 "$SUDOERS_FILE"
@@ -312,8 +311,13 @@ fi
 USERNAME="\${1:-developer}"
 PASSWORD="\${2:-\$(openssl rand -hex 12)}"
 
-if [[ ! -r "\$ENV_FILE" ]]; then
-  echo "Cannot read env file: \$ENV_FILE"
+if [[ ! -e "$ENV_FILE" ]]; then
+  echo "Missing env file: $ENV_FILE"
+  exit 1
+fi
+
+if ! sudo test -r "$ENV_FILE"; then
+  echo "Cannot read env file as root: $ENV_FILE"
   exit 1
 fi
 

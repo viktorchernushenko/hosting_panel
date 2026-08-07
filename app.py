@@ -130,6 +130,14 @@ SFTP_PROVISION_RESULT_FILE = os.path.join(app.instance_path, 'sftp_provision_res
 SFTP_PROVISION_WORKER = os.environ.get('HOSTING_PANEL_SFTP_PROVISION_WORKER', '/usr/local/sbin/myh-sftp-provision-worker.sh')
 SFTP_PROVISION_SERVICE = os.environ.get('HOSTING_PANEL_SFTP_PROVISION_SERVICE', 'myh-sftp-provision.service')
 SFTP_PROVISION_LOCK = threading.Lock()
+API_CSRF_EXEMPT_PATHS = {
+    '/api/agents/heartbeat',
+    '/api/webhook/notify',
+    '/api/github/webhook',
+}
+ARCHIVE_MAX_ENTRIES = int(os.environ.get('ARCHIVE_MAX_ENTRIES', '5000'))
+ARCHIVE_MAX_UNCOMPRESSED_BYTES = int(os.environ.get('ARCHIVE_MAX_UNCOMPRESSED_BYTES', str(1024 * 1024 * 1024)))
+ARCHIVE_MAX_COMPRESSION_RATIO = int(os.environ.get('ARCHIVE_MAX_COMPRESSION_RATIO', '200'))
 _db_repair_lock = threading.Lock()
 _db_ready = False
 SUPPORTED_LANGUAGES = {'uk': 'Українська', 'en': 'English'}
@@ -616,7 +624,7 @@ def ensure_default_admin_user():
     )
     db.session.add(user)
     db.session.commit()
-    print(f'Bootstrap admin user created: {username}/{password}', flush=True)
+    print(f'Bootstrap admin user created: {username}', flush=True)
     return user
 
 
@@ -692,7 +700,7 @@ def get_current_language():
 def inject_user():
     user = None
     if 'user_id' in session:
-        user = User.query.get(session['user_id'])
+        user = db.session.get(User, session['user_id'])
     if '_csrf_token' not in session:
         session['_csrf_token'] = secrets.token_urlsafe(32)
     return {
@@ -723,7 +731,7 @@ def ensure_database_health():
 @app.before_request
 def validate_csrf():
     if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'}:
-        if request.path.startswith('/api/'):
+        if request.path.startswith('/api/') and request.path in API_CSRF_EXEMPT_PATHS:
             return
         supplied = request.form.get('_csrf_token') or request.headers.get('X-CSRF-Token')
         expected = session.get('_csrf_token')
@@ -1299,8 +1307,26 @@ def mask_sensitive_text(line):
 
 def safe_extract_zip(archive, destination):
     destination = os.path.realpath(destination)
-    for member in archive.infolist():
-        target = os.path.realpath(os.path.join(destination, member.filename))
+    total_uncompressed = 0
+    members = archive.infolist()
+    if len(members) > ARCHIVE_MAX_ENTRIES:
+        raise ValueError('Архів містить забагато файлів')
+    for member in members:
+        name = (member.filename or '').replace('\\', '/').strip()
+        if not name:
+            continue
+        normalized = os.path.normpath(name).replace('\\', '/')
+        if normalized.startswith('/') or normalized.startswith('../') or normalized == '..' or re.match(r'^[A-Za-z]:', normalized):
+            raise ValueError('Архів містить небезпечний шлях')
+        mode = (member.external_attr >> 16) & 0o170000
+        if mode in {0o120000, 0o060000}:
+            raise ValueError('Архів містить заборонений тип запису')
+        total_uncompressed += max(0, int(member.file_size or 0))
+        if total_uncompressed > ARCHIVE_MAX_UNCOMPRESSED_BYTES:
+            raise ValueError('Архів перевищує ліміт розпакування')
+        if member.compress_size and member.file_size > member.compress_size * ARCHIVE_MAX_COMPRESSION_RATIO:
+            raise ValueError('Архів має небезпечний коефіцієнт стиснення')
+        target = os.path.realpath(os.path.join(destination, normalized))
         if os.path.commonpath([destination, target]) != destination:
             raise ValueError('Архів містить небезпечний шлях')
     archive.extractall(destination)
@@ -2136,7 +2162,7 @@ def admin_required(f):
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
             return redirect(url_for('login'))
-        user = User.query.get(session['user_id'])
+        user = db.session.get(User, session['user_id'])
         if not user or not user.is_admin:
             return abort(403)
         return f(*args, **kwargs)
@@ -2148,7 +2174,7 @@ def developer_required(f):
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
             return redirect(url_for('login'))
-        user = User.query.get(session['user_id'])
+        user = db.session.get(User, session['user_id'])
         if not user:
             return abort(403)
         if user_role(user) not in {'developer', 'admin'} and not user.is_admin:
@@ -2227,7 +2253,9 @@ def login():
         if user and check_password_hash(user.password, password):
             # Перевірка на блокування аккаунта
             if user.is_banned:
-                error = "Ваш аккаунт заблоковано адміністратором!"
+                ip_attempts.append(now)
+                account_attempts.append(now)
+                error = "Невірний логін або пароль!"
             else:
                 login_attempts.pop(ip_key, None)
                 login_attempts.pop(account_key, None)
@@ -2266,7 +2294,7 @@ def dashboard():
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
-    user = User.query.get(session['user_id'])
+    user = db.session.get(User, session['user_id'])
     if user.is_banned:
         session.clear()
         return redirect(url_for('login'))
@@ -2825,7 +2853,7 @@ def manage_site(folder_name):
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
-    user = User.query.get(session['user_id'])
+    user = db.session.get(User, session['user_id'])
     site = Site.query.filter_by(folder_name=folder_name).first()
     if not user or not site:
         return abort(404)
@@ -3089,7 +3117,7 @@ def delete_site(site_id):
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
-    user = User.query.get(session['user_id'])
+    user = db.session.get(User, session['user_id'])
     site = Site.query.get_or_404(site_id)
     require_application_permission(user, site, 'files.delete')
 
@@ -3144,6 +3172,13 @@ def healthz():
         'detail': detail,
         'timestamp': datetime.now().strftime('%Y-%m-%dT%H:%M:%S'),
     }), status_code
+
+
+@app.route('/api/health')
+def api_health():
+    response = jsonify({'status': 'ok'})
+    response.headers['Cache-Control'] = 'no-store'
+    return response, 200
 
 
 @app.route('/api/public-status')
@@ -3867,7 +3902,7 @@ def delete_file(folder_name):
     if 'user_id' not in session:
         return redirect(url_for('login'))
         
-    user = User.query.get(session['user_id'])
+    user = db.session.get(User, session['user_id'])
     site = Site.query.filter_by(folder_name=folder_name).first()
     if not user or not site:
         return abort(404)

@@ -275,7 +275,7 @@
     <div class="card">
         <div class="global-header">
             <div class="global-header-left">
-                <a class="brand-chip" href="{{ url_for('dashboard') if current_user else url_for('index') }}"><img src="{{ url_for('static', filename='logo.svg') }}" alt="myh logo">myh.guru</a>
+                <a class="brand-chip" href="{{ url_for('dashboard') if current_user else url_for('index') }}"><img src="{{ url_for('static', filename='favicon.ico') }}?v=3" alt="myh logo">myh.guru</a>
                 {% block header_left_extra %}{% endblock %}
             </div>
             <div class="global-header-center">

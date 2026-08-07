@@ -592,7 +592,7 @@
         const payload = { command: document.getElementById('console-command').value };
         const response = await fetch('/api/console', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '{{ csrf_token }}' },
           body: JSON.stringify(payload),
         });
         const result = await response.json();

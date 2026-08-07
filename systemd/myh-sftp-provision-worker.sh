@@ -4,7 +4,7 @@ set -euo pipefail
 QUEUE_FILE="${HOSTING_PANEL_SFTP_PROVISION_QUEUE_FILE:-/home/myserver/hosting_panel/instance/sftp_provision_queue.jsonl}"
 RESULT_FILE="${HOSTING_PANEL_SFTP_PROVISION_RESULT_FILE:-/home/myserver/hosting_panel/instance/sftp_provision_result.jsonl}"
 STATE_FILE="${HOSTING_PANEL_SFTP_PROVISION_STATE_FILE:-/var/lib/myh-sftp-provision/state.json}"
-LOCK_FILE="${HOSTING_PANEL_SFTP_PROVISION_LOCK_FILE:-/run/myh-sftp-provision.lock}"
+LOCK_FILE="${HOSTING_PANEL_SFTP_PROVISION_LOCK_FILE:-/run/myh-sftp-provision/myh-sftp-provision.lock}"
 CONFIG_FILE="${HOSTING_PANEL_SFTP_CONFIG_FILE:-/etc/ssh/sshd_config.d/99-myh-sftp.conf}"
 KEYS_DIR="${HOSTING_PANEL_SFTP_KEYS_DIR:-/etc/ssh/myh-sftp-authorized-keys}"
 SFTP_GROUP="${HOSTING_PANEL_SFTP_GROUP:-myh_sftp}"
