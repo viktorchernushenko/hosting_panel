@@ -60,7 +60,7 @@ CLOUDFLARE_ZONE_NAME = os.environ.get('CLOUDFLARE_ZONE_NAME', 'myh.guru')
 CLOUDFLARE_TOKEN_FILE = os.environ.get('CLOUDFLARE_TOKEN_FILE', '/tmp/.cf_token')
 CLOUDFLARE_LOCAL_TOKEN_FILE = os.path.join(app.instance_path, 'cloudflare_api_token')
 CLOUDFLARE_LOCAL_ZONE_FILE = os.path.join(app.instance_path, 'cloudflare_zone_name')
-APP_VERSION = os.environ.get('HOSTING_PANEL_VERSION', '1.9.0')
+APP_VERSION = os.environ.get('HOSTING_PANEL_VERSION', '1.9.1')
 PUBLIC_HOME_PREFS_FILE = os.path.join(app.instance_path, 'public_home_prefs.json')
 DEFAULT_PUBLIC_HOME_PREFS = {
     'show_cpu': True,

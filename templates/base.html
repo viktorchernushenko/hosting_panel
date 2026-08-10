@@ -280,7 +280,7 @@
         <nav>
           <section class="nav-group">
             <div class="nav-label">{% if current_language == 'en' %}Overview{% else %}Огляд{% endif %}</div>
-            <a class="nav-link {{ 'active' if request.endpoint == 'dashboard' else '' }}" href="{{ url_for('dashboard') }}"><svg class="ui-icon fill" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#grid"/></svg><span>Dashboard</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'dashboard' else '' }}" href="{{ url_for('dashboard') }}"><svg class="ui-icon fill" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#grid"/></svg><span>{% if current_language == 'en' %}Home{% else %}Головна{% endif %}</span></a>
           </section>
           <section class="nav-group">
             <div class="nav-label">Hosting</div>
