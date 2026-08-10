@@ -183,18 +183,14 @@ SFTP_WORKER_SRC="$INSTALL_DIR/systemd/myh-sftp-provision-worker.sh"
 SFTP_WORKER_DST="/usr/local/sbin/myh-sftp-provision-worker.sh"
 SFTP_UNIT_SRC="$INSTALL_DIR/systemd/myh-sftp-provision.service"
 SFTP_UNIT_DST="/etc/systemd/system/myh-sftp-provision.service"
+SFTP_PATH_SRC="$INSTALL_DIR/systemd/myh-sftp-provision.path"
+SFTP_PATH_DST="/etc/systemd/system/myh-sftp-provision.path"
 if [[ -f "$SFTP_WORKER_SRC" && -f "$SFTP_UNIT_SRC" ]]; then
   install -m 700 "$SFTP_WORKER_SRC" "$SFTP_WORKER_DST"
   install -m 644 "$SFTP_UNIT_SRC" "$SFTP_UNIT_DST"
+  install -m 644 "$SFTP_PATH_SRC" "$SFTP_PATH_DST"
   systemctl daemon-reload
-  systemctl enable myh-sftp-provision.service
-  SYSTEMCTL_BIN="$(command -v systemctl)"
-  SUDOERS_FILE="/etc/sudoers.d/90-hosting-panel-sftp-provision"
-  {
-    echo "${APP_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start myh-sftp-provision.service"
-  } > "$SUDOERS_FILE"
-  chmod 440 "$SUDOERS_FILE"
-  visudo -cf "$SUDOERS_FILE" >/dev/null
+  systemctl enable --now myh-sftp-provision.path
 fi
 
 echo "[9/13] Starting service"

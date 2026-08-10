@@ -1597,10 +1597,8 @@ def queue_sftp_provision(account, action, actor='system'):
         append_jsonl(SFTP_PROVISION_QUEUE_FILE, payload)
     account.system_state = 'queued'
     db.session.commit()
-    try:
-        subprocess.run(['sudo', '-n', 'systemctl', 'start', SFTP_PROVISION_SERVICE], check=False, timeout=8)
-    except Exception:
-        pass
+    # The privileged worker is triggered by myh-sftp-provision.path when the
+    # queue file changes. This remains compatible with NoNewPrivileges=true.
 
 
 def apply_sftp_provision_results():
@@ -3272,8 +3270,11 @@ def resolve_site_request_path(site, site_path, requested_path):
     except OSError:
         has_existing_content = False
     if not has_existing_content:
-        os.makedirs(site_path, exist_ok=True)
-        scaffold_site_content(site_path, site.name)
+        try:
+            os.makedirs(site_path, exist_ok=True)
+            scaffold_site_content(site_path, site.name)
+        except OSError:
+            return 'index.html'
     return 'index.html'
 
 
