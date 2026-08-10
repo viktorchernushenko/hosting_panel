@@ -117,7 +117,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
   umask 077
   cat > "$ENV_FILE" <<ENV
 HOSTING_PANEL_SECRET=$(openssl rand -hex 48)
-HOSTING_PANEL_VERSION=1.7.0
+HOSTING_PANEL_VERSION=1.8.0
 ENV
 fi
 chmod 600 "$ENV_FILE"
@@ -154,7 +154,7 @@ PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=$INSTALL_DIR/instance $INSTALL_DIR/user_sites
+ReadWritePaths=$INSTALL_DIR/instance $INSTALL_DIR/user_sites /srv/apps /srv/backups
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

@@ -12,36 +12,10 @@
       <p class="subtitle">{% if current_language == 'en' %}Monitoring, sites, files, and secure server diagnostics in one place.{% else %}Моніторинг, сайти, файли та безпечна діагностика сервера в одному місці.{% endif %}</p>
     </div>
     <div class="hero-actions">
-      {% if is_platform_admin %}
-      <a class="ghost-btn" href="{{ url_for('developer_dns_ssl') }}">🌐 {% if current_language == 'en' %}DNS & SSL{% else %}DNS & SSL{% endif %}</a>
-      {% endif %}
-      <a class="ghost-btn" href="{{ url_for('developer_infrastructure') }}">🧩 {% if current_language == 'en' %}Infrastructure{% else %}Infrastructure{% endif %}</a>
-      <a class="ghost-btn" href="{{ url_for('developer_system_audit') }}">🧪 {% if current_language == 'en' %}Audit{% else %}Аудит{% endif %}</a>
-      <a class="ghost-btn" href="{{ url_for('developer_applications') }}">🗂️ {% if current_language == 'en' %}Applications{% else %}Сервіси{% endif %}</a>
-      <a class="ghost-btn" href="{{ url_for('developer_logs') }}">📜 {% if current_language == 'en' %}Logs{% else %}Логи{% endif %}</a>
-      <a class="ghost-btn" href="{{ url_for('developer_docker') }}">🐳 {% if current_language == 'en' %}Docker{% else %}Docker{% endif %}</a>
-      <a class="ghost-btn" href="{{ url_for('developer_deploy') }}">🚀 {% if current_language == 'en' %}Deploy{% else %}Розгортання{% endif %}</a>
-      <a class="ghost-btn" href="{{ url_for('developer_notifications') }}">🔔 {% if current_language == 'en' %}Alerts{% else %}Сповіщення{% endif %}</a>
-      {% if is_platform_admin %}
-      <a class="ghost-btn" href="{{ url_for('developer_marketplace') }}">🛒 {% if current_language == 'en' %}Marketplace{% else %}Marketplace{% endif %}</a>
-      {% endif %}
-      <a class="ghost-btn" href="{{ url_for('developer_backup_center') }}">💾 {% if current_language == 'en' %}Backup Center{% else %}Backup Center{% endif %}</a>
-      <a class="ghost-btn" href="{{ url_for('developer_sftp_access') }}">🔐 SFTP Access</a>
-      {% if is_platform_admin %}
-      <a class="ghost-btn" href="{{ url_for('developer_sftp_users') }}">🧾 SFTP Users</a>
-      {% endif %}
-      <a class="ghost-btn" href="{{ url_for('developer_upload_history') }}">📦 Upload History</a>
-      {% if is_platform_admin %}
-      <a class="ghost-btn" href="{{ url_for('developer_users') }}">👥 {% if current_language == 'en' %}Users & sites{% else %}Користувачі &amp; сайти{% endif %}</a>
-      {% endif %}
+      <a class="tiny-btn" href="{{ url_for('create_site_wizard') }}">{% if current_language == 'en' %}Create site{% else %}Створити сайт{% endif %}</a>
+      <a class="ghost-btn" href="{{ url_for('developer_system_audit') }}">{% if current_language == 'en' %}Review alerts{% else %}Переглянути проблеми{% endif %}</a>
     </div>
   </header>
-
-  <section class="panel-card full-width">
-    <div class="lite-toolbar">
-      <p class="service-meta">{% if current_language == 'en' %}Platform controls are now in quick popups for cleaner navigation.{% else %}Керування платформою винесено у швидкі popup-вікна для чистішого інтерфейсу.{% endif %}</p>
-    </div>
-  </section>
 
   <section class="metrics-grid">
     <article class="card-widget" id="cpu-card">
@@ -113,6 +87,7 @@
         <div class="version-item"><strong>v1.5</strong><div>{% if current_language == 'en' %}Webhook secret+branch filters, Cloudflare token/zone UI, terminal admin recovery.{% else %}Webhook secret+branch фільтри, форма Cloudflare токена/зони, відновлення адміна з консолі.{% endif %}</div></div>
         <div class="version-item"><strong>v1.6</strong><div>{% if current_language == 'en' %}Security hardening, isolated SFTP accounts, signed webhooks, service templates, backup and recovery improvements.{% else %}Посилення безпеки, ізольовані SFTP-акаунти, підписані webhooks, шаблони сервісів, покращені backup і recovery.{% endif %}</div></div>
         <div class="version-item"><strong>v1.7</strong><div>{% if current_language == 'en' %}Multi-runtime hosting for Static, PHP, Node.js, Python, WordPress and Docker; stack detection, transactional deploy with rollback, per-app databases and secrets, resource limits, runtime administration, domains and SSL.{% else %}Multi-runtime hosting для Static, PHP, Node.js, Python, WordPress і Docker; визначення stack, транзакційний deploy із rollback, окремі БД та секрети застосунків, resource limits, керування runtime, домени й SSL.{% endif %}</div></div>
+        <div class="version-item"><strong>v1.8</strong><div>{% if current_language == 'en' %}Unified hosting UX: grouped responsive navigation, design tokens and consistent components, compact dashboards, clearer site and SFTP workflows, accessible dialogs, copy feedback and mobile layout improvements.{% else %}Єдиний UX hosting-панелі: згрупована responsive-навігація, design tokens і послідовні компоненти, компактні dashboard, зрозуміліші Site та SFTP workflow, доступні dialogs, feedback копіювання й покращений mobile layout.{% endif %}</div></div>
       </div>
     </div>
   </div>

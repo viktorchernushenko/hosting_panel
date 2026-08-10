@@ -29,15 +29,17 @@
       <span class="service-meta">{% if current_language == 'en' %}Status{% else %}Статус{% endif %}: {{ sftp_self.status }}</span>
     </div>
 
-    <div class="backup-row" style="margin-bottom:10px;">
-      <span>
-        <strong>{% if current_language == 'en' %}Server address{% else %}Адреса сервера{% endif %}: {{ sftp_self.host }}</strong>
-        <small>{% if current_language == 'en' %}Port{% else %}Порт{% endif %}: {{ sftp_self.port }}</small>
-        <small>{% if current_language == 'en' %}Login{% else %}Логін{% endif %}: {{ sftp_self.username }}</small>
-        <small>{% if current_language == 'en' %}The SFTP password is shown only when created or reset and is never displayed again.{% else %}SFTP-пароль показується лише під час створення або скидання й повторно не відображається.{% endif %}</small>
-        <small>{% if current_language == 'en' %}Use Protocol=SFTP, Host={{ sftp_self.host }}, Port=22, and do not add ftp:// prefix.{% else %}Використовуйте Protocol=SFTP, Host={{ sftp_self.host }}, Port=22, без префікса ftp://.{% endif %}</small>
-      </span>
+    <div aria-label="{% if current_language == 'en' %}SFTP connection details{% else %}Параметри SFTP-підключення{% endif %}">
+      {% for label, value in [
+        (('Host' if current_language == 'en' else 'Сервер'), sftp_self.host),
+        (('Port' if current_language == 'en' else 'Порт'), sftp_self.port),
+        (('Username' if current_language == 'en' else 'Логін'), sftp_self.username),
+        (('Root directory' if current_language == 'en' else 'Кореневий каталог'), '/')
+      ] %}
+      <div class="copy-row"><span class="copy-label">{{ label }}</span><strong class="copy-value">{{ value }}</strong><button type="button" class="icon-btn" data-copy="{{ value }}" data-copied="{% if current_language == 'en' %}Copied{% else %}Скопійовано{% endif %}" title="{% if current_language == 'en' %}Copy {{ label }}{% else %}Скопіювати: {{ label }}{% endif %}" aria-label="{% if current_language == 'en' %}Copy {{ label }}{% else %}Скопіювати {{ label }}{% endif %}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#copy"/></svg></button></div>
+      {% endfor %}
     </div>
+    <p class="field-help">{% if current_language == 'en' %}In FileZilla choose SFTP, enter the host without ftp://, and use port 22. Passwords are shown only after creation or reset.{% else %}У FileZilla виберіть SFTP, введіть сервер без ftp:// та порт 22. Пароль показується лише після створення або скидання.{% endif %}</p>
 
     <div class="backup-list">
       {% for item in sftp_connections %}

@@ -4,12 +4,12 @@
   <header class="hero-card">
     <div>
       <p class="eyebrow">myh.guru hosting panel</p>
-      <h2>{% if current_language == 'en' %}Welcome, {{ user.first_name }} {{ user.last_name }} 👋{% else %}Вітаємо, {{ user.first_name }} {{ user.last_name }} 👋{% endif %}</h2>
+      <h2>{% if current_language == 'en' %}Welcome, {{ user.first_name }} {{ user.last_name }}{% else %}Вітаємо, {{ user.first_name }} {{ user.last_name }}{% endif %}</h2>
       <p class="subtitle">{% if current_language == 'en' %}Your isolated workspace for managing your sites and files.{% else %}Ваш ізольований простір для керування власними сайтами та файлами.{% endif %}</p>
     </div>
     <div class="hero-actions">
       {% if user.is_admin %}
-        <a class="ghost-btn" href="{{ url_for('developer_users') }}">⚡ {% if current_language == 'en' %}Developer mode{% else %}Режим розробника{% endif %}</a>
+        <a class="ghost-btn" href="{{ url_for('developer_dashboard') }}">{% if current_language == 'en' %}Admin overview{% else %}Огляд адміністратора{% endif %}</a>
       {% endif %}
       <form method="POST" action="{{ url_for('logout') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button class="danger-btn" type="submit">{% if current_language == 'en' %}Sign out{% else %}Вийти{% endif %}</button></form>
     </div>
@@ -42,8 +42,7 @@
 
   <section class="panel-card full-width">
     <div class="panel-head">
-      <h3>⚡ {% if current_language == 'en' %}Quick actions{% else %}Швидкі дії{% endif %}</h3>
-      <span class="status-pill online">FastPanel-style</span>
+      <h3>{% if current_language == 'en' %}Quick actions{% else %}Швидкі дії{% endif %}</h3>
     </div>
     <div class="quick-actions">
       {% if can_create_site %}
@@ -85,23 +84,23 @@
     <div class="panel-head"><h3>{% if current_language == 'en' %}Account{% else %}Обліковий запис{% endif %}</h3><span class="status-pill online">{% if current_language == 'en' %}Used {{ (usage_bytes / 1048576)|round(1) }} MB of {{ user.quota_mb }} MB{% else %}Використано {{ (usage_bytes / 1048576)|round(1) }} MB з {{ user.quota_mb }} MB{% endif %}</span></div>
     <form action="{{ url_for('change_password') }}" method="POST" class="form-grid">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-      <input type="password" name="current_password" placeholder="{% if current_language == 'en' %}Current password{% else %}Поточний пароль{% endif %}" required>
-      <input type="password" name="new_password" minlength="12" placeholder="{% if current_language == 'en' %}New password{% else %}Новий пароль{% endif %}" required>
-      <input type="password" name="confirm_password" minlength="12" placeholder="{% if current_language == 'en' %}Confirm new password{% else %}Повторіть новий пароль{% endif %}" required>
+      <div class="field"><label for="current-password">{% if current_language == 'en' %}Current password{% else %}Поточний пароль{% endif %}</label><input id="current-password" type="password" name="current_password" autocomplete="current-password" required></div>
+      <div class="field"><label for="new-password">{% if current_language == 'en' %}New password{% else %}Новий пароль{% endif %}</label><input id="new-password" type="password" name="new_password" minlength="12" autocomplete="new-password" required><small class="field-help">{% if current_language == 'en' %}At least 12 characters.{% else %}Щонайменше 12 символів.{% endif %}</small></div>
+      <div class="field"><label for="confirm-password">{% if current_language == 'en' %}Confirm new password{% else %}Повторіть новий пароль{% endif %}</label><input id="confirm-password" type="password" name="confirm_password" minlength="12" autocomplete="new-password" required></div>
       <button type="submit">{% if current_language == 'en' %}Change password{% else %}Змінити пароль{% endif %}</button>
     </form>
   </section>
 
-  <section class="panel-grid" style="grid-template-columns:1fr">
+  <section class="panel-grid single-column">
     {% if can_create_site %}
     <article class="panel-card" id="create-site">
       <div class="panel-head">
-        <h3>➕ {% if current_language == 'en' %}Create a new site{% else %}Додати новий сайт{% endif %}</h3>
+        <h3>{% if current_language == 'en' %}Create a new site{% else %}Додати новий сайт{% endif %}</h3>
         <span class="status-pill online">Ready</span>
       </div>
       <form method="POST" class="stack-form">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-        <input type="text" name="site_name" placeholder="{% if current_language == 'en' %}domain.com or project name{% else %}domain.com або назва проєкту{% endif %}" required>
+        <div class="field"><label for="site-name">{% if current_language == 'en' %}Site name{% else %}Назва сайту{% endif %}</label><input id="site-name" type="text" name="site_name" placeholder="my-project" required><small class="field-help">{% if current_language == 'en' %}Letters, numbers and hyphens only.{% else %}Лише літери, цифри та дефіси.{% endif %}</small></div>
         <div class="service-meta">{% if current_language == 'en' %}Type: static site (HTML, CSS, JS){% else %}Тип: статичний сайт (HTML, CSS, JS){% endif %}</div>
         <button type="submit">{% if current_language == 'en' %}Create site{% else %}Створити сайт{% endif %}</button>
       </form>
@@ -112,9 +111,9 @@
 
   <section class="panel-card full-width" id="site-list">
     <div class="panel-head">
-      <h3>🌐 {% if current_language == 'en' %}Your sites{% else %}Ваші сайти{% endif %}</h3>
-      <div class="hero-actions" style="margin:0;">
-        <input id="site-search" class="search-box" placeholder="{% if current_language == 'en' %}Search by name or domain{% else %}Пошук за назвою або доменом{% endif %}">
+      <h3>{% if current_language == 'en' %}Your sites{% else %}Ваші сайти{% endif %}</h3>
+      <div class="hero-actions log-toolbar">
+        <label class="field" for="site-search"><span class="field-label">{% if current_language == 'en' %}Search sites{% else %}Пошук сайтів{% endif %}</span><input id="site-search" class="search-box" type="search" placeholder="{% if current_language == 'en' %}Name or domain{% else %}Назва або домен{% endif %}"></label>
         <span class="status-pill online">{{ sites|length }} {% if current_language == 'en' %}active{% else %}активних{% endif %}</span>
       </div>
     </div>
@@ -129,14 +128,14 @@
           <div class="site-actions">
             <a class="link-btn" href="/site/{{ site.folder_name }}">{% if current_language == 'en' %}Manage{% else %}Керувати{% endif %}</a>
             <a class="link-btn" href="/view-site/{{ site.folder_name }}/" target="_blank">{% if current_language == 'en' %}Preview{% else %}Переглянути{% endif %}</a>
-            <form action="/delete-site/{{ site.id }}" method="POST" onsubmit="return confirm('{% if current_language == 'en' %}Delete this site and all its files?{% else %}Видалити цей сайт і всі файли?{% endif %}');">
+            <form action="/delete-site/{{ site.id }}" method="POST" data-confirm="{% if current_language == 'en' %}Delete this site and all its files?{% else %}Видалити цей сайт і всі його файли?{% endif %}">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
               <button class="danger-link" type="submit">{% if current_language == 'en' %}Delete{% else %}Видалити{% endif %}</button>
             </form>
           </div>
         </div>
       {% else %}
-        <p class="empty-state">{% if current_language == 'en' %}No sites yet. Create your first project to deploy it on the server.{% else %}Поки немає доданих сайтів. Створіть перший проєкт, щоб розгорнути його на сервері.{% endif %}</p>
+        <div class="empty-state"><strong>{% if current_language == 'en' %}No sites yet{% else %}Сайтів ще немає{% endif %}</strong><p>{% if current_language == 'en' %}Create your first website and deploy it in a few minutes.{% else %}Створіть перший сайт і розгорніть його за кілька хвилин.{% endif %}</p>{% if can_create_site %}<a class="tiny-btn" href="{{ url_for('create_site_wizard') }}">{% if current_language == 'en' %}Create site{% else %}Створити сайт{% endif %}</a>{% endif %}</div>
       {% endfor %}
     </div>
   </section>

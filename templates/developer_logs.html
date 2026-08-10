@@ -15,19 +15,19 @@
   <section class="panel-card full-width">
     <div class="panel-head">
       <h3>{% if current_language == 'en' %}Log source{% else %}Джерело логів{% endif %}</h3>
-      <div class="hero-actions" style="margin:0;">
-        <form method="GET" class="hero-actions" style="margin:0;">
+      <div class="hero-actions log-toolbar">
+        <form method="GET" class="hero-actions log-toolbar">
           <select name="source">
             {% for key, config in log_sources.items() %}
             <option value="{{ key }}" {% if source == key %}selected{% endif %}>{{ config.label }}</option>
             {% endfor %}
           </select>
-          <input type="number" name="lines" value="{{ lines }}" min="50" max="500" style="max-width: 120px;">
+          <label class="field" for="log-lines"><span class="field-label">{% if current_language == 'en' %}Lines{% else %}Рядків{% endif %}</span><input id="log-lines" class="log-lines-control" type="number" name="lines" value="{{ lines }}" min="50" max="500"></label>
           <button type="submit" class="tiny-btn">{% if current_language == 'en' %}Refresh{% else %}Оновити{% endif %}</button>
         </form>
       </div>
     </div>
-    <pre class="console-output" style="min-height: 460px;">{% if log_lines %}{% for line in log_lines %}{{ line }}\n{% endfor %}{% else %}{% if current_language == 'en' %}No log data.{% else %}Немає даних логів.{% endif %}{% endif %}</pre>
+    <pre class="console-output log-viewer">{% if log_lines %}{% for line in log_lines %}{{ line }}\n{% endfor %}{% else %}{% if current_language == 'en' %}No log data.{% else %}Немає даних логів.{% endif %}{% endif %}</pre>
   </section>
 </div>
 {% endblock %}

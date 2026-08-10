@@ -13,7 +13,11 @@
     </div>
   </header>
 
-  <section class="metric-strip">
+  <nav class="detail-tabs" aria-label="{% if current_language == 'en' %}Site sections{% else %}Розділи сайту{% endif %}">
+    <a href="#overview">{% if current_language == 'en' %}Overview{% else %}Огляд{% endif %}</a><a href="#files">{% if current_language == 'en' %}Files{% else %}Файли{% endif %}</a><a href="#domain">{% if current_language == 'en' %}Domain{% else %}Домен{% endif %}</a><a href="#runtime">Runtime</a><a href="#database">{% if current_language == 'en' %}Database{% else %}База даних{% endif %}</a><a href="#backups">Backups</a><a href="#access">SFTP</a>
+  </nav>
+
+  <section class="metric-strip" id="overview">
     <article class="metric-tile">
       <div class="metric-label">{% if current_language == 'en' %}Storage{% else %}Сховище{% endif %}</div>
       <div class="metric-value">{{ '%.1f'|format(usage_bytes / 1048576) }} MB</div>
@@ -50,25 +54,25 @@
     <article class="panel-card">
       <div class="panel-head"><h3>Environment Variables</h3><span class="status-pill">{{ site.environment_variables|length }}</span></div>
       <form action="{{ url_for('site_environment', site_id=site.id) }}" method="POST" class="stack-form">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><input name="key" placeholder="APP_ENV" required><input name="value" type="password" placeholder="write-only value" autocomplete="new-password" required><button type="submit">Save secret</button>
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><div class="field"><label for="env-key">{% if current_language == 'en' %}Variable name{% else %}Назва змінної{% endif %}</label><input id="env-key" name="key" placeholder="APP_ENV" required></div><div class="field"><label for="env-value">{% if current_language == 'en' %}Secret value{% else %}Секретне значення{% endif %}</label><input id="env-value" name="value" type="password" autocomplete="new-password" required><small class="field-help">{% if current_language == 'en' %}Saved securely and never displayed again.{% else %}Зберігається безпечно й більше не показується.{% endif %}</small></div><button type="submit">{% if current_language == 'en' %}Save secret{% else %}Зберегти секрет{% endif %}</button>
       </form>
       <div class="backup-list">{% for variable in site.environment_variables %}<div class="backup-row"><span><strong>{{ variable.key }}</strong><small>•••••••• · updated {{ variable.updated_at.strftime('%Y-%m-%d %H:%M') }}</small></span><form action="{{ url_for('site_environment', site_id=site.id) }}" method="POST"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="delete"><input type="hidden" name="key" value="{{ variable.key }}"><button class="danger-link" type="submit">Delete</button></form></div>{% endfor %}</div>
     </article>
-    <article class="panel-card">
+    <article class="panel-card" id="database">
       <div class="panel-head"><h3>Databases</h3><span class="status-pill">{{ site.database_resources|length }}</span></div>
       <form action="{{ url_for('site_database_create', site_id=site.id) }}" method="POST"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button type="submit">Create isolated MariaDB database</button></form>
       <div class="backup-list">{% for database in site.database_resources %}<div class="backup-row"><span><strong>{{ database.database_name }}</strong><small>{{ database.database_user }}@{{ database.host }}:{{ database.port }} · {{ database.status }}</small></span></div>{% endfor %}</div>
     </article>
   </section>
 
-  <section class="panel-card full-width">
+  <section class="panel-card full-width" id="runtime">
     <div class="panel-head"><h3>Runtime</h3><span class="status-pill {% if site.runtime_status == 'running' %}online{% endif %}">{{ site.runtime_status }}</span></div>
     <div class="backup-list">
-      <div class="backup-row"><span><strong>{{ site.runtime_type }} {{ site.runtime_version }}</strong><small>Deployment: {{ site.deployment_status }}{% if site.internal_port %} · internal 127.0.0.1:{{ site.internal_port }}{% endif %}{% if site.last_restart_at %} · {{ site.last_restart_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</small></span></div>
+      <div class="backup-row"><span><strong>{{ site.runtime_type }} {{ site.runtime_version }}</strong><small>Deployment: {{ site.deployment_status }}{% if is_admin_user and site.internal_port %} · internal 127.0.0.1:{{ site.internal_port }}{% endif %}{% if site.last_restart_at %} · {{ site.last_restart_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</small></span></div>
       {% for container in runtime_metrics.containers or [] %}<div class="backup-row"><span><strong>{{ container.name }}</strong><small>CPU {{ container.cpu }} · RAM {{ container.memory }} · PIDs {{ container.pids }}</small></span></div>{% endfor %}
       <div class="backup-row"><span><strong>Limits</strong><small>CPU {{ runtime_metrics.limits.cpu if runtime_metrics.limits else '—' }} · RAM {{ runtime_metrics.limits.memory if runtime_metrics.limits else '—' }} · PIDs {{ runtime_metrics.limits.pids if runtime_metrics.limits else '—' }}</small></span></div>
     </div>
-    <div class="action-group" style="margin-top:12px;">
+    <div class="action-group utility-gap-top">
       <a class="ghost-btn" href="{{ url_for('site_runtime_logs', site_id=site.id) }}" target="_blank">Logs</a>
       {% if site.runtime_type in ['node', 'python', 'docker'] %}
       {% for runtime_action in ['start', 'stop', 'restart'] %}
@@ -78,18 +82,19 @@
     </div>
   </section>
 
-  <section class="panel-card full-width">
+  <section class="panel-card full-width" id="access">
     <div class="panel-head"><h3>SFTP & Access Scope</h3><span class="status-pill">SFTP :22</span></div>
     <div class="backup-list">
-      <div class="backup-row"><span><strong>File root</strong><small>{{ access.file_root }}</small></span></div>
-      <div class="backup-row"><span><strong>Upload root</strong><small>{{ access.upload_root }}</small></span></div>
+      <div class="backup-row"><span><strong>{% if current_language == 'en' %}Website files{% else %}Файли сайту{% endif %}</strong><small class="technical-detail">{{ access.file_root }}</small></span><a class="ghost-btn" href="{{ url_for('user_sftp_access') }}">{% if current_language == 'en' %}Connection details{% else %}Дані підключення{% endif %}</a></div>
+      {% if is_admin_user %}<div class="backup-row"><span><strong>Upload root</strong><small class="technical-detail">{{ access.upload_root }}</small></span></div>
       <div class="backup-row"><span><strong>Deployment root</strong><small>{{ access.deployment_root }}</small></span></div>
       <div class="backup-row"><span><strong>Backup root</strong><small>{{ access.backup_root }}</small></span></div>
+      {% endif %}
     </div>
   </section>
 
   <section class="panel-grid">
-    <article class="panel-card">
+    <article class="panel-card" id="domain">
       <div class="panel-head"><h3>{% if current_language == 'en' %}Upload files{% else %}Завантажити файли{% endif %}</h3><span class="status-pill online">{% if current_language == 'en' %}up to 32 MB{% else %}до 32 MB{% endif %}</span></div>
       {% if 'files.upload' in permissions %}
       <form method="POST" enctype="multipart/form-data" class="stack-form">
@@ -106,7 +111,7 @@
       {% endif %}
     </article>
 
-    <article class="panel-card">
+    <article class="panel-card" id="backups">
       <div class="panel-head"><h3>{% if current_language == 'en' %}Create directory{% else %}Створити каталог{% endif %}</h3></div>
       {% if 'files.create' in permissions %}
       <form method="POST" class="stack-form">
@@ -179,7 +184,7 @@
   </section>
 
   {% if edit_content is not none and 'files.upload' in permissions %}
-  <section class="panel-card full-width">
+  <section class="panel-card full-width" id="files">
     <div class="panel-head"><h3>{% if current_language == 'en' %}Editor{% else %}Редактор{% endif %}: {{ edit_path }}</h3><a class="ghost-btn" href="{{ url_for('manage_site', folder_name=site.folder_name, dir=current_dir) }}">{% if current_language == 'en' %}Close{% else %}Закрити{% endif %}</a></div>
     <form method="POST" class="stack-form">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
@@ -204,7 +209,7 @@
     <div class="file-list">
       {% for directory in directories %}
       <div class="site-row">
-        <div><strong>📁 {{ directory.path }}</strong></div>
+        <div><strong>{{ directory.path }}</strong><div class="site-meta">{% if current_language == 'en' %}Folder{% else %}Каталог{% endif %}</div></div>
         <div class="site-actions">
         <a class="ghost-btn" href="{{ url_for('manage_site', folder_name=site.folder_name, dir=directory.path) }}">{% if current_language == 'en' %}Open{% else %}Відкрити{% endif %}</a>
         {% if 'files.rename' in permissions %}
@@ -222,7 +227,7 @@
       {% endfor %}
       {% for file in files %}
       <div class="site-row">
-        <div><strong>📄 {{ file.path }}</strong><div class="site-meta">{{ file.size }} {% if current_language == 'en' %}bytes{% else %}байт{% endif %}</div></div>
+        <div><strong>{{ file.path }}</strong><div class="site-meta">{% if current_language == 'en' %}File{% else %}Файл{% endif %} · {{ file.size }} {% if current_language == 'en' %}bytes{% else %}байт{% endif %}</div></div>
         <div class="site-actions">
           {% if 'files.rename' in permissions %}
           <form method="POST" class="rename-form">

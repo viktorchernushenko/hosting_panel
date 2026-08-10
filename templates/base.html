@@ -269,9 +269,62 @@
         @media (max-width: 900px) { .global-header { grid-template-columns: 1fr; } .global-header-left, .global-header-center, .global-header-right { justify-self: center; } .global-header-right { flex-wrap: wrap; justify-content: center; } .dashboard-topbar { grid-template-columns: 1fr; justify-items: stretch; } .dashboard-topbar-left, .dashboard-topbar-center, .dashboard-topbar-right { justify-content: space-between; flex-wrap: wrap; } .dashboard-topbar-center { justify-content: center; } .dashboard-topbar-right { justify-content: flex-end; } .metrics-grid { grid-template-columns: 1fr 1fr; } .panel-grid { grid-template-columns: 1fr; } .quick-actions { grid-template-columns: 1fr 1fr; } .metric-strip { grid-template-columns: 1fr 1fr; } .audit-row { grid-template-columns: 100px 100px 120px 1fr; } .audit-row small { display:none; } .topology-grid { grid-template-columns: 1fr 1fr; } }
         @media (max-width: 640px) { body { padding: 10px; } .card { padding: 14px; border-radius: 18px; } .global-header { gap: 8px; } .global-header-left, .global-header-center, .global-header-right { width: 100%; justify-content: center; } .global-header-right form { width: auto; } .dashboard-topbar { gap: 10px; } .dashboard-topbar-left, .dashboard-topbar-center, .dashboard-topbar-right { justify-content: center; } .dashboard-topbar-right { flex-wrap: wrap; } .hero-card, .service-row, .site-row, .backup-row { flex-direction: column; align-items: flex-start; } .hero-actions, .hero-actions a, .site-actions, .site-actions a, .site-actions form { width: 100%; } .site-actions button { width: 100%; padding: 10px; } .metrics-grid, .form-grid, .quick-actions, .metric-strip { grid-template-columns: 1fr; } .console-form { grid-template-columns: 1fr; } .console-form button { width: 100%; } .code-editor { min-height: 300px; } .audit-row { display:flex; flex-wrap:wrap; } .audit-row span { width:100%; } .rename-form { grid-template-columns: 1fr; } .data-table thead { display: none; } .data-table, .data-table tbody, .data-table tr, .data-table td { display: block; width: 100%; } .data-table tr { padding: 10px 0; border-bottom: 1px solid var(--line); } .data-table td { padding: 6px 0; border: 0; overflow-wrap:anywhere; } .corner-tools { justify-content: stretch; } .corner-tools button { width: 100%; } }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='panel.css') }}?v={{ app_version }}">
 </head>
-<body>
+<body class="{% if current_user %}has-app-shell{% endif %}">
     {% set show_developer_badge = is_admin_user and not request.path.startswith('/developer/') and request.path != '/dashboard' %}
+    {% if current_user %}
+    <div class="app-shell">
+      <aside class="app-sidebar" id="app-navigation" aria-label="{% if current_language == 'en' %}Main navigation{% else %}Основна навігація{% endif %}">
+        <a class="sidebar-brand" href="{{ url_for('dashboard') }}"><img src="{{ url_for('static', filename='favicon.ico') }}?v=3" alt=""><span>myh.guru</span></a>
+        <nav>
+          <section class="nav-group">
+            <div class="nav-label">{% if current_language == 'en' %}Overview{% else %}Огляд{% endif %}</div>
+            <a class="nav-link {{ 'active' if request.endpoint == 'dashboard' else '' }}" href="{{ url_for('dashboard') }}"><svg class="ui-icon fill" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#grid"/></svg><span>Dashboard</span></a>
+          </section>
+          <section class="nav-group">
+            <div class="nav-label">Hosting</div>
+            {% if can_create_site|default(false) or is_admin_user %}<a class="nav-link {{ 'active' if request.endpoint == 'create_site_wizard' else '' }}" href="{{ url_for('create_site_wizard') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#plus"/></svg><span>{% if current_language == 'en' %}Create site{% else %}Створити сайт{% endif %}</span></a>{% endif %}
+            <a class="nav-link {{ 'active' if request.endpoint in ['service_catalog','service_catalog_detail','git_integration_wizard'] else '' }}" href="{{ url_for('service_catalog') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#layers"/></svg><span>{% if current_language == 'en' %}Applications{% else %}Застосунки{% endif %}</span></a>
+            {% if can_sftp_access|default(false) or is_admin_user %}<a class="nav-link {{ 'active' if request.endpoint == 'user_sftp_access' else '' }}" href="{{ url_for('user_sftp_access') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#key"/></svg><span>Files &amp; SFTP</span></a>{% endif %}
+          </section>
+          <section class="nav-group">
+            <div class="nav-label">{% if current_language == 'en' %}Operations{% else %}Операції{% endif %}</div>
+            <a class="nav-link {{ 'active' if request.endpoint == 'developer_deploy' else '' }}" href="{{ url_for('developer_deploy') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#upload"/></svg><span>Deployments</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'developer_deploy_history' else '' }}" href="{{ url_for('developer_deploy_history') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#history"/></svg><span>{% if current_language == 'en' %}Activity{% else %}Активність{% endif %}</span></a>
+          </section>
+          {% if is_admin_user %}
+          <section class="nav-group">
+            <div class="nav-label">Admin</div>
+            <a class="nav-link {{ 'active' if request.endpoint == 'developer_dashboard' else '' }}" href="{{ url_for('developer_dashboard') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#grid"/></svg><span>{% if current_language == 'en' %}Admin overview{% else %}Огляд адміністратора{% endif %}</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'developer_users' else '' }}" href="{{ url_for('developer_users') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#users"/></svg><span>{% if current_language == 'en' %}Users{% else %}Користувачі{% endif %}</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'developer_applications' else '' }}" href="{{ url_for('developer_applications') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#globe"/></svg><span>{% if current_language == 'en' %}Hosting resources{% else %}Ресурси хостингу{% endif %}</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'developer_infrastructure' else '' }}" href="{{ url_for('developer_infrastructure') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#server"/></svg><span>Infrastructure</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'developer_dns_ssl' else '' }}" href="{{ url_for('developer_dns_ssl') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#globe"/></svg><span>Domains &amp; SSL</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'developer_backup_center' else '' }}" href="{{ url_for('developer_backup_center') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#history"/></svg><span>Backups</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'developer_docker' else '' }}" href="{{ url_for('developer_docker') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#box"/></svg><span>Containers</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'developer_runtimes' else '' }}" href="{{ url_for('developer_runtimes') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#code"/></svg><span>Runtimes</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint in ['developer_logs','developer_system_audit'] else '' }}" href="{{ url_for('developer_logs') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#shield"/></svg><span>{% if current_language == 'en' %}Logs &amp; security{% else %}Логи й безпека{% endif %}</span></a>
+          </section>
+          {% endif %}
+        </nav>
+      </aside>
+      <button class="drawer-backdrop" type="button" data-nav-close aria-label="{% if current_language == 'en' %}Close navigation{% else %}Закрити навігацію{% endif %}"></button>
+      <main class="app-main">
+        <header class="app-topbar">
+          <div class="topbar-actions">
+            <button class="icon-btn mobile-nav-toggle" type="button" data-nav-open aria-label="{% if current_language == 'en' %}Open navigation{% else %}Відкрити навігацію{% endif %}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#menu"/></svg></button>
+            <div class="topbar-context"><div class="breadcrumb">myh.guru / {{ 'Admin' if request.path.startswith('/developer/') else 'Hosting' }}</div><div class="page-context">{% block page_context %}{{ current_user.username }}{% endblock %}</div></div>
+          </div>
+          <div class="topbar-actions">
+            {{ self.header_left_extra() }}
+            <div class="lang-switcher compact-lang-switcher" role="navigation" aria-label="Language switcher">{% for code, label in supported_languages.items() %}<a class="lang-pill {{ 'active' if current_language == code else '' }}" aria-label="{{ label }}" href="{{ url_for('set_language', lang=code, next=request.path) }}">{{ 'UA' if code == 'uk' else 'EN' }}</a>{% endfor %}</div>
+            <span class="user-pill">{{ current_user.username }}</span>
+            <form method="POST" action="{{ url_for('logout') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button class="danger-btn topbar-signout" type="submit">{% if current_language == 'en' %}Sign out{% else %}Вийти{% endif %}</button></form>
+          </div>
+        </header>
+        <div class="app-content">
+    {% endif %}
     <div class="card">
         <div class="global-header">
             <div class="global-header-left">
@@ -301,6 +354,7 @@
         {% endwith %}
         {% block content %}{% endblock %}
     </div>
+    {% if current_user %}</div></main></div>{% endif %}
 
         <div class="modal-backdrop" id="global-version-modal" aria-hidden="true">
             <div class="modal-card">
@@ -311,15 +365,24 @@
                 <div class="version-list">
                     <div class="version-item">
                         <strong>v{{ app_version }}</strong>
-                        <div>{% if current_language == 'en' %}Active platform release.{% else %}Активний реліз платформи.{% endif %}</div>
+                        <div>{% if current_language == 'en' %}Unified responsive hosting interface, clearer navigation and consistent accessible components.{% else %}Єдиний responsive-інтерфейс хостингу, зрозуміліша навігація та послідовні доступні компоненти.{% endif %}</div>
                     </div>
                 </div>
             </div>
+        </div>
+        <div class="modal-backdrop" id="global-privacy-modal" aria-hidden="true">
+          <div class="modal-card"><div class="modal-head"><h3>{% if current_language == 'en' %}Privacy and security{% else %}Приватність і безпека{% endif %}</h3><button class="modal-close" type="button" data-close-modal>{% if current_language == 'en' %}Close{% else %}Закрити{% endif %}</button></div><p class="subtitle">{% if current_language == 'en' %}Application secrets and passwords are masked by default. Administrative metrics are available only to authorized roles.{% else %}Секрети застосунків і паролі замасковані за замовчуванням. Адміністративні метрики доступні лише авторизованим ролям.{% endif %}</p></div>
         </div>
 
         {% if show_developer_badge %}
         <a class="dev-badge" href="{{ url_for('developer_dashboard') }}">{% if current_language == 'en' %}Developer tools{% else %}Інструменти розробника{% endif %}</a>
         {% endif %}
+
+        <div class="toast-region" aria-live="polite" aria-atomic="true"></div>
+        <dialog class="confirm-dialog" id="confirm-dialog" aria-labelledby="confirm-dialog-title">
+          <div class="confirm-dialog-body"><h2 id="confirm-dialog-title">{% if current_language == 'en' %}Confirm action{% else %}Підтвердьте дію{% endif %}</h2><p id="confirm-dialog-text"></p></div>
+          <div class="confirm-dialog-actions"><button class="ghost-btn" type="button" data-confirm-cancel>{% if current_language == 'en' %}Cancel{% else %}Скасувати{% endif %}</button><button class="danger-btn" id="confirm-dialog-accept" type="button">{% if current_language == 'en' %}Continue{% else %}Продовжити{% endif %}</button></div>
+        </dialog>
 
         <script nonce="{{ csp_nonce }}">
             (function () {
@@ -357,7 +420,7 @@
 
                     privacyButton.addEventListener('click', () => {
                         if (openModalById('privacy-modal')) return;
-                        alert(isEnglish ? 'No privacy controls on this page.' : 'На цій сторінці немає контролю приватності.');
+                        openModalById('global-privacy-modal');
                     });
                 }
 
@@ -414,5 +477,6 @@
                 setupCollapsibleCards();
             })();
         </script>
+        <script src="{{ url_for('static', filename='panel.js') }}?v={{ app_version }}" defer></script>
 </body>
 </html>
