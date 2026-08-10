@@ -4184,7 +4184,11 @@ def user_sftp_access():
         'status': personal_account.system_state if personal_account else 'disabled',
         'has_sites': bool(site_ids),
     }
-    return render_template('user_sftp_access.html', user=user, sites=sites, sftp_connections=payloads, sftp_self=sftp_self)
+    return render_template(
+        'user_sftp_access.html', user=user, sites=sites,
+        sftp_connections=payloads, sftp_self=sftp_self,
+        can_create_site=user_has_role_permission(user, 'site.create'),
+    )
 
 
 @app.route('/dashboard/sftp-access/toggle', methods=['POST'])
@@ -4232,6 +4236,33 @@ def user_sftp_toggle_access():
         log_action('sftp.self.disable', user.username)
         flash('SFTP доступ вимкнено.', 'success')
 
+    return redirect(url_for('user_sftp_access'))
+
+
+@app.route('/dashboard/sftp-access/reset-password', methods=['POST'])
+def user_sftp_reset_password():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    if not user or user.is_banned:
+        abort(403)
+    require_role_permission(user, 'sftp.access')
+    account = SftpAccount.query.filter_by(assigned_user_id=user.id, enabled=True).order_by(SftpAccount.id.asc()).first()
+    if not account:
+        flash('Спочатку увімкніть SFTP доступ.', 'error')
+        return redirect(url_for('user_sftp_access'))
+    temporary_password = generate_temporary_password()
+    password_hash = build_sftp_password_hash(temporary_password)
+    if not password_hash:
+        flash('Не вдалося створити SFTP пароль. Спробуйте ще раз.', 'error')
+        return redirect(url_for('user_sftp_access'))
+    account.password_hash = password_hash
+    account.auth_type = 'password'
+    db.session.commit()
+    queue_sftp_provision(account, 'toggle', actor=user.username)
+    record_sftp_audit(account, 'self_service_password_reset', status='success')
+    log_action('sftp.self.password_reset', user.username)
+    flash(f'Новий SFTP пароль (скопіюйте зараз — повторно він не показуватиметься): {temporary_password}', 'success')
     return redirect(url_for('user_sftp_access'))
 
 

@@ -19,15 +19,24 @@
       <form method="POST" action="{{ url_for('user_sftp_toggle_access') }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="desired_state" value="enable">
-        <button type="submit" class="tiny-btn" {% if not sftp_self.has_sites or sftp_self.enabled %}disabled{% endif %}>{% if current_language == 'en' %}Open access{% else %}Відкрити доступ{% endif %}</button>
+        <button type="submit" class="tiny-btn" {% if sftp_self.enabled %}disabled{% endif %}>{% if current_language == 'en' %}Open access{% else %}Відкрити доступ{% endif %}</button>
       </form>
       <form method="POST" action="{{ url_for('user_sftp_toggle_access') }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="desired_state" value="disable">
         <button type="submit" class="danger-btn" {% if not sftp_self.enabled %}disabled{% endif %}>{% if current_language == 'en' %}Close access{% else %}Закрити доступ{% endif %}</button>
       </form>
-      <span class="service-meta">{% if current_language == 'en' %}Status{% else %}Статус{% endif %}: {{ sftp_self.status }}</span>
+      {% if sftp_self.enabled %}<form method="POST" action="{{ url_for('user_sftp_reset_password') }}" data-confirm="{% if current_language == 'en' %}Generate a new SFTP password? The current SFTP password will stop working.{% else %}Створити новий SFTP пароль? Поточний SFTP пароль перестане працювати.{% endif %}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button type="submit" class="ghost-btn">{% if current_language == 'en' %}Reset SFTP password{% else %}Скинути SFTP пароль{% endif %}</button></form>{% endif %}
+      <span class="status-badge {{ 'success' if sftp_self.enabled else 'warning' }}">{% if current_language == 'en' %}{{ 'Active' if sftp_self.enabled else 'Setup required' }}{% else %}{{ 'Активний' if sftp_self.enabled else 'Потрібне налаштування' }}{% endif %}</span>
     </div>
+
+    {% if not sftp_self.has_sites %}
+    <div class="alert-card warning" role="status">
+      <strong>{% if current_language == 'en' %}Create a site before enabling SFTP{% else %}Спочатку створіть сайт{% endif %}</strong>
+      <p class="service-meta">{% if current_language == 'en' %}SFTP provides access to website files. There is no application directory to assign to this account yet.{% else %}SFTP надає доступ до файлів сайтів. Для цього акаунта ще немає каталогу застосунку, який можна призначити.{% endif %}</p>
+      {% if can_create_site %}<a class="tiny-btn utility-gap-top" href="{{ url_for('create_site_wizard') }}">{% if current_language == 'en' %}Create your first site{% else %}Створити перший сайт{% endif %}</a>{% endif %}
+    </div>
+    {% endif %}
 
     <div aria-label="{% if current_language == 'en' %}SFTP connection details{% else %}Параметри SFTP-підключення{% endif %}">
       {% for label, value in [
@@ -52,7 +61,7 @@
         </span>
       </div>
       {% else %}
-      <p class="empty-state">{% if current_language == 'en' %}SFTP access is currently disabled. Use the "Open access" button above.{% else %}SFTP доступ зараз вимкнено. Натисніть кнопку "Відкрити доступ" вище.{% endif %}</p>
+      <div class="empty-state"><strong>{% if current_language == 'en' %}SFTP is not active{% else %}SFTP ще не активний{% endif %}</strong><p>{% if sftp_self.has_sites %}{% if current_language == 'en' %}Use “Open access” to create your secure connection profile.{% else %}Натисніть «Відкрити доступ», щоб створити захищений профіль підключення.{% endif %}{% else %}{% if current_language == 'en' %}Create a site first; its files will then become available here.{% else %}Спочатку створіть сайт — після цього його файли стануть доступні тут.{% endif %}{% endif %}</p></div>
       {% endfor %}
     </div>
   </section>
@@ -72,7 +81,7 @@
         <a class="link-btn" href="{{ url_for('manage_site', folder_name=site.folder_name) }}">{% if current_language == 'en' %}Files{% else %}Файли{% endif %}</a>
       </div>
       {% else %}
-      <p class="empty-state">{% if current_language == 'en' %}No resources assigned yet.{% else %}Ресурси ще не призначено.{% endif %}</p>
+      <div class="empty-state"><strong>{% if current_language == 'en' %}No websites assigned{% else %}Немає призначених сайтів{% endif %}</strong><p>{% if current_language == 'en' %}Create a website or ask an administrator to assign one to your account.{% else %}Створіть сайт або попросіть адміністратора призначити його вашому акаунту.{% endif %}</p>{% if can_create_site %}<a class="tiny-btn" href="{{ url_for('create_site_wizard') }}">{% if current_language == 'en' %}Create site{% else %}Створити сайт{% endif %}</a>{% endif %}</div>
       {% endfor %}
     </div>
   </section>
