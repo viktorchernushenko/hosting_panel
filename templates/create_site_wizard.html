@@ -34,12 +34,12 @@
 
     <p class="service-meta">Static/PHP: <code>public_html/</code>. Node/Python: завантажте application-файли у цю саму папку; platform керує процесом і внутрішнім портом.</p>
 
-    <div id="process-command-block">
+    <details class="advanced-settings" id="process-command-shell"><summary>{% if current_language == 'en' %}Advanced runtime settings{% else %}Розширені налаштування runtime{% endif %}</summary><div id="process-command-block" class="advanced-settings-body">
       <label for="install_command">Install command</label><input id="install_command" name="install_command" placeholder="npm ci / pip install --target /tmp/deps -r requirements.txt">
       <label for="build_command">Build command</label><input id="build_command" name="build_command" placeholder="npm run build">
       <label for="start_command">Start command</label><input id="start_command" name="start_command" placeholder="npm start / gunicorn app:app --bind 0.0.0.0:8080">
       <p class="service-meta">Commands execute inside the isolated application container. Port must be 8080.</p>
-    </div>
+    </div></details>
 
     <div id="php-runtime-block" {% if selected_type != 'php' %}style="display:none;"{% endif %}>
       <label for="php_runtime">{% if current_language == 'en' %}PHP runtime{% else %}PHP runtime{% endif %}</label>
@@ -73,12 +73,13 @@
     var runtimeButton = document.getElementById('php-runtime-check');
     var runtimeResult = document.getElementById('php-runtime-result');
     var commandBlock = document.getElementById('process-command-block');
+    var commandShell = document.getElementById('process-command-shell');
     var csrfInput = document.querySelector('input[name="_csrf_token"]');
     if (!typeSelect || !runtimeBlock) return;
 
     function syncPhpRuntimeVisibility() {
       runtimeBlock.style.display = typeSelect.value === 'php' ? '' : 'none';
-      commandBlock.style.display = ['node', 'python'].indexOf(typeSelect.value) >= 0 ? '' : 'none';
+      commandShell.style.display = ['node', 'python'].indexOf(typeSelect.value) >= 0 ? '' : 'none';
     }
 
     typeSelect.addEventListener('change', syncPhpRuntimeVisibility);

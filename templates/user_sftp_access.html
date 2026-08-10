@@ -13,8 +13,16 @@
   <section class="panel-card full-width">
     <div class="panel-head">
       <h3>{% if current_language == 'en' %}FileZilla connection{% else %}Підключення через FileZilla{% endif %}</h3>
-      <span class="status-pill">SFTP :22</span>
+      <span class="status-pill">SFTP :{{ sftp_self.port }}</span>
     </div>
+
+    {% if sftp_self.connection_mode == 'cloudflare' %}
+    <div class="alert-card" role="note">
+      <strong>{% if current_language == 'en' %}Start the secure connector first{% else %}Спочатку запустіть захищений connector{% endif %}</strong>
+      <p class="service-meta">{% if current_language == 'en' %}Your network uses CGNAT, so direct connections to the public IP cannot reach this server. Run this command on your computer and keep it open while using FileZilla.{% else %}Мережа використовує CGNAT, тому пряме підключення до публічної IP не доходить до сервера. Запустіть цю команду на своєму комп’ютері й не закривайте вікно під час роботи FileZilla.{% endif %}</p>
+      <div class="copy-row"><span class="copy-label">PowerShell</span><code class="copy-value">cloudflared access tcp --hostname {{ sftp_self.tunnel_host }} --url localhost:{{ sftp_self.port }}</code><button type="button" class="icon-btn" data-copy="cloudflared access tcp --hostname {{ sftp_self.tunnel_host }} --url localhost:{{ sftp_self.port }}" data-copied="{% if current_language == 'en' %}Command copied{% else %}Команду скопійовано{% endif %}" aria-label="{% if current_language == 'en' %}Copy connector command{% else %}Скопіювати команду connector{% endif %}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#copy"/></svg></button></div>
+    </div>
+    {% endif %}
     <div class="action-group" style="margin-bottom:12px;">
       <form method="POST" action="{{ url_for('user_sftp_toggle_access') }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
@@ -48,7 +56,7 @@
       <div class="copy-row"><span class="copy-label">{{ label }}</span><strong class="copy-value">{{ value }}</strong><button type="button" class="icon-btn" data-copy="{{ value }}" data-copied="{% if current_language == 'en' %}Copied{% else %}Скопійовано{% endif %}" title="{% if current_language == 'en' %}Copy {{ label }}{% else %}Скопіювати: {{ label }}{% endif %}" aria-label="{% if current_language == 'en' %}Copy {{ label }}{% else %}Скопіювати {{ label }}{% endif %}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#copy"/></svg></button></div>
       {% endfor %}
     </div>
-    <p class="field-help">{% if current_language == 'en' %}In FileZilla choose SFTP, enter the host without ftp://, and use port 22. Passwords are shown only after creation or reset.{% else %}У FileZilla виберіть SFTP, введіть сервер без ftp:// та порт 22. Пароль показується лише після створення або скидання.{% endif %}</p>
+    <p class="field-help">{% if current_language == 'en' %}In FileZilla choose SFTP and use the host and port shown above. Passwords are shown only after creation or reset.{% else %}У FileZilla виберіть SFTP та використайте сервер і порт, показані вище. Пароль показується лише після створення або скидання.{% endif %}</p>
 
     <div class="backup-list">
       {% for item in sftp_connections %}

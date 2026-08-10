@@ -276,7 +276,7 @@
     {% if current_user %}
     <div class="app-shell">
       <aside class="app-sidebar" id="app-navigation" aria-label="{% if current_language == 'en' %}Main navigation{% else %}Основна навігація{% endif %}">
-        <a class="sidebar-brand" href="{{ url_for('dashboard') }}"><img src="{{ url_for('static', filename='favicon.ico') }}?v=3" alt=""><span>myh.guru</span></a>
+        <div class="sidebar-brand-row"><a class="sidebar-brand" href="{{ url_for('dashboard') }}"><img src="{{ url_for('static', filename='favicon.ico') }}?v=3" alt=""><span>myh.guru</span></a><button class="icon-btn sidebar-collapse" type="button" data-sidebar-collapse aria-label="{% if current_language == 'en' %}Collapse navigation{% else %}Згорнути навігацію{% endif %}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#menu"/></svg></button></div>
         <nav>
           <section class="nav-group">
             <div class="nav-label">{% if current_language == 'en' %}Overview{% else %}Огляд{% endif %}</div>
@@ -284,15 +284,19 @@
           </section>
           <section class="nav-group">
             <div class="nav-label">Hosting</div>
-            {% if can_create_site|default(false) or is_admin_user %}<a class="nav-link {{ 'active' if request.endpoint == 'create_site_wizard' else '' }}" href="{{ url_for('create_site_wizard') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#plus"/></svg><span>{% if current_language == 'en' %}Create site{% else %}Створити сайт{% endif %}</span></a>{% endif %}
-            <a class="nav-link {{ 'active' if request.endpoint in ['service_catalog','service_catalog_detail','git_integration_wizard'] else '' }}" href="{{ url_for('service_catalog') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#layers"/></svg><span>{% if current_language == 'en' %}Applications{% else %}Застосунки{% endif %}</span></a>
-            {% if can_sftp_access|default(false) or is_admin_user %}<a class="nav-link {{ 'active' if request.endpoint == 'user_sftp_access' else '' }}" href="{{ url_for('user_sftp_access') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#key"/></svg><span>Files &amp; SFTP</span></a>{% endif %}
+            <a class="nav-link {{ 'active' if request.endpoint in ['user_sites_index','manage_site','create_site_wizard'] else '' }}" href="{{ url_for('user_sites_index') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#globe"/></svg><span>{% if current_language == 'en' %}Sites{% else %}Сайти{% endif %}</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'user_domains_index' else '' }}" href="{{ url_for('user_domains_index') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#layers"/></svg><span>{% if current_language == 'en' %}Domains{% else %}Домени{% endif %}</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'user_databases_index' else '' }}" href="{{ url_for('user_databases_index') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#server"/></svg><span>{% if current_language == 'en' %}Databases{% else %}Бази даних{% endif %}</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'user_sftp_access' else '' }}" href="{{ url_for('user_sftp_access') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#key"/></svg><span>{% if current_language == 'en' %}File access{% else %}Доступ до файлів{% endif %}</span></a>
           </section>
           <section class="nav-group">
             <div class="nav-label">{% if current_language == 'en' %}Operations{% else %}Операції{% endif %}</div>
             <a class="nav-link {{ 'active' if request.endpoint == 'developer_deploy' else '' }}" href="{{ url_for('developer_deploy') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#upload"/></svg><span>Deployments</span></a>
             <a class="nav-link {{ 'active' if request.endpoint == 'developer_deploy_history' else '' }}" href="{{ url_for('developer_deploy_history') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#history"/></svg><span>{% if current_language == 'en' %}Activity{% else %}Активність{% endif %}</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'user_backups_index' else '' }}" href="{{ url_for('user_backups_index') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#history"/></svg><span>Backups</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'user_logs_index' else '' }}" href="{{ url_for('user_logs_index') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#file"/></svg><span>{% if current_language == 'en' %}Logs{% else %}Логи{% endif %}</span></a>
           </section>
+          <section class="nav-group"><div class="nav-label">Account</div><a class="nav-link {{ 'active' if request.endpoint == 'user_profile' else '' }}" href="{{ url_for('user_profile') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#settings"/></svg><span>{% if current_language == 'en' %}Profile &amp; settings{% else %}Профіль і налаштування{% endif %}</span></a></section>
           {% if is_admin_user %}
           <section class="nav-group">
             <div class="nav-label">Admin</div>
@@ -300,8 +304,6 @@
             <a class="nav-link {{ 'active' if request.endpoint == 'developer_users' else '' }}" href="{{ url_for('developer_users') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#users"/></svg><span>{% if current_language == 'en' %}Users{% else %}Користувачі{% endif %}</span></a>
             <a class="nav-link {{ 'active' if request.endpoint == 'developer_applications' else '' }}" href="{{ url_for('developer_applications') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#globe"/></svg><span>{% if current_language == 'en' %}Hosting resources{% else %}Ресурси хостингу{% endif %}</span></a>
             <a class="nav-link {{ 'active' if request.endpoint == 'developer_infrastructure' else '' }}" href="{{ url_for('developer_infrastructure') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#server"/></svg><span>Infrastructure</span></a>
-            <a class="nav-link {{ 'active' if request.endpoint == 'developer_dns_ssl' else '' }}" href="{{ url_for('developer_dns_ssl') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#globe"/></svg><span>Domains &amp; SSL</span></a>
-            <a class="nav-link {{ 'active' if request.endpoint == 'developer_backup_center' else '' }}" href="{{ url_for('developer_backup_center') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#history"/></svg><span>Backups</span></a>
             <a class="nav-link {{ 'active' if request.endpoint == 'developer_docker' else '' }}" href="{{ url_for('developer_docker') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#box"/></svg><span>Containers</span></a>
             <a class="nav-link {{ 'active' if request.endpoint == 'developer_runtimes' else '' }}" href="{{ url_for('developer_runtimes') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#code"/></svg><span>Runtimes</span></a>
             <a class="nav-link {{ 'active' if request.endpoint in ['developer_logs','developer_system_audit'] else '' }}" href="{{ url_for('developer_logs') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#shield"/></svg><span>{% if current_language == 'en' %}Logs &amp; security{% else %}Логи й безпека{% endif %}</span></a>
@@ -365,7 +367,7 @@
                 <div class="version-list">
                     <div class="version-item">
                         <strong>v{{ app_version }}</strong>
-                        <div>{% if current_language == 'en' %}Unified responsive hosting interface, clearer navigation and consistent accessible components.{% else %}Єдиний responsive-інтерфейс хостингу, зрозуміліша навігація та послідовні доступні компоненти.{% endif %}</div>
+                        <div>{% if current_language == 'en' %}Product-centered hosting navigation, dedicated resource pages and clearer operational status.{% else %}Продуктова навігація хостингу, окремі сторінки ресурсів і зрозуміліший операційний стан.{% endif %}</div>
                     </div>
                 </div>
             </div>

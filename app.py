@@ -60,7 +60,7 @@ CLOUDFLARE_ZONE_NAME = os.environ.get('CLOUDFLARE_ZONE_NAME', 'myh.guru')
 CLOUDFLARE_TOKEN_FILE = os.environ.get('CLOUDFLARE_TOKEN_FILE', '/tmp/.cf_token')
 CLOUDFLARE_LOCAL_TOKEN_FILE = os.path.join(app.instance_path, 'cloudflare_api_token')
 CLOUDFLARE_LOCAL_ZONE_FILE = os.path.join(app.instance_path, 'cloudflare_zone_name')
-APP_VERSION = os.environ.get('HOSTING_PANEL_VERSION', '1.8.0')
+APP_VERSION = os.environ.get('HOSTING_PANEL_VERSION', '1.9.0')
 PUBLIC_HOME_PREFS_FILE = os.path.join(app.instance_path, 'public_home_prefs.json')
 DEFAULT_PUBLIC_HOME_PREFS = {
     'show_cpu': True,
@@ -167,6 +167,9 @@ SFTP_PROVISION_QUEUE_FILE = os.path.join(app.instance_path, 'sftp_provision_queu
 SFTP_PROVISION_RESULT_FILE = os.path.join(app.instance_path, 'sftp_provision_result.jsonl')
 SFTP_PROVISION_WORKER = os.environ.get('HOSTING_PANEL_SFTP_PROVISION_WORKER', '/usr/local/sbin/myh-sftp-provision-worker.sh')
 SFTP_PROVISION_SERVICE = os.environ.get('HOSTING_PANEL_SFTP_PROVISION_SERVICE', 'myh-sftp-provision.service')
+SFTP_CONNECTION_MODE = os.environ.get('HOSTING_PANEL_SFTP_CONNECTION_MODE', 'cloudflare').strip().lower()
+SFTP_TUNNEL_HOST = os.environ.get('HOSTING_PANEL_SFTP_TUNNEL_HOST', 'ssh.myh.guru').strip()
+SFTP_LOCAL_PORT = int(os.environ.get('HOSTING_PANEL_SFTP_LOCAL_PORT', '2222'))
 SFTP_PROVISION_LOCK = threading.Lock()
 API_CSRF_EXEMPT_PATHS = {
     '/api/agents/heartbeat',
@@ -1725,6 +1728,8 @@ def application_summary_for_user(user, site):
 
 
 def sftp_connection_host():
+    if SFTP_CONNECTION_MODE == 'cloudflare':
+        return 'localhost'
     configured = os.environ.get('HOSTING_PANEL_SFTP_HOST', '').strip()
     if configured:
         return configured
@@ -1747,7 +1752,7 @@ def sftp_filezilla_payload(account):
     return {
         'protocol': 'SFTP',
         'host': sftp_connection_host(),
-        'port': 22,
+        'port': SFTP_LOCAL_PORT if SFTP_CONNECTION_MODE == 'cloudflare' else 22,
         'username': account.username,
         'root': account.chroot_directory,
         'auth_type': account.auth_type,
@@ -3934,9 +3939,13 @@ def dashboard():
         'used_mb': round(usage_bytes_value / 1048576, 1),
         'domains': sum(1 for site in user_sites if site.custom_domain),
         'backups': sum(len(list_site_backups(site)) for site in user_sites),
+        'databases': sum(len(site.database_resources) for site in user_sites),
+        'running': sum(1 for site in user_sites if site.runtime_status in {'running', 'configured'} and not site.is_banned),
+        'attention': sum(1 for site in user_sites if site.is_banned or site.runtime_status == 'error' or site.deployment_status == 'failed'),
     }
     metrics = get_server_metrics()
-    return render_template('dashboard.html', user=user, sites=user_sites, usage_bytes=usage_bytes_value, summary=summary, metrics=metrics, can_create_site=user_has_role_permission(user, 'site.create'), can_sftp_access=True)
+    recent_activity = AuditLog.query.filter_by(user_id=user.id).order_by(AuditLog.created_at.desc()).limit(6).all()
+    return render_template('dashboard.html', user=user, sites=user_sites, usage_bytes=usage_bytes_value, summary=summary, metrics=metrics, recent_activity=recent_activity, can_create_site=user_has_role_permission(user, 'site.create'), can_sftp_access=True)
 
 
 @app.route('/developer/dashboard')
@@ -4162,6 +4171,65 @@ def developer_bulk_sites():
     return redirect(url_for('developer_users'))
 
 
+def current_user_sites(user):
+    site_ids = assigned_application_ids(user)
+    return Site.query.filter(Site.id.in_(site_ids)).order_by(Site.created_at.desc()).all() if site_ids else []
+
+
+@app.route('/sites')
+def user_sites_index():
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    if not user or user.is_banned: abort(403)
+    return render_template('sites.html', user=user, sites=current_user_sites(user), can_create_site=user_has_role_permission(user, 'site.create'))
+
+
+@app.route('/domains')
+def user_domains_index():
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    if not user or user.is_banned: abort(403)
+    return render_template('domains.html', user=user, sites=current_user_sites(user))
+
+
+@app.route('/databases')
+def user_databases_index():
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    if not user or user.is_banned: abort(403)
+    sites = current_user_sites(user); site_ids = [site.id for site in sites]
+    databases = DatabaseResource.query.filter(DatabaseResource.application_id.in_(site_ids)).order_by(DatabaseResource.created_at.desc()).all() if site_ids else []
+    return render_template('databases.html', user=user, sites=sites, databases=databases)
+
+
+@app.route('/backups')
+def user_backups_index():
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    if not user or user.is_banned: abort(403)
+    rows = []
+    for site in current_user_sites(user):
+        rows.extend({'site': site, 'backup': backup} for backup in list_site_backups(site))
+    return render_template('user_backups.html', user=user, rows=rows)
+
+
+@app.route('/logs')
+def user_logs_index():
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    if not user or user.is_banned: abort(403)
+    lines = max(50, min(request.args.get('lines', 200, type=int), 500))
+    return render_template('user_logs.html', user=user, log_lines=collect_application_logs_for_user(user, lines), lines=lines)
+
+
+@app.route('/profile')
+def user_profile():
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    if not user or user.is_banned: abort(403)
+    return render_template('profile.html', user=user, usage_bytes=user_usage_bytes(user))
+
+
 @app.route('/dashboard/sftp-access')
 def user_sftp_access():
     if 'user_id' not in session:
@@ -4178,7 +4246,9 @@ def user_sftp_access():
     personal_account = SftpAccount.query.filter_by(assigned_user_id=user.id).order_by(SftpAccount.id.asc()).first()
     sftp_self = {
         'host': sftp_connection_host(),
-        'port': 22,
+        'port': SFTP_LOCAL_PORT if SFTP_CONNECTION_MODE == 'cloudflare' else 22,
+        'connection_mode': SFTP_CONNECTION_MODE,
+        'tunnel_host': SFTP_TUNNEL_HOST,
         'enabled': bool(personal_account and personal_account.enabled),
         'username': personal_account.username if personal_account else user.username,
         'status': personal_account.system_state if personal_account else 'disabled',

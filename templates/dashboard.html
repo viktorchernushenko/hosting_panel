@@ -17,6 +17,7 @@
 
   {% if user.must_change_password %}<div class="flash error">{% if current_language == 'en' %}Change the temporary password before continuing.{% else %}Змініть тимчасовий пароль перед подальшою роботою.{% endif %}</div>{% endif %}
 
+  {% if summary.sites == 0 %}<section class="panel-card onboarding-card"><div><p class="eyebrow">Getting started</p><h3>{% if current_language == 'en' %}Let’s get your first site online{% else %}Запустімо ваш перший сайт{% endif %}</h3><p class="subtitle">{% if current_language == 'en' %}Create a site, upload files, connect a domain and enable HTTPS.{% else %}Створіть сайт, завантажте файли, підключіть домен і активуйте HTTPS.{% endif %}</p></div><ol class="onboarding-steps"><li>{% if current_language == 'en' %}Create site{% else %}Створіть сайт{% endif %}</li><li>{% if current_language == 'en' %}Upload files{% else %}Завантажте файли{% endif %}</li><li>{% if current_language == 'en' %}Connect domain{% else %}Підключіть домен{% endif %}</li><li>{% if current_language == 'en' %}Verify HTTPS{% else %}Перевірте HTTPS{% endif %}</li></ol><a class="tiny-btn" href="{{ url_for('create_site_wizard') }}">{% if current_language == 'en' %}Create your first site{% else %}Створити перший сайт{% endif %}</a></section>{% else %}
   <section class="metric-strip">
     <article class="metric-tile">
       <div class="metric-label">{% if current_language == 'en' %}Sites{% else %}Сайти{% endif %}</div>
@@ -34,11 +35,17 @@
       <div class="metric-caption">{% if current_language == 'en' %}custom hostnames{% else %}кастомних імен{% endif %}</div>
     </article>
     <article class="metric-tile">
-      <div class="metric-label">{% if current_language == 'en' %}Backups{% else %}Резервні копії{% endif %}</div>
-      <div class="metric-value">{{ summary.backups }}</div>
-      <div class="metric-caption">{% if current_language == 'en' %}ready for restore{% else %}готові до відновлення{% endif %}</div>
+      <div class="metric-label">{% if current_language == 'en' %}Databases{% else %}Бази даних{% endif %}</div>
+      <div class="metric-value">{{ summary.databases }}</div>
+      <div class="metric-caption">{% if current_language == 'en' %}isolated resources{% else %}ізольованих ресурсів{% endif %}</div>
     </article>
   </section>
+
+  <section class="panel-grid">
+    <article class="panel-card"><div class="panel-head"><h3>{% if current_language == 'en' %}Hosting health{% else %}Стан хостингу{% endif %}</h3><span class="status-badge {{ 'success' if summary.attention == 0 else 'warning' }}">{{ summary.running }} / {{ summary.sites }} {% if current_language == 'en' %}available{% else %}доступні{% endif %}</span></div><div class="service-list"><div class="service-row"><span><strong>{% if current_language == 'en' %}Applications{% else %}Застосунки{% endif %}</strong><small>{{ summary.running }} {% if current_language == 'en' %}running or configured{% else %}працюють або налаштовані{% endif %}</small></span></div><div class="service-row"><span><strong>Backups</strong><small>{{ summary.backups }} {% if current_language == 'en' %}available restore points{% else %}доступних точок відновлення{% endif %}</small></span></div></div></article>
+    <article class="panel-card"><div class="panel-head"><h3>{% if current_language == 'en' %}Needs attention{% else %}Потребує уваги{% endif %}</h3><span class="status-badge {{ 'success' if summary.attention == 0 else 'danger' }}">{{ summary.attention }}</span></div>{% if summary.attention %}<p class="subtitle">{% if current_language == 'en' %}One or more sites are stopped, unhealthy, or have a failed deployment.{% else %}Один або кілька сайтів зупинені, недоступні або мають невдалий deployment.{% endif %}</p><a class="ghost-btn utility-gap-top" href="{{ url_for('user_sites_index') }}">{% if current_language == 'en' %}Review sites{% else %}Переглянути сайти{% endif %}</a>{% else %}<div class="empty-state"><strong>{% if current_language == 'en' %}Everything looks good{% else %}Усе працює нормально{% endif %}</strong><p>{% if current_language == 'en' %}No known hosting issues require action.{% else %}Немає відомих проблем, які потребують дії.{% endif %}</p></div>{% endif %}</article>
+  </section>
+  {% endif %}
 
   <section class="panel-card full-width">
     <div class="panel-head">
@@ -51,117 +58,25 @@
         <div class="action-meta">{% if current_language == 'en' %}Open wizard for Static, WordPress, Node, PHP, Python{% else %}Відкрити wizard для Static, WordPress, Node, PHP, Python{% endif %}</div>
       </a>
       {% endif %}
-      <a class="action-card" href="{{ url_for('service_catalog') }}">
-        <div class="action-title">{% if current_language == 'en' %}Service Catalog{% else %}Каталог сервісів{% endif %}</div>
-        <div class="action-meta">{% if current_language == 'en' %}Approved templates and integrations{% else %}Затверджені шаблони та інтеграції{% endif %}</div>
-      </a>
-      <a class="action-card" href="#site-list">
+      <a class="action-card" href="{{ url_for('user_sites_index') }}">
         <div class="action-title">{% if current_language == 'en' %}Manage sites{% else %}Керувати сайтами{% endif %}</div>
         <div class="action-meta">{% if current_language == 'en' %}Open files, domains, and backups{% else %}Відкрити файли, домени й резервні копії{% endif %}</div>
       </a>
-      <a class="action-card" href="/dashboard/deploy">
-        <div class="action-title">{% if current_language == 'en' %}Deploy from GitHub{% else %}Розгорнути з GitHub{% endif %}</div>
-        <div class="action-meta">{% if current_language == 'en' %}Paste repository URL and deploy to your site{% else %}Вставте URL репозиторію та розгорніть на свій сайт{% endif %}</div>
+      <a class="action-card" href="{{ url_for('user_domains_index') }}">
+        <div class="action-title">{% if current_language == 'en' %}Add domain{% else %}Додати домен{% endif %}</div>
+        <div class="action-meta">{% if current_language == 'en' %}Connect a custom hostname and SSL{% else %}Підключити власний hostname та SSL{% endif %}</div>
       </a>
-      {% if can_sftp_access %}
+      <a class="action-card" href="{{ url_for('user_databases_index') }}">
+        <div class="action-title">{% if current_language == 'en' %}Create database{% else %}Створити базу даних{% endif %}</div>
+        <div class="action-meta">{% if current_language == 'en' %}Open database resources for your sites{% else %}Відкрити ресурси баз даних сайтів{% endif %}</div>
+      </a>
       <a class="action-card" href="{{ url_for('user_sftp_access') }}">
-        <div class="action-title">SFTP / FileZilla</div>
-        <div class="action-meta">{% if current_language == 'en' %}Connection profile and assigned roots{% else %}Профіль підключення та призначені корені{% endif %}</div>
-      </a>
-      {% endif %}
-      <a class="action-card" href="#account-panel">
-        <div class="action-title">{% if current_language == 'en' %}Account{% else %}Обліковий запис{% endif %}</div>
-        <div class="action-meta">{% if current_language == 'en' %}Reset your password securely{% else %}Безпечно змінити пароль{% endif %}</div>
-      </a>
-      <a class="action-card" href="/login">
-        <div class="action-title">{% if current_language == 'en' %}Refresh session{% else %}Оновити сесію{% endif %}</div>
-        <div class="action-meta">{% if current_language == 'en' %}Return to the secure panel{% else %}Повернутись у захищену панель{% endif %}</div>
+        <div class="action-title">{% if current_language == 'en' %}Open files{% else %}Відкрити файли{% endif %}</div>
+        <div class="action-meta">{% if current_language == 'en' %}SFTP connection and assigned directories{% else %}SFTP-підключення та призначені каталоги{% endif %}</div>
       </a>
     </div>
   </section>
 
-  <section class="panel-card full-width" id="account-panel">
-    <div class="panel-head"><h3>{% if current_language == 'en' %}Account{% else %}Обліковий запис{% endif %}</h3><span class="status-pill online">{% if current_language == 'en' %}Used {{ (usage_bytes / 1048576)|round(1) }} MB of {{ user.quota_mb }} MB{% else %}Використано {{ (usage_bytes / 1048576)|round(1) }} MB з {{ user.quota_mb }} MB{% endif %}</span></div>
-    <form action="{{ url_for('change_password') }}" method="POST" class="form-grid">
-      <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-      <div class="field"><label for="current-password">{% if current_language == 'en' %}Current password{% else %}Поточний пароль{% endif %}</label><input id="current-password" type="password" name="current_password" autocomplete="current-password" required></div>
-      <div class="field"><label for="new-password">{% if current_language == 'en' %}New password{% else %}Новий пароль{% endif %}</label><input id="new-password" type="password" name="new_password" minlength="12" autocomplete="new-password" required><small class="field-help">{% if current_language == 'en' %}At least 12 characters.{% else %}Щонайменше 12 символів.{% endif %}</small></div>
-      <div class="field"><label for="confirm-password">{% if current_language == 'en' %}Confirm new password{% else %}Повторіть новий пароль{% endif %}</label><input id="confirm-password" type="password" name="confirm_password" minlength="12" autocomplete="new-password" required></div>
-      <button type="submit">{% if current_language == 'en' %}Change password{% else %}Змінити пароль{% endif %}</button>
-    </form>
-  </section>
-
-  <section class="panel-grid single-column">
-    {% if can_create_site %}
-    <article class="panel-card" id="create-site">
-      <div class="panel-head">
-        <h3>{% if current_language == 'en' %}Create a new site{% else %}Додати новий сайт{% endif %}</h3>
-        <span class="status-pill online">Ready</span>
-      </div>
-      <form method="POST" class="stack-form">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-        <div class="field"><label for="site-name">{% if current_language == 'en' %}Site name{% else %}Назва сайту{% endif %}</label><input id="site-name" type="text" name="site_name" placeholder="my-project" required><small class="field-help">{% if current_language == 'en' %}Letters, numbers and hyphens only.{% else %}Лише літери, цифри та дефіси.{% endif %}</small></div>
-        <div class="service-meta">{% if current_language == 'en' %}Type: static site (HTML, CSS, JS){% else %}Тип: статичний сайт (HTML, CSS, JS){% endif %}</div>
-        <button type="submit">{% if current_language == 'en' %}Create site{% else %}Створити сайт{% endif %}</button>
-      </form>
-    </article>
-    {% endif %}
-
-  </section>
-
-  <section class="panel-card full-width" id="site-list">
-    <div class="panel-head">
-      <h3>{% if current_language == 'en' %}Your sites{% else %}Ваші сайти{% endif %}</h3>
-      <div class="hero-actions log-toolbar">
-        <label class="field" for="site-search"><span class="field-label">{% if current_language == 'en' %}Search sites{% else %}Пошук сайтів{% endif %}</span><input id="site-search" class="search-box" type="search" placeholder="{% if current_language == 'en' %}Name or domain{% else %}Назва або домен{% endif %}"></label>
-        <span class="status-pill online">{{ sites|length }} {% if current_language == 'en' %}active{% else %}активних{% endif %}</span>
-      </div>
-    </div>
-    <div class="site-list">
-      {% for site in sites %}
-        <div class="site-row" data-site-card="{{ site.name }} {{ site.folder_name }} {{ site.custom_domain or '' }}">
-          <div>
-            <div class="site-name">{{ site.name }}</div>
-            <div class="site-meta">{{ (site.php_version or 'static')|upper }} · {{ site.folder_name }} · <span data-site-status="{{ site.id }}">checking…</span></div>
-            <div class="site-meta">{% if site.custom_domain %}{% if current_language == 'en' %}Custom domain: {{ site.custom_domain }}{% else %}Кастомний домен: {{ site.custom_domain }}{% endif %}{% else %}{% if current_language == 'en' %}Default hostname: {{ site.name }}.myh.guru{% else %}Стандартний hostname: {{ site.name }}.myh.guru{% endif %}{% endif %}</div>
-          </div>
-          <div class="site-actions">
-            <a class="link-btn" href="/site/{{ site.folder_name }}">{% if current_language == 'en' %}Manage{% else %}Керувати{% endif %}</a>
-            <a class="link-btn" href="/view-site/{{ site.folder_name }}/" target="_blank">{% if current_language == 'en' %}Preview{% else %}Переглянути{% endif %}</a>
-            <form action="/delete-site/{{ site.id }}" method="POST" data-confirm="{% if current_language == 'en' %}Delete this site and all its files?{% else %}Видалити цей сайт і всі його файли?{% endif %}">
-              <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-              <button class="danger-link" type="submit">{% if current_language == 'en' %}Delete{% else %}Видалити{% endif %}</button>
-            </form>
-          </div>
-        </div>
-      {% else %}
-        <div class="empty-state"><strong>{% if current_language == 'en' %}No sites yet{% else %}Сайтів ще немає{% endif %}</strong><p>{% if current_language == 'en' %}Create your first website and deploy it in a few minutes.{% else %}Створіть перший сайт і розгорніть його за кілька хвилин.{% endif %}</p>{% if can_create_site %}<a class="tiny-btn" href="{{ url_for('create_site_wizard') }}">{% if current_language == 'en' %}Create site{% else %}Створити сайт{% endif %}</a>{% endif %}</div>
-      {% endfor %}
-    </div>
-  </section>
+  <section class="panel-card"><div class="panel-head"><h3>{% if current_language == 'en' %}Recent activity{% else %}Остання активність{% endif %}</h3><a class="ghost-btn" href="{{ url_for('developer_deploy_history') }}">{% if current_language == 'en' %}View deployments{% else %}Переглянути deployments{% endif %}</a></div><div class="audit-list">{% for event in recent_activity %}<div class="backup-row"><span><strong>{{ event.action }}</strong><small>{{ event.detail or '—' }}</small></span><time class="site-meta">{{ event.created_at.strftime('%Y-%m-%d %H:%M') }}</time></div>{% else %}<div class="empty-state"><strong>{% if current_language == 'en' %}No recent activity{% else %}Немає останніх подій{% endif %}</strong><p>{% if current_language == 'en' %}Actions on your sites will appear here.{% else %}Дії з вашими сайтами з’являться тут.{% endif %}</p></div>{% endfor %}</div></section>
 </div>
-
-<script nonce="{{ csp_nonce }}">
-  const isEnglish = '{{ current_language }}' === 'en';
-
-  document.querySelectorAll('[data-site-status]').forEach(async element => {
-    try {
-      const response = await fetch(`/api/sites/${element.dataset.siteStatus}/status`);
-      const data = await response.json();
-      element.textContent = data.online ? (isEnglish ? `online · ${data.latency_ms} ms` : `онлайн · ${data.latency_ms} ms`) : (isEnglish ? 'unavailable' : 'недоступний');
-    } catch (_) { element.textContent = isEnglish ? 'status unknown' : 'стан невідомий'; }
-  });
-
-  const siteSearch = document.getElementById('site-search');
-  if (siteSearch) {
-    siteSearch.addEventListener('input', () => {
-      const query = siteSearch.value.trim().toLowerCase();
-      document.querySelectorAll('[data-site-card]').forEach((card) => {
-        const haystack = card.dataset.siteCard.toLowerCase();
-        card.style.display = haystack.includes(query) ? '' : 'none';
-      });
-    });
-  }
-</script>
-
 {% endblock %}
