@@ -12,7 +12,9 @@
       <p class="subtitle">{% if current_language == 'en' %}Monitoring, sites, files, and secure server diagnostics in one place.{% else %}Моніторинг, сайти, файли та безпечна діагностика сервера в одному місці.{% endif %}</p>
     </div>
     <div class="hero-actions">
+      {% if is_platform_admin %}
       <a class="ghost-btn" href="{{ url_for('developer_dns_ssl') }}">🌐 {% if current_language == 'en' %}DNS & SSL{% else %}DNS & SSL{% endif %}</a>
+      {% endif %}
       <a class="ghost-btn" href="{{ url_for('developer_infrastructure') }}">🧩 {% if current_language == 'en' %}Infrastructure{% else %}Infrastructure{% endif %}</a>
       <a class="ghost-btn" href="{{ url_for('developer_system_audit') }}">🧪 {% if current_language == 'en' %}Audit{% else %}Аудит{% endif %}</a>
       <a class="ghost-btn" href="{{ url_for('developer_applications') }}">🗂️ {% if current_language == 'en' %}Applications{% else %}Сервіси{% endif %}</a>
@@ -20,12 +22,18 @@
       <a class="ghost-btn" href="{{ url_for('developer_docker') }}">🐳 {% if current_language == 'en' %}Docker{% else %}Docker{% endif %}</a>
       <a class="ghost-btn" href="{{ url_for('developer_deploy') }}">🚀 {% if current_language == 'en' %}Deploy{% else %}Розгортання{% endif %}</a>
       <a class="ghost-btn" href="{{ url_for('developer_notifications') }}">🔔 {% if current_language == 'en' %}Alerts{% else %}Сповіщення{% endif %}</a>
+      {% if is_platform_admin %}
       <a class="ghost-btn" href="{{ url_for('developer_marketplace') }}">🛒 {% if current_language == 'en' %}Marketplace{% else %}Marketplace{% endif %}</a>
+      {% endif %}
       <a class="ghost-btn" href="{{ url_for('developer_backup_center') }}">💾 {% if current_language == 'en' %}Backup Center{% else %}Backup Center{% endif %}</a>
       <a class="ghost-btn" href="{{ url_for('developer_sftp_access') }}">🔐 SFTP Access</a>
+      {% if is_platform_admin %}
       <a class="ghost-btn" href="{{ url_for('developer_sftp_users') }}">🧾 SFTP Users</a>
+      {% endif %}
       <a class="ghost-btn" href="{{ url_for('developer_upload_history') }}">📦 Upload History</a>
+      {% if is_platform_admin %}
       <a class="ghost-btn" href="{{ url_for('developer_users') }}">👥 {% if current_language == 'en' %}Users & sites{% else %}Користувачі &amp; сайти{% endif %}</a>
+      {% endif %}
     </div>
   </header>
 
@@ -135,6 +143,7 @@
     </div>
   </div>
 
+  {% if can_create_site %}
   <section class="panel-grid">
     <article class="panel-card">
       <div class="panel-head">
@@ -168,6 +177,7 @@
       </div>
     </article>
   </section>
+  {% endif %}
 
   <section class="panel-card full-width">
     <div class="panel-head">
@@ -318,7 +328,7 @@
   </section>
 
   <section class="panel-card full-width">
-    <div class="panel-head"><h3>{% if current_language == 'en' %}Recent activity{% else %}Останні дії{% endif %}</h3><a class="ghost-btn" href="{{ url_for('developer_users') }}#audit">{% if current_language == 'en' %}Full log{% else %}Увесь журнал{% endif %}</a></div>
+    <div class="panel-head"><h3>{% if current_language == 'en' %}Recent activity{% else %}Останні дії{% endif %}</h3>{% if is_platform_admin %}<a class="ghost-btn" href="{{ url_for('developer_users') }}#audit">{% if current_language == 'en' %}Full log{% else %}Увесь журнал{% endif %}</a>{% endif %}</div>
     <div class="audit-list">
       {% for entry in recent_logs %}<div class="audit-row"><strong>{{ entry.username }}</strong><span>{{ entry.action }}</span><span>{{ entry.detail }}</span><time>{{ entry.created_at.strftime('%d.%m %H:%M') }}</time></div>{% else %}<p class="empty-state">{% if current_language == 'en' %}The log is empty.{% else %}Журнал порожній.{% endif %}</p>{% endfor %}
     </div>

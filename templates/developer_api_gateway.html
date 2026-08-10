@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card">
+    <div>
+      <p class="eyebrow">API Gateway</p>
+      <h2>{% if current_language == 'en' %}API route catalog{% else %}Каталог API маршрутів{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}Read-only inventory of API and developer routes for diagnostics and governance.{% else %}Read-only інвентар API та developer маршрутів для діагностики й керування.{% endif %}</p>
+    </div>
+    <a class="ghost-btn" href="{{ url_for('developer_dashboard') }}">← {% if current_language == 'en' %}Back to panel{% else %}До панелі{% endif %}</a>
+  </header>
+
+  <section class="metrics-grid">
+    <article class="card-widget">
+      <div class="widget-title">{% if current_language == 'en' %}Total routes{% else %}Всього маршрутів{% endif %}</div>
+      <div class="widget-value">{{ summary.routes }}</div>
+    </article>
+    <article class="card-widget">
+      <div class="widget-title">Developer</div>
+      <div class="widget-value">{{ summary.admin_routes }}</div>
+    </article>
+    <article class="card-widget">
+      <div class="widget-title">Public API</div>
+      <div class="widget-value">{{ summary.public_routes }}</div>
+    </article>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}Route list{% else %}Список маршрутів{% endif %}</h3>
+      <span class="status-pill">{{ routes|length }}</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>{% if current_language == 'en' %}Path{% else %}Шлях{% endif %}</th>
+            <th>{% if current_language == 'en' %}Methods{% else %}Методи{% endif %}</th>
+            <th>{% if current_language == 'en' %}Endpoint{% else %}Endpoint{% endif %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for route in routes %}
+          <tr>
+            <td><strong>{{ route.path }}</strong></td>
+            <td>{{ route.methods|join(', ') }}</td>
+            <td>{{ route.endpoint }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="empty-state">{% if current_language == 'en' %}No routes found.{% else %}Маршрути не знайдено.{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

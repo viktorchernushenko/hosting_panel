@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-shell">
+  <header class="page-header">
+    <h1>{% if current_language == 'en' %}Create Site Wizard{% else %}Майстер створення сайту{% endif %}</h1>
+    <p>{% if current_language == 'en' %}Create an application from approved templates only.{% else %}Створення застосунку лише із затверджених шаблонів.{% endif %}</p>
+  </header>
+
+  <form method="post" class="card form-card">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+
+    {% if user.is_admin %}
+      <label for="owner_id">{% if current_language == 'en' %}Owner{% else %}Власник{% endif %}</label>
+      <select id="owner_id" name="owner_id" required>
+        {% for owner in owners %}
+          <option value="{{ owner.id }}">{{ owner.username }}</option>
+        {% endfor %}
+      </select>
+    {% endif %}
+
+    <label for="site_name">{% if current_language == 'en' %}Subdomain{% else %}Субдомен{% endif %}</label>
+    <input id="site_name" name="site_name" type="text" required placeholder="example-site">
+
+    <label for="domain">{% if current_language == 'en' %}Custom domain (optional){% else %}Кастомний домен (необов'язково){% endif %}</label>
+    <input id="domain" name="domain" type="text" placeholder="example.com">
+
+    <label for="site_type">{% if current_language == 'en' %}Application type{% else %}Тип застосунку{% endif %}</label>
+    <select id="site_type" name="site_type" required>
+      {% for app_type in allowed_types %}
+        <option value="{{ app_type }}" {% if selected_type == app_type %}selected{% endif %}>{{ app_type|upper }}</option>
+      {% endfor %}
+    </select>
+
+    <p class="service-meta">Static/PHP: <code>public_html/</code>. Node/Python: завантажте application-файли у цю саму папку; platform керує процесом і внутрішнім портом.</p>
+
+    <div id="process-command-block">
+      <label for="install_command">Install command</label><input id="install_command" name="install_command" placeholder="npm ci / pip install --target /tmp/deps -r requirements.txt">
+      <label for="build_command">Build command</label><input id="build_command" name="build_command" placeholder="npm run build">
+      <label for="start_command">Start command</label><input id="start_command" name="start_command" placeholder="npm start / gunicorn app:app --bind 0.0.0.0:8080">
+      <p class="service-meta">Commands execute inside the isolated application container. Port must be 8080.</p>
+    </div>
+
+    <div id="php-runtime-block" {% if selected_type != 'php' %}style="display:none;"{% endif %}>
+      <label for="php_runtime">{% if current_language == 'en' %}PHP runtime{% else %}PHP runtime{% endif %}</label>
+      <select id="php_runtime" name="php_runtime">
+        {% for version in allowed_php_versions %}
+          <option value="{{ version }}" {% if selected_php_version == version %}selected{% endif %}>PHP {{ version }}</option>
+        {% endfor %}
+      </select>
+      <div class="action-group" style="margin-top:8px;">
+        <button type="button" id="php-runtime-check" class="ghost-btn">{% if current_language == 'en' %}Test runtime{% else %}Перевірити runtime{% endif %}</button>
+      </div>
+      <p id="php-runtime-result" class="service-meta"></p>
+    </div>
+
+    <label for="source_mode">{% if current_language == 'en' %}Source mode{% else %}Джерело коду{% endif %}</label>
+    <select id="source_mode" name="source_mode" required>
+      {% for source in source_modes %}
+        <option value="{{ source }}" {% if selected_source == source %}selected{% endif %}>{{ source|upper }}</option>
+      {% endfor %}
+    </select>
+
+    <button type="submit" class="btn btn-primary">{% if current_language == 'en' %}Create{% else %}Створити{% endif %}</button>
+  </form>
+</section>
+
+<script>
+  (function () {
+    var typeSelect = document.getElementById('site_type');
+    var runtimeBlock = document.getElementById('php-runtime-block');
+    var runtimeSelect = document.getElementById('php_runtime');
+    var runtimeButton = document.getElementById('php-runtime-check');
+    var runtimeResult = document.getElementById('php-runtime-result');
+    var commandBlock = document.getElementById('process-command-block');
+    var csrfInput = document.querySelector('input[name="_csrf_token"]');
+    if (!typeSelect || !runtimeBlock) return;
+
+    function syncPhpRuntimeVisibility() {
+      runtimeBlock.style.display = typeSelect.value === 'php' ? '' : 'none';
+      commandBlock.style.display = ['node', 'python'].indexOf(typeSelect.value) >= 0 ? '' : 'none';
+    }
+
+    typeSelect.addEventListener('change', syncPhpRuntimeVisibility);
+    syncPhpRuntimeVisibility();
+
+    if (runtimeButton && runtimeSelect && runtimeResult && csrfInput) {
+      runtimeButton.addEventListener('click', function () {
+        runtimeResult.textContent = 'Checking...';
+        fetch('{{ url_for('api_php_runtime_check') }}', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfInput.value
+          },
+          body: JSON.stringify({ php_runtime: runtimeSelect.value })
+        })
+          .then(function (response) { return response.json(); })
+          .then(function (payload) {
+            if (!payload.success) {
+              runtimeResult.textContent = 'Runtime check failed: ' + (payload.error || 'unknown error');
+              return;
+            }
+            if (!payload.php_available) {
+              runtimeResult.textContent = 'PHP binary is not available on server.';
+              return;
+            }
+            var compatibility = payload.compatible ? 'compatible' : 'not compatible';
+            runtimeResult.textContent = 'Server PHP ' + (payload.installed_version || 'unknown') + ' is ' + compatibility + ' with selected ' + payload.selected_version + '.';
+          })
+          .catch(function () {
+            runtimeResult.textContent = 'Runtime check request failed.';
+          });
+      });
+    }
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-shell">
+  <header class="page-header">
+    <h1>{% if current_language == 'en' %}Service Catalog{% else %}Каталог сервісів{% endif %}</h1>
+    <p>{% if current_language == 'en' %}Production service entries with role-aware access and integration status.{% else %}Каталог production-сервісів з рольовим доступом і поточним статусом інтеграцій.{% endif %}</p>
+  </header>
+
+  <div class="catalog-toolbar">
+    <input id="catalog-search" type="search" placeholder="{% if current_language == 'en' %}Search services...{% else %}Пошук сервісів...{% endif %}" autocomplete="off">
+  </div>
+
+  {% set ns = namespace(categories=[]) %}
+  {% for item in catalog_items %}
+    {% if item.category not in ns.categories %}
+      {% set _ = ns.categories.append(item.category) %}
+    {% endif %}
+  {% endfor %}
+
+  {% if catalog_items %}
+    {% for category in ns.categories %}
+      {% set category_items = catalog_items|selectattr('category', 'equalto', category)|list %}
+      {% if category_items %}
+      <section class="catalog-group" data-category="{{ category }}">
+        <div class="catalog-group-head">
+          <h2>{{ category_items[0].category_label }}</h2>
+          <span class="muted">{{ category_items|length }}</span>
+        </div>
+        <div class="catalog-grid">
+          {% for item in category_items %}
+            <article class="catalog-card" data-title="{{ item.title|lower }}" data-summary="{{ item.summary|lower }}" data-service-slug="{{ item.slug }}">
+              <div class="catalog-card-head">
+                <h3>{{ item.title }}</h3>
+                <span class="status-badge {{ item.status }}">{{ item.status_label }}</span>
+              </div>
+              <p class="muted">{{ item.summary }}</p>
+              {% if not item.allowed %}
+                <button type="button" class="btn btn-primary" disabled>{% if current_language == 'en' %}Needs permission{% else %}Потрібен дозвіл{% endif %}</button>
+              {% elif not item.actionable %}
+                <button type="button" class="btn btn-primary" disabled>{% if current_language == 'en' %}Not configured yet{% else %}Ще не налаштовано{% endif %}</button>
+              {% elif item.site_type %}
+                <a class="btn btn-primary" href="{{ url_for('create_site_wizard', site_type=item.site_type) }}">
+                  {% if current_language == 'en' %}Create{% else %}Створити{% endif %}
+                </a>
+              {% else %}
+                <a class="btn btn-primary" href="{{ url_for('service_catalog_action', slug=item.slug) }}">
+                  {% if current_language == 'en' %}Configure{% else %}Налаштувати{% endif %}
+                </a>
+              {% endif %}
+            </article>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+    {% endfor %}
+  {% else %}
+    <p class="muted">{% if current_language == 'en' %}No services available for your role.{% else %}Для вашої ролі сервіси недоступні.{% endif %}</p>
+  {% endif %}
+</section>
+
+<style>
+  .catalog-toolbar {
+    margin-bottom: 16px;
+  }
+
+  #catalog-search {
+    width: 100%;
+    border: 1px solid rgba(20, 44, 70, 0.15);
+    border-radius: 10px;
+    padding: 11px 12px;
+    background: #f8fbff;
+    color: #132335;
+    font-size: 14px;
+  }
+
+  .catalog-group {
+    margin-bottom: 22px;
+  }
+
+  .catalog-group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .catalog-group-head h2 {
+    margin: 0;
+    font-size: 16px;
+  }
+
+  .catalog-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 12px;
+  }
+
+  .catalog-card {
+    border: 1px solid rgba(20, 44, 70, 0.12);
+    border-radius: 12px;
+    padding: 14px;
+    background: #ffffff;
+    display: flex;
+    flex-direction: column;
+    min-height: 190px;
+  }
+
+  .catalog-card.hidden {
+    display: none;
+  }
+
+  .catalog-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .catalog-card h3 {
+    margin: 0;
+    font-size: 16px;
+  }
+
+  .catalog-card > .btn { margin-top: auto; align-self: flex-start; }
+  .catalog-card .btn:disabled { cursor: not-allowed; opacity: .58; }
+
+  .status-badge {
+    border-radius: 999px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  .status-badge.working {
+    color: #115e2a;
+    background: #dbfbe5;
+  }
+
+  .status-badge.partial {
+    color: #8a5a00;
+    background: #fff2d8;
+  }
+
+  .status-badge.broken,
+  .status-badge.missing {
+    color: #7f1d1d;
+    background: #fee2e2;
+  }
+
+  @media (max-width: 700px) {
+    .catalog-card-head {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+  }
+</style>
+
+<script>
+  (function () {
+    var input = document.getElementById('catalog-search');
+    if (!input) return;
+    var cards = Array.from(document.querySelectorAll('.catalog-card'));
+    var groups = Array.from(document.querySelectorAll('.catalog-group'));
+
+    function applyFilter() {
+      var query = (input.value || '').trim().toLowerCase();
+      cards.forEach(function (card) {
+        var title = (card.getAttribute('data-title') || '');
+        var summary = (card.getAttribute('data-summary') || '');
+        var slug = (card.getAttribute('data-service-slug') || '');
+        var visible = !query || title.indexOf(query) >= 0 || summary.indexOf(query) >= 0 || slug.indexOf(query) >= 0;
+        card.classList.toggle('hidden', !visible);
+      });
+      groups.forEach(function (group) {
+        var hasVisible = group.querySelector('.catalog-card:not(.hidden)');
+        group.style.display = hasVisible ? '' : 'none';
+      });
+    }
+
+    input.addEventListener('input', applyFilter);
+  })();
+</script>
+{% endblock %}

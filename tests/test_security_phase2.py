@@ -8,6 +8,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 os.environ.setdefault('HOSTING_PANEL_SECRET', 'test-secret-key-1234567890abcdef')
+os.environ.setdefault('HOSTING_PANEL_DATABASE_URI', f"sqlite:////tmp/hosting-panel-tests-{os.getpid()}.db")
 
 import app as panel_app
 
@@ -19,6 +20,8 @@ class SecurityPhase2Tests(unittest.TestCase):
         self.app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
         self.app_context = self.app.app_context()
         self.app_context.push()
+        panel_app.db.session.remove()
+        panel_app.db.engine.dispose()
         panel_app.db.drop_all()
         panel_app.db.create_all()
 
@@ -190,6 +193,21 @@ class SecurityPhase2Tests(unittest.TestCase):
         response = client.get('/api/health')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), {'status': 'ok'})
+
+    def test_notify_webhook_is_disabled_without_secret_by_default(self):
+        client = self.app.test_client()
+        response = client.post('/api/webhook/notify', json={'message': 'ping'})
+        self.assertEqual(response.status_code, 503)
+
+    def test_notify_webhook_allows_compatibility_mode(self):
+        client = self.app.test_client()
+        old_value = panel_app.ALLOW_INSECURE_NOTIFY_WEBHOOK
+        panel_app.ALLOW_INSECURE_NOTIFY_WEBHOOK = True
+        try:
+            response = client.post('/api/webhook/notify', json={'message': 'ping'})
+            self.assertEqual(response.status_code, 200)
+        finally:
+            panel_app.ALLOW_INSECURE_NOTIFY_WEBHOOK = old_value
 
     def test_header_has_single_compact_language_switch(self):
         client = self.app.test_client()

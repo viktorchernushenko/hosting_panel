@@ -15,6 +15,30 @@
       <h3>{% if current_language == 'en' %}FileZilla connection{% else %}Підключення через FileZilla{% endif %}</h3>
       <span class="status-pill">SFTP :22</span>
     </div>
+    <div class="action-group" style="margin-bottom:12px;">
+      <form method="POST" action="{{ url_for('user_sftp_toggle_access') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="desired_state" value="enable">
+        <button type="submit" class="tiny-btn" {% if not sftp_self.has_sites or sftp_self.enabled %}disabled{% endif %}>{% if current_language == 'en' %}Open access{% else %}Відкрити доступ{% endif %}</button>
+      </form>
+      <form method="POST" action="{{ url_for('user_sftp_toggle_access') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="desired_state" value="disable">
+        <button type="submit" class="danger-btn" {% if not sftp_self.enabled %}disabled{% endif %}>{% if current_language == 'en' %}Close access{% else %}Закрити доступ{% endif %}</button>
+      </form>
+      <span class="service-meta">{% if current_language == 'en' %}Status{% else %}Статус{% endif %}: {{ sftp_self.status }}</span>
+    </div>
+
+    <div class="backup-row" style="margin-bottom:10px;">
+      <span>
+        <strong>{% if current_language == 'en' %}Server address{% else %}Адреса сервера{% endif %}: {{ sftp_self.host }}</strong>
+        <small>{% if current_language == 'en' %}Port{% else %}Порт{% endif %}: {{ sftp_self.port }}</small>
+        <small>{% if current_language == 'en' %}Login{% else %}Логін{% endif %}: {{ sftp_self.username }}</small>
+        <small>{% if current_language == 'en' %}The SFTP password is shown only when created or reset and is never displayed again.{% else %}SFTP-пароль показується лише під час створення або скидання й повторно не відображається.{% endif %}</small>
+        <small>{% if current_language == 'en' %}Use Protocol=SFTP, Host={{ sftp_self.host }}, Port=22, and do not add ftp:// prefix.{% else %}Використовуйте Protocol=SFTP, Host={{ sftp_self.host }}, Port=22, без префікса ftp://.{% endif %}</small>
+      </span>
+    </div>
+
     <div class="backup-list">
       {% for item in sftp_connections %}
       <div class="backup-row">
@@ -26,7 +50,7 @@
         </span>
       </div>
       {% else %}
-      <p class="empty-state">{% if current_language == 'en' %}No active SFTP account assigned. Contact your administrator.{% else %}Немає активного призначеного SFTP акаунта. Зверніться до адміністратора.{% endif %}</p>
+      <p class="empty-state">{% if current_language == 'en' %}SFTP access is currently disabled. Use the "Open access" button above.{% else %}SFTP доступ зараз вимкнено. Натисніть кнопку "Відкрити доступ" вище.{% endif %}</p>
       {% endfor %}
     </div>
   </section>

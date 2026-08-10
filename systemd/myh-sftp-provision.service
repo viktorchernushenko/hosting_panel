@@ -15,9 +15,9 @@ Environment=HOSTING_PANEL_SFTP_PROVISION_RESULT_FILE=/home/myserver/hosting_pane
 ExecStart=/usr/local/sbin/myh-sftp-provision-worker.sh
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=/home/myserver/hosting_panel/instance /etc/ssh /var/lib/myh-sftp-provision /run/myh-sftp-provision
+ProtectSystem=off
+ProtectHome=off
+ReadWritePaths=/home/myserver/hosting_panel/instance /home/myserver/hosting_panel/user_sites /srv/apps /etc /var/log /var/mail /var/lib/myh-sftp-provision /run/myh-sftp-provision
 
 [Install]
 WantedBy=multi-user.target

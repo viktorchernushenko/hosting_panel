@@ -1,9 +1,9 @@
-from flask import Flask, render_template, request, redirect, url_for, session, send_from_directory, send_file, abort, flash, jsonify, g, has_request_context
+from flask import Flask, Response, render_template, request, redirect, url_for, session, send_from_directory, send_file, abort, flash, jsonify, g, has_request_context
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 from functools import wraps
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, text, func
 from sqlalchemy.exc import OperationalError
 import json
 import psutil
@@ -13,16 +13,20 @@ import subprocess
 import re
 import secrets
 import hashlib
+import hmac
 import time
 import argparse
 import socket
 import urllib.request
 import urllib.error
+import urllib.parse
 import smtplib
 import string
 import threading
 import traceback
 import shutil
+import tempfile
+from runtime_engine import RUNTIME_VERSIONS, SUPPORTED_RUNTIMES, compose_action, detect_stack, healthcheck, infer_runtime_commands, prepare_custom_docker, prepare_runtime, prepare_wordpress_runtime, validate_runtime_commands
 from collections import defaultdict, deque
 from datetime import datetime
 
@@ -31,7 +35,10 @@ panel_secret = os.environ.get('HOSTING_PANEL_SECRET')
 if not panel_secret or len(panel_secret) < 32:
     raise RuntimeError('HOSTING_PANEL_SECRET must be set and at least 32 characters long')
 app.config['SECRET_KEY'] = panel_secret
-app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(app.root_path, 'instance', 'hosting.db')}"
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
+    'HOSTING_PANEL_DATABASE_URI',
+    f"sqlite:///{os.path.join(app.root_path, 'instance', 'hosting.db')}",
+)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'user_sites')
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
@@ -44,6 +51,7 @@ app.config.update(
     TRUSTED_HOSTS=['myh.guru', '.myh.guru', 'localhost', '127.0.0.1'],
 )
 db = SQLAlchemy(app)
+APPLICATION_PORT_LOCK = threading.Lock()
 login_attempts = defaultdict(deque)
 LOGIN_WINDOW_SECONDS = 300
 LOGIN_MAX_IP_ATTEMPTS = 10
@@ -52,13 +60,15 @@ CLOUDFLARE_ZONE_NAME = os.environ.get('CLOUDFLARE_ZONE_NAME', 'myh.guru')
 CLOUDFLARE_TOKEN_FILE = os.environ.get('CLOUDFLARE_TOKEN_FILE', '/tmp/.cf_token')
 CLOUDFLARE_LOCAL_TOKEN_FILE = os.path.join(app.instance_path, 'cloudflare_api_token')
 CLOUDFLARE_LOCAL_ZONE_FILE = os.path.join(app.instance_path, 'cloudflare_zone_name')
-APP_VERSION = os.environ.get('HOSTING_PANEL_VERSION', '1.5.0')
+APP_VERSION = os.environ.get('HOSTING_PANEL_VERSION', '1.7.0')
 PUBLIC_HOME_PREFS_FILE = os.path.join(app.instance_path, 'public_home_prefs.json')
 DEFAULT_PUBLIC_HOME_PREFS = {
     'show_cpu': True,
     'show_ram': True,
     'private_mode': False,
 }
+APP_STACKS_ROOT = os.path.join(app.instance_path, 'app_stacks')
+RUNTIME_CONFIG_FILE = os.path.join(app.instance_path, 'runtime_config.json')
 REQUIRED_CORE_TABLES = {
     'user',
     'site',
@@ -71,22 +81,48 @@ REQUIRED_CORE_TABLES = {
     'sftp_account',
     'upload_history',
     'sftp_audit_event',
+    'integration',
+    'environment_variable',
+    'database_resource',
 }
 USER_PERMISSION_SET = {
+    'site.create',
+    'site.manage',
     'files.view',
     'files.upload',
     'files.download',
     'files.create',
     'files.rename',
     'files.delete',
+    'files.extract',
     'sftp.access',
+    'sftp.create',
+    'domain.view',
+    'domain.manage',
+    'ssl.manage',
+    'database.view',
+    'database.create',
+    'environment.view',
+    'environment.manage',
+    'integration.view',
+    'integration.manage',
     'backup.view',
     'backup.create',
+    'backup.download',
+    'backup.restore',
     'site.view',
+    'application.view',
+    'application.restart',
+    'git.connect',
     'deployment.request',
+    'deployment.execute',
+    'logs.view',
+    'health.view',
     'wp.uploads.manage',
 }
 DEVELOPER_PERMISSION_SET = {
+    'site.create',
+    'site.manage',
     'files.view',
     'files.upload',
     'files.download',
@@ -99,6 +135,8 @@ DEVELOPER_PERMISSION_SET = {
     'application.start',
     'application.stop',
     'application.restart',
+    'docker.view',
+    'docker.restart',
     'deployment.view',
     'deployment.execute',
     'deployment.rollback',
@@ -135,6 +173,9 @@ API_CSRF_EXEMPT_PATHS = {
     '/api/webhook/notify',
     '/api/github/webhook',
 }
+NOTIFY_WEBHOOK_SECRET = os.environ.get('HOSTING_PANEL_NOTIFY_WEBHOOK_SECRET', '').strip()
+ALLOW_INSECURE_NOTIFY_WEBHOOK = os.environ.get('HOSTING_PANEL_ALLOW_INSECURE_NOTIFY_WEBHOOK', '0').strip() == '1'
+ALLOW_UNSIGNED_GITHUB_WEBHOOK = os.environ.get('HOSTING_PANEL_ALLOW_UNSIGNED_GITHUB_WEBHOOK', '0').strip() == '1'
 ARCHIVE_MAX_ENTRIES = int(os.environ.get('ARCHIVE_MAX_ENTRIES', '5000'))
 ARCHIVE_MAX_UNCOMPRESSED_BYTES = int(os.environ.get('ARCHIVE_MAX_UNCOMPRESSED_BYTES', str(1024 * 1024 * 1024)))
 ARCHIVE_MAX_COMPRESSION_RATIO = int(os.environ.get('ARCHIVE_MAX_COMPRESSION_RATIO', '200'))
@@ -215,6 +256,186 @@ TRANSLATIONS = {
     },
 }
 
+SERVICE_CATALOG = [
+    {
+        'slug': 'static-site',
+        'title_uk': 'Static Site',
+        'title_en': 'Static Site',
+        'summary_uk': 'Швидке створення статичного сайту зі стартовим шаблоном.',
+        'summary_en': 'Fast static site provisioning with starter content scaffold.',
+        'category': 'hosting',
+        'status': 'working',
+        'site_type': 'static',
+        'permission': 'site.create',
+    },
+    {
+        'slug': 'wordpress-site',
+        'title_uk': 'WordPress',
+        'title_en': 'WordPress',
+        'summary_uk': 'Створення WordPress-стеку через майстер створення сайту.',
+        'summary_en': 'Provision a WordPress stack through the site creation wizard.',
+        'category': 'hosting',
+        'status': 'working',
+        'site_type': 'wordpress',
+        'permission': 'site.create',
+    },
+    {
+        'slug': 'node-app',
+        'title_uk': 'Node App',
+        'title_en': 'Node App',
+        'summary_uk': 'Створення Node.js застосунку з базовим scaffold.',
+        'summary_en': 'Create a Node.js application with baseline stack scaffolding.',
+        'category': 'hosting',
+        'status': 'working',
+        'site_type': 'node',
+        'permission': 'site.create',
+    },
+    {
+        'slug': 'php-app',
+        'title_uk': 'PHP App',
+        'title_en': 'PHP App',
+        'summary_uk': 'Створення PHP застосунку через уніфікований wizard.',
+        'summary_en': 'Create a PHP application through the unified wizard flow.',
+        'category': 'hosting',
+        'status': 'working',
+        'site_type': 'php',
+        'permission': 'site.create',
+    },
+    {
+        'slug': 'python-app',
+        'title_uk': 'Python App',
+        'title_en': 'Python App',
+        'summary_uk': 'Створення Python застосунку з типовими налаштуваннями.',
+        'summary_en': 'Provision a Python application with standard platform defaults.',
+        'category': 'hosting',
+        'status': 'working',
+        'site_type': 'python',
+        'permission': 'site.create',
+    },
+    {
+        'slug': 'docker-app', 'title_uk': 'Docker App', 'title_en': 'Docker App',
+        'summary_uk': 'Dockerfile або policy-validated Docker Compose з керованим портом.',
+        'summary_en': 'Dockerfile or policy-validated Docker Compose with a managed port.',
+        'category': 'hosting', 'status': 'working', 'site_type': 'docker', 'permission': 'site.create',
+    },
+    {
+        'slug': 'database',
+        'title_uk': 'Database',
+        'title_en': 'Database',
+        'summary_uk': 'Керування БД через developer applications сторінку.',
+        'summary_en': 'Manage database resources through the developer applications view.',
+        'category': 'data',
+        'status': 'working',
+        'site_type': None,
+        'permission': 'database.create',
+    },
+    {
+        'slug': 'connect-git',
+        'title_uk': 'Git / GitHub',
+        'title_en': 'Git / GitHub',
+        'summary_uk': 'Git deploy, webhook-конфіг і події розгортання для сайтів.',
+        'summary_en': 'Git deployment, webhook config, and deployment event tracking.',
+        'category': 'delivery',
+        'status': 'working',
+        'site_type': None,
+        'permission': 'git.connect',
+    },
+    {
+        'slug': 'connect-domain',
+        'title_uk': 'Domain & DNS',
+        'title_en': 'Domain & DNS',
+        'summary_uk': 'Cloudflare DNS/SSL керування для платформи і доменів.',
+        'summary_en': 'Cloudflare DNS and SSL management for platform domains.',
+        'category': 'network',
+        'status': 'working',
+        'site_type': None,
+        'permission': 'domain.manage',
+    },
+    {
+        'slug': 'create-sftp',
+        'title_uk': 'SFTP Access',
+        'title_en': 'SFTP Access',
+        'summary_uk': 'Профілі SFTP та доступ до призначених застосунків.',
+        'summary_en': 'SFTP profiles and access scope for assigned applications.',
+        'category': 'access',
+        'status': 'working',
+        'site_type': None,
+        'permission': 'sftp.create',
+    },
+    {
+        'slug': 'connect-smtp',
+        'title_uk': 'SMTP Alerts',
+        'title_en': 'SMTP Alerts',
+        'summary_uk': 'Відправка SMTP/Telegram сповіщень із панелі.',
+        'summary_en': 'Send SMTP/Telegram notifications from panel workflows.',
+        'category': 'integrations',
+        'status': 'partial',
+        'site_type': None,
+        'permission': 'integration.manage',
+    },
+    {
+        'slug': 'connect-telegram',
+        'title_uk': 'Telegram Alerts',
+        'title_en': 'Telegram Alerts',
+        'summary_uk': 'Інтеграція Telegram для оперативних алертів.',
+        'summary_en': 'Telegram integration for operational and deploy alerts.',
+        'category': 'integrations',
+        'status': 'partial',
+        'site_type': None,
+        'permission': 'integration.manage',
+    },
+    {
+        'slug': 'create-webhook',
+        'title_uk': 'Webhook Triggers',
+        'title_en': 'Webhook Triggers',
+        'summary_uk': 'Захищені webhook endpoint-и для автоматизації подій.',
+        'summary_en': 'Secure webhook endpoints for deployment and notification events.',
+        'category': 'integrations',
+        'status': 'working',
+        'site_type': None,
+        'permission': 'integration.manage',
+    },
+    {
+        'slug': 'configure-backups',
+        'title_uk': 'Backups & Restore',
+        'title_en': 'Backups & Restore',
+        'summary_uk': 'Керування backup/restore, квотами і чергою робіт.',
+        'summary_en': 'Manage backup and restore operations, quotas, and job queues.',
+        'category': 'operations',
+        'status': 'working',
+        'site_type': None,
+        'permission': 'backup.create',
+    },
+    {
+        'slug': 'php-health',
+        'title_uk': 'PHP Health',
+        'title_en': 'PHP Health',
+        'summary_uk': 'Перевірка PHP runtime, bootstrap і metadata для PHP-сайтів.',
+        'summary_en': 'Validate PHP runtime, bootstrap, and metadata for PHP sites.',
+        'category': 'operations',
+        'status': 'working',
+        'site_type': None,
+        'permission': 'health.view',
+    },
+]
+
+SERVICE_CATALOG_CATEGORIES = {
+    'hosting': {'uk': 'Хостинг', 'en': 'Hosting'},
+    'delivery': {'uk': 'Доставка коду', 'en': 'Code Delivery'},
+    'data': {'uk': 'Дані', 'en': 'Data'},
+    'network': {'uk': 'Мережа', 'en': 'Network'},
+    'access': {'uk': 'Доступ', 'en': 'Access'},
+    'integrations': {'uk': 'Інтеграції', 'en': 'Integrations'},
+    'operations': {'uk': 'Операції', 'en': 'Operations'},
+}
+
+SERVICE_CATALOG_STATUS = {
+    'working': {'uk': 'Доступно', 'en': 'Available'},
+    'partial': {'uk': 'Обмежено', 'en': 'Limited'},
+    'broken': {'uk': 'Недоступно', 'en': 'Unavailable'},
+    'missing': {'uk': 'У розробці', 'en': 'In development'},
+}
+
 
 def resolve_language(lang=None):
     if lang in SUPPORTED_LANGUAGES:
@@ -258,6 +479,15 @@ class Site(db.Model):
     webhook_secret = db.Column(db.String(255), nullable=True)
     webhook_branch = db.Column(db.String(120), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    runtime_type = db.Column(db.String(20), nullable=False, default='static')
+    runtime_version = db.Column(db.String(40), nullable=False, default='nginx-alpine')
+    runtime_status = db.Column(db.String(20), nullable=False, default='configured')
+    deployment_status = db.Column(db.String(20), nullable=False, default='pending')
+    internal_port = db.Column(db.Integer, nullable=True)
+    last_restart_at = db.Column(db.DateTime, nullable=True)
+    install_command = db.Column(db.String(500), nullable=False, default='')
+    build_command = db.Column(db.String(500), nullable=False, default='')
+    start_command = db.Column(db.String(500), nullable=False, default='')
 
 
 class AuditLog(db.Model):
@@ -322,6 +552,49 @@ class DeploymentEvent(db.Model):
     detail = db.Column(db.String(500), nullable=False, default='')
     repo_url = db.Column(db.String(500), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+
+class Integration(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    application_id = db.Column(db.Integer, db.ForeignKey('site.id'), nullable=False)
+    integration_type = db.Column(db.String(40), nullable=False)
+    provider = db.Column(db.String(40), nullable=False, default='generic')
+    status = db.Column(db.String(20), nullable=False, default='pending')
+    config_json = db.Column(db.Text, nullable=False, default='{}')
+    secret_ref = db.Column(db.String(500), nullable=True)
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    last_test_at = db.Column(db.DateTime, nullable=True)
+    last_test_status = db.Column(db.String(20), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+    application = db.relationship('Site', backref='integrations', lazy=True)
+
+
+class EnvironmentVariable(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    application_id = db.Column(db.Integer, db.ForeignKey('site.id'), nullable=False)
+    key = db.Column(db.String(120), nullable=False)
+    secret_ref = db.Column(db.String(500), nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+    application = db.relationship('Site', backref='environment_variables', lazy=True)
+    __table_args__ = (db.UniqueConstraint('application_id', 'key', name='uq_application_environment_key'),)
+
+
+class DatabaseResource(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    application_id = db.Column(db.Integer, db.ForeignKey('site.id'), nullable=False)
+    engine = db.Column(db.String(20), nullable=False, default='mariadb')
+    database_name = db.Column(db.String(64), nullable=False, unique=True)
+    database_user = db.Column(db.String(64), nullable=False, unique=True)
+    host = db.Column(db.String(120), nullable=False, default='lab-db')
+    port = db.Column(db.Integer, nullable=False, default=3306)
+    secret_ref = db.Column(db.String(500), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='ready')
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    application = db.relationship('Site', backref='database_resources', lazy=True)
 
 
 class ApplicationAccess(db.Model):
@@ -434,6 +707,15 @@ def ensure_database_schema(force=False):
             ('site', 'webhook_secret', "ALTER TABLE site ADD COLUMN webhook_secret VARCHAR(255)", site_columns),
             ('site', 'webhook_branch', "ALTER TABLE site ADD COLUMN webhook_branch VARCHAR(120)", site_columns),
             ('site', 'created_at', "ALTER TABLE site ADD COLUMN created_at DATETIME", site_columns),
+            ('site', 'runtime_type', "ALTER TABLE site ADD COLUMN runtime_type VARCHAR(20) NOT NULL DEFAULT 'static'", site_columns),
+            ('site', 'runtime_version', "ALTER TABLE site ADD COLUMN runtime_version VARCHAR(40) NOT NULL DEFAULT 'nginx-alpine'", site_columns),
+            ('site', 'runtime_status', "ALTER TABLE site ADD COLUMN runtime_status VARCHAR(20) NOT NULL DEFAULT 'configured'", site_columns),
+            ('site', 'deployment_status', "ALTER TABLE site ADD COLUMN deployment_status VARCHAR(20) NOT NULL DEFAULT 'pending'", site_columns),
+            ('site', 'internal_port', "ALTER TABLE site ADD COLUMN internal_port INTEGER", site_columns),
+            ('site', 'last_restart_at', "ALTER TABLE site ADD COLUMN last_restart_at DATETIME", site_columns),
+            ('site', 'install_command', "ALTER TABLE site ADD COLUMN install_command VARCHAR(500) NOT NULL DEFAULT ''", site_columns),
+            ('site', 'build_command', "ALTER TABLE site ADD COLUMN build_command VARCHAR(500) NOT NULL DEFAULT ''", site_columns),
+            ('site', 'start_command', "ALTER TABLE site ADD COLUMN start_command VARCHAR(500) NOT NULL DEFAULT ''", site_columns),
         ]
 
         with db.engine.begin() as conn:
@@ -571,6 +853,23 @@ def ensure_database_schema(force=False):
                         created_at DATETIME NOT NULL
                     )
                 """))
+            if 'integration' not in job_tables:
+                conn.execute(text("""
+                    CREATE TABLE integration (
+                        id INTEGER PRIMARY KEY,
+                        application_id INTEGER NOT NULL,
+                        integration_type VARCHAR(40) NOT NULL,
+                        provider VARCHAR(40) NOT NULL DEFAULT 'generic',
+                        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        config_json TEXT NOT NULL DEFAULT '{}',
+                        secret_ref VARCHAR(500),
+                        created_by INTEGER NOT NULL,
+                        last_test_at DATETIME,
+                        last_test_status VARCHAR(20),
+                        created_at DATETIME NOT NULL,
+                        updated_at DATETIME NOT NULL
+                    )
+                """))
 
         inspector = inspect(db.engine)
         if 'application_access' in inspector.get_table_names():
@@ -665,7 +964,7 @@ def create_or_reset_admin_user(username='developer', password=None, email=None, 
         if user is None:
             user = User(username=username, first_name='Developer', last_name='Admin', phone='0000000000', email=email, password=generate_password_hash(password), is_admin=True, must_change_password=True)
             db.session.add(user)
-            print(f'Created admin user: {username}/{password}', flush=True)
+            print(f'Created admin user: {username}', flush=True)
         else:
             if force or not user.is_admin:
                 user.first_name = 'Developer'
@@ -676,11 +975,34 @@ def create_or_reset_admin_user(username='developer', password=None, email=None, 
                 user.is_admin = True
                 user.must_change_password = True
                 user.is_banned = False
-                print(f'Reset admin user: {username}/{password}', flush=True)
+                print(f'Reset admin user: {username}', flush=True)
             else:
                 print(f'Admin user already exists: {username}', flush=True)
         db.session.commit()
         return user, password
+
+
+def sanitize_next_path(next_url, fallback):
+    if not next_url:
+        return fallback
+    parsed = urllib.parse.urlparse(next_url)
+    if parsed.scheme or parsed.netloc:
+        return fallback
+    if not next_url.startswith('/'):
+        return fallback
+    return next_url
+
+
+def is_signed_webhook_secret_valid(request_obj, expected_secret, header_name='X-Webhook-Secret'):
+    supplied = (request_obj.headers.get(header_name) or '').strip()
+    return bool(expected_secret and supplied and secrets.compare_digest(expected_secret, supplied))
+
+
+def github_signature_valid(request_obj, expected_secret):
+    signature = (request_obj.headers.get('X-Hub-Signature-256') or '').strip()
+    body = request_obj.get_data(cache=True) or b''
+    expected = 'sha256=' + hmac.new(expected_secret.encode('utf-8'), body, hashlib.sha256).hexdigest()
+    return bool(signature and secrets.compare_digest(signature, expected))
 
 
 with app.app_context():
@@ -717,6 +1039,7 @@ def inject_user():
 @app.before_request
 def prepare_security_context():
     g.csp_nonce = secrets.token_urlsafe(16)
+    g.request_id = secrets.token_hex(8)
 
 
 @app.before_request
@@ -864,6 +1187,7 @@ def parse_docker_container_output(output):
             continue
         container_id, name, status, image = parts[:4]
         ports = parts[4] if len(parts) > 4 else ''
+        project = parts[5] if len(parts) > 5 else ''
         state = 'running' if status.lower().startswith('up') else 'stopped'
         containers.append({
             'id': container_id,
@@ -872,15 +1196,49 @@ def parse_docker_container_output(output):
             'state': state,
             'image': image,
             'ports': ports,
+            'project': project,
         })
     return containers
 
 
 def list_docker_containers():
-    code, output = run_command(['docker', 'ps', '-a', '--format', '{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}'], timeout=15)
+    code, output = run_command(['docker', 'ps', '-a', '--format', '{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}\t{{.Label "com.docker.compose.project"}}'], timeout=15)
     if code != 0:
         return []
     return parse_docker_container_output(output)
+
+
+def list_scoped_docker_containers(user):
+    containers = list_docker_containers()
+    if not user:
+        return []
+    if user_role(user) == 'admin' or user.is_admin:
+        return containers
+
+    site_ids = set(assigned_application_ids(user))
+    if not site_ids:
+        return []
+
+    sites = Site.query.filter(Site.id.in_(site_ids)).all()
+    allowed_projects = set()
+    allowed_tokens = set()
+    for site in sites:
+        if site.name:
+            allowed_projects.add(site.name.lower())
+            allowed_tokens.add(site.name.lower())
+        if site.folder_name:
+            allowed_tokens.add(site.folder_name.lower())
+
+    scoped = []
+    for container in containers:
+        name = (container.get('name') or '').lower()
+        project = (container.get('project') or '').lower()
+        if project and project in allowed_projects:
+            scoped.append(container)
+            continue
+        if any(token and token in name for token in allowed_tokens):
+            scoped.append(container)
+    return scoped
 
 
 def can_manage_site(user, site):
@@ -911,9 +1269,62 @@ def user_role(user):
     if not user:
         return 'anonymous'
     role = (user.role or '').strip().lower()
-    if role in {'user', 'developer', 'admin'}:
+    if role in {'user', 'developer', 'admin', 'viewer'}:
         return role
-    return 'admin' if user.is_admin else 'user'
+    return 'admin' if user.is_admin else 'viewer'
+
+
+def role_permission_set(role):
+    if role == 'admin':
+        return ADMIN_PERMISSION_SET
+    if role == 'developer':
+        return DEVELOPER_PERMISSION_SET
+    if role == 'viewer':
+        return set()
+    return USER_PERMISSION_SET
+
+
+def user_has_role_permission(user, permission):
+    if not user:
+        return False
+    if user.is_admin or user_role(user) == 'admin':
+        return True
+    return permission in role_permission_set(user_role(user))
+
+
+def require_role_permission(user, permission):
+    if not user_has_role_permission(user, permission):
+        abort(403)
+
+
+def available_service_catalog(user, language='uk'):
+    items = []
+    actionable_slugs = {'static-site', 'connect-git', 'create-sftp', 'configure-backups', 'php-health'}
+    for item in SERVICE_CATALOG:
+        permission = item.get('permission')
+        allowed = not permission or user_has_role_permission(user, permission)
+        lang_key = 'en' if language == 'en' else 'uk'
+        title = item['title_en'] if language == 'en' else item['title_uk']
+        summary = item.get('summary_en') if language == 'en' else item.get('summary_uk')
+        category_key = item.get('category', 'operations')
+        status_key = item.get('status', 'partial')
+        items.append({
+            'slug': item['slug'],
+            'title': title,
+            'summary': summary or '',
+            'category': category_key,
+            'category_label': SERVICE_CATALOG_CATEGORIES.get(category_key, SERVICE_CATALOG_CATEGORIES['operations']).get(lang_key, category_key),
+            'status': status_key,
+            'status_label': SERVICE_CATALOG_STATUS.get(status_key, SERVICE_CATALOG_STATUS['partial']).get(lang_key, status_key.upper()),
+            'site_type': item.get('site_type'),
+            'permission': permission,
+            'allowed': allowed,
+            'actionable': allowed and (
+                item['slug'] in actionable_slugs
+                or (item['slug'] == 'connect-domain' and (user.is_admin or user_role(user) == 'admin'))
+            ),
+        })
+    return items
 
 
 def default_permissions_for_role(role):
@@ -921,6 +1332,8 @@ def default_permissions_for_role(role):
         return sorted(ADMIN_PERMISSION_SET)
     if role == 'developer':
         return sorted(DEVELOPER_PERMISSION_SET)
+    if role == 'viewer':
+        return []
     return sorted(USER_PERMISSION_SET)
 
 
@@ -930,6 +1343,8 @@ def normalize_permission_list(values, role):
         allowed = DEVELOPER_PERMISSION_SET
     elif role == 'admin':
         allowed = ADMIN_PERMISSION_SET
+    elif role == 'viewer':
+        allowed = set()
     else:
         allowed = USER_PERMISSION_SET
     cleaned = sorted(item for item in requested if item in allowed)
@@ -1124,7 +1539,44 @@ def append_jsonl(path, data):
         handle.write(json.dumps(data, ensure_ascii=True) + '\n')
 
 
+def normalize_sftp_password_hash(value):
+    cleaned = (value or '').strip()
+    if not cleaned or ':' in cleaned:
+        return None
+    if not cleaned.startswith('$'):
+        return None
+    return cleaned
+
+
+def build_sftp_password_hash(plain_password):
+    if not plain_password:
+        return None
+    try:
+        proc = subprocess.run(
+            ['openssl', 'passwd', '-6', '-stdin'],
+            input=f'{plain_password}\n',
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        hashed = (proc.stdout or '').strip() if proc.returncode == 0 else ''
+    except Exception:
+        return None
+    return normalize_sftp_password_hash(hashed)
+
+
 def queue_sftp_provision(account, action, actor='system'):
+    application_ids = parse_json_list(account.assigned_applications_json, int)
+    application_roots = []
+    if application_ids:
+        for assigned_site in Site.query.filter(Site.id.in_(application_ids)).all():
+            assigned_access = ensure_application_access(assigned_site)
+            application_roots.append({
+                'site_id': assigned_site.id,
+                'folder_name': assigned_site.folder_name,
+                'file_root': application_root(assigned_access, bucket='file'),
+            })
     payload = {
         'timestamp': datetime.now().isoformat(),
         'action': action,
@@ -1132,11 +1584,12 @@ def queue_sftp_provision(account, action, actor='system'):
         'username': account.username,
         'role': account.role,
         'assigned_user_id': account.assigned_user_id,
-        'assigned_applications': parse_json_list(account.assigned_applications_json, int),
+        'assigned_applications': application_ids,
+        'application_roots': application_roots,
         'chroot_directory': account.chroot_directory,
         'enabled': bool(account.enabled),
         'auth_type': account.auth_type,
-        'password_hash': account.password_hash,
+        'password_hash': normalize_sftp_password_hash(account.password_hash),
         'public_keys': parse_json_list(account.public_keys_json, str),
         'actor': actor,
     }
@@ -1274,7 +1727,20 @@ def application_summary_for_user(user, site):
 
 
 def sftp_connection_host():
-    return os.environ.get('HOSTING_PANEL_SFTP_HOST', '').strip() or request.host.split(':', 1)[0]
+    configured = os.environ.get('HOSTING_PANEL_SFTP_HOST', '').strip()
+    if configured:
+        return configured
+    host = request.host.split(':', 1)[0]
+    if host.endswith('.myh.guru') or host == 'myh.guru':
+        for probe in ('https://ifconfig.me', 'https://api.ipify.org'):
+            try:
+                with urllib.request.urlopen(probe, timeout=2) as response:
+                    candidate = (response.read().decode('utf-8', errors='ignore') or '').strip()
+                if re.fullmatch(r'(?:\d{1,3}\.){3}\d{1,3}', candidate):
+                    return candidate
+            except Exception:
+                continue
+    return host
 
 
 def sftp_filezilla_payload(account):
@@ -1291,6 +1757,54 @@ def sftp_filezilla_payload(account):
     }
 
 
+def choose_user_sftp_chroot(user, site_ids):
+    # OpenSSH requires every ChrootDirectory path component to be owned by
+    # root and not writable by the SFTP account. Site roots live below the
+    # panel user's home, so they cannot safely be used as chroot roots.
+    return os.path.join('/srv/apps', user.username)
+
+
+def get_or_prepare_personal_sftp_account(user):
+    account = SftpAccount.query.filter_by(assigned_user_id=user.id).order_by(SftpAccount.id.asc()).first()
+    by_username = SftpAccount.query.filter_by(username=user.username).first()
+    if by_username and by_username.assigned_user_id not in {None, user.id}:
+        return None, 'SFTP login зайнятий. Зверніться до адміністратора.'
+    if not account and by_username:
+        account = by_username
+
+    site_ids = assigned_application_ids(user)
+    if not site_ids:
+        return None, 'Створіть або отримайте доступ до сайту перед увімкненням SFTP.'
+
+    compatible_hash = normalize_sftp_password_hash(user.password)
+    if not account:
+        account = SftpAccount(
+            username=user.username,
+            role='user',
+            assigned_user_id=user.id,
+            assigned_applications_json=dump_json_list(site_ids),
+            chroot_directory=choose_user_sftp_chroot(user, site_ids),
+            auth_type='password',
+            password_hash=compatible_hash,
+            enabled=False,
+            system_state='pending',
+        )
+        db.session.add(account)
+        db.session.commit()
+        return account, None
+
+    account.username = user.username
+    account.role = 'user'
+    account.assigned_user_id = user.id
+    account.assigned_applications_json = dump_json_list(site_ids)
+    account.chroot_directory = choose_user_sftp_chroot(user, site_ids)
+    account.auth_type = 'password'
+    if compatible_hash:
+        account.password_hash = compatible_hash
+    db.session.commit()
+    return account, None
+
+
 _LOG_SECRET_PATTERN = re.compile(r'(password|token|authorization|cookie|jwt|api[-_ ]?key|secret|db[_-]?pass)', re.IGNORECASE)
 
 
@@ -1305,10 +1819,32 @@ def mask_sensitive_text(line):
     return line
 
 
-def safe_extract_zip(archive, destination):
+def zip_single_root_folder(members):
+    roots = set()
+    has_root_file = False
+    for member in members:
+        raw_name = (member.filename or '').replace('\\', '/').strip('/')
+        if not raw_name:
+            continue
+        parts = [part for part in raw_name.split('/') if part]
+        if not parts:
+            continue
+        roots.add(parts[0])
+        if len(parts) == 1 and not member.is_dir():
+            has_root_file = True
+        if len(roots) > 1:
+            return None
+    if has_root_file or not roots:
+        return None
+    return next(iter(roots))
+
+
+def safe_extract_zip(archive, destination, strip_prefix=''):
     destination = os.path.realpath(destination)
     total_uncompressed = 0
     members = archive.infolist()
+    prefix = (strip_prefix or '').replace('\\', '/').strip('/')
+    prefix_with_sep = f'{prefix}/' if prefix else ''
     if len(members) > ARCHIVE_MAX_ENTRIES:
         raise ValueError('Архів містить забагато файлів')
     for member in members:
@@ -1318,6 +1854,15 @@ def safe_extract_zip(archive, destination):
         normalized = os.path.normpath(name).replace('\\', '/')
         if normalized.startswith('/') or normalized.startswith('../') or normalized == '..' or re.match(r'^[A-Za-z]:', normalized):
             raise ValueError('Архів містить небезпечний шлях')
+        output_rel = normalized
+        if prefix:
+            if normalized == prefix:
+                continue
+            if not normalized.startswith(prefix_with_sep):
+                raise ValueError('Архів має некоректну структуру для clean mode')
+            output_rel = normalized[len(prefix_with_sep):]
+            if not output_rel:
+                continue
         mode = (member.external_attr >> 16) & 0o170000
         if mode in {0o120000, 0o060000}:
             raise ValueError('Архів містить заборонений тип запису')
@@ -1326,10 +1871,31 @@ def safe_extract_zip(archive, destination):
             raise ValueError('Архів перевищує ліміт розпакування')
         if member.compress_size and member.file_size > member.compress_size * ARCHIVE_MAX_COMPRESSION_RATIO:
             raise ValueError('Архів має небезпечний коефіцієнт стиснення')
-        target = os.path.realpath(os.path.join(destination, normalized))
+        target = os.path.realpath(os.path.join(destination, output_rel))
         if os.path.commonpath([destination, target]) != destination:
             raise ValueError('Архів містить небезпечний шлях')
-    archive.extractall(destination)
+
+    for member in members:
+        name = (member.filename or '').replace('\\', '/').strip()
+        if not name:
+            continue
+        normalized = os.path.normpath(name).replace('\\', '/')
+        output_rel = normalized
+        if prefix:
+            if normalized == prefix:
+                continue
+            if not normalized.startswith(prefix_with_sep):
+                continue
+            output_rel = normalized[len(prefix_with_sep):]
+            if not output_rel:
+                continue
+        target = os.path.realpath(os.path.join(destination, output_rel))
+        if member.is_dir():
+            os.makedirs(target, exist_ok=True)
+            continue
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with archive.open(member, 'r') as source_handle, open(target, 'wb') as target_handle:
+            shutil.copyfileobj(source_handle, target_handle)
 
 
 def safe_site_path(site_path, relative_path=''):
@@ -1482,6 +2048,25 @@ def cloudflare_dns_records(zone_id, record_type=None):
     return payload.get('result') or [], payload
 
 
+def ensure_cloudflare_domain_record(domain, remove=False):
+    zone_name = get_cloudflare_zone_name().lower().rstrip('.')
+    domain = domain.lower().rstrip('.')
+    if domain != zone_name and not domain.endswith('.' + zone_name):
+        return False, 'Domain is outside the managed Cloudflare zone.'
+    zone_id, payload = get_cloudflare_zone_id(zone_name)
+    if not zone_id: return False, str(payload.get('errors') or 'Cloudflare zone unavailable')
+    records, listing = cloudflare_dns_records(zone_id, 'CNAME')
+    if not listing.get('success'): return False, str(listing.get('errors') or 'DNS listing failed')
+    existing = next((item for item in records if str(item.get('name','')).lower().rstrip('.') == domain), None)
+    if remove:
+        if not existing: return True, 'already absent'
+        result = cloudflare_request('DELETE', f'/zones/{zone_id}/dns_records/{existing["id"]}')
+    else:
+        data = {'type':'CNAME','name':domain,'content':'myh.guru','ttl':1,'proxied':True}
+        result = cloudflare_request('PUT' if existing else 'POST', f'/zones/{zone_id}/dns_records/{existing["id"]}' if existing else f'/zones/{zone_id}/dns_records', data)
+    return bool(result.get('success')), str(result.get('errors') or 'ok')
+
+
 def cloudflare_zone_settings(zone_id):
     keys = [
         'ssl', 'min_tls_version', 'tls_1_3', 'always_use_https',
@@ -1543,6 +2128,124 @@ def append_deploy_log(site_name, message):
     with open(log_path, 'a', encoding='utf-8') as handle:
         handle.write(f'[{timestamp}] {message}\n')
     return log_path
+
+
+def collect_application_logs_for_user(user, lines=200):
+    if not user:
+        return []
+    site_ids = assigned_application_ids(user)
+    if not site_ids:
+        return []
+
+    max_lines = max(50, min(int(lines or 200), 500))
+    ring = deque(maxlen=max_lines)
+    sites = Site.query.filter(Site.id.in_(site_ids)).order_by(Site.name.asc()).all()
+    for site in sites:
+        log_path = os.path.join(app.instance_path, 'deploy_logs', f'{site.name}.log')
+        if not os.path.isfile(log_path):
+            continue
+        try:
+            with open(log_path, 'r', encoding='utf-8', errors='ignore') as handle:
+                for line in handle:
+                    ring.append(f'[{site.name}] {line.rstrip()}')
+        except OSError:
+            continue
+    return [mask_sensitive_text(item) for item in list(ring)]
+
+
+def scaffold_site_content(site_path, subdomain):
+    default_index = os.path.join(site_path, 'index.html')
+    if not os.path.exists(default_index):
+        with open(default_index, 'w', encoding='utf-8') as f:
+            f.write(f"<h1>{subdomain}.myh.guru працює</h1><p>Завантажте файли статичного сайту через файловий менеджер.</p>")
+
+
+def ensure_php_site_bootstrap(site_path, site_name, runtime_version='8.2'):
+    os.makedirs(site_path, exist_ok=True)
+    index_php = os.path.join(site_path, 'index.php')
+    if os.path.exists(index_php):
+        return index_php
+    with open(index_php, 'w', encoding='utf-8') as handle:
+        handle.write("<?php\n")
+        handle.write("http_response_code(200);\n")
+        handle.write("header('Content-Type: text/html; charset=utf-8');\n")
+        handle.write(f"$site = {site_name!r};\n")
+        handle.write(f"$runtime = {runtime_version!r};\n")
+        handle.write("echo '<h1>' . htmlspecialchars($site, ENT_QUOTES, 'UTF-8') . ' is running</h1>';\n")
+        handle.write("echo '<p>PHP runtime target: ' . htmlspecialchars($runtime, ENT_QUOTES, 'UTF-8') . '</p>';\n")
+    return index_php
+
+
+def read_php_runtime_from_stack(access):
+    stack_root = application_root(access, bucket='deployment')
+    metadata_path = os.path.join(stack_root, 'panel-metadata.json')
+    if not os.path.isfile(metadata_path):
+        return None
+    try:
+        with open(metadata_path, 'r', encoding='utf-8') as meta_handle:
+            payload = json.load(meta_handle)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    runtime = payload.get('runtime') or {}
+    language = (runtime.get('language') or '').strip().lower()
+    version = (runtime.get('version') or '').strip()
+    if language != 'php' or not version:
+        return None
+    return version
+
+
+def parse_php_version_string(raw_output):
+    if not raw_output:
+        return None
+    match = re.search(r'PHP\s+(\d+\.\d+(?:\.\d+)?)', raw_output)
+    return match.group(1) if match else None
+
+
+def php_runtime_compatible(required_version, installed_version):
+    if not required_version or not installed_version:
+        return False
+    required_parts = required_version.split('.')
+    installed_parts = installed_version.split('.')
+    if len(required_parts) < 2 or len(installed_parts) < 2:
+        return False
+    return required_parts[0] == installed_parts[0] and required_parts[1] == installed_parts[1]
+
+
+def scaffold_application_stack(folder_name, site_type, source_mode='upload', runtime_version=None):
+    if site_type not in {'static', 'wordpress', 'node', 'python', 'php'}:
+        return None
+    os.makedirs(APP_STACKS_ROOT, exist_ok=True)
+    stack_root = os.path.join(APP_STACKS_ROOT, folder_name)
+    os.makedirs(stack_root, exist_ok=True)
+
+    template_root = os.path.join('/srv/templates', site_type)
+    if os.path.isdir(template_root):
+        for name in os.listdir(template_root):
+            src = os.path.join(template_root, name)
+            dst = os.path.join(stack_root, name)
+            if os.path.isdir(src):
+                shutil.copytree(src, dst, dirs_exist_ok=True)
+            else:
+                shutil.copy2(src, dst)
+
+    metadata_path = os.path.join(stack_root, 'panel-metadata.json')
+    metadata = {
+        'site_type': site_type,
+        'source_mode': source_mode,
+        'generated_at': datetime.now().strftime('%Y-%m-%dT%H:%M:%S'),
+        'generated_by': 'create-site-wizard',
+    }
+    if site_type == 'php' and runtime_version:
+        metadata['runtime'] = {
+            'language': 'php',
+            'version': runtime_version,
+        }
+
+    with open(metadata_path, 'w', encoding='utf-8') as handle:
+        json.dump({
+            **metadata,
+        }, handle, ensure_ascii=True, indent=2)
+    return stack_root
 
 
 def directory_size(path):
@@ -1622,35 +2325,363 @@ def extract_zip_to_site(zip_path, site_path):
         safe_extract_zip(archive, site_path)
 
 
-def deploy_from_git(repo_url, site_path, access=None):
-    repo_dir = os.path.join(app.instance_path, 'deploy_tmp', secure_filename(os.path.basename(repo_url).split('.')[0]))
-    if os.path.exists(repo_dir):
-        remove_tree(repo_dir)
-    subprocess.run(['git', 'clone', '--depth', '1', repo_url, repo_dir], check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    for root, dirs, files in os.walk(repo_dir):
-        for name in dirs:
-            if name in {'.git', '.github', '.vscode'}:
-                continue
-        for filename in files:
-            if filename.endswith('.gitignore'):
-                continue
-    if os.path.isdir(os.path.join(repo_dir, 'public')):
-        source_dir = os.path.join(repo_dir, 'public')
-    elif os.path.isdir(os.path.join(repo_dir, 'dist')):
-        source_dir = os.path.join(repo_dir, 'dist')
+def detect_single_root_folder(directory):
+    try:
+        entries = [name for name in os.listdir(directory) if name not in {'.', '..'}]
+    except OSError:
+        return None
+    return entries[0] if len(entries) == 1 and os.path.isdir(os.path.join(directory, entries[0])) else None
+
+
+def build_authenticated_repo_url(repo_url, git_token=None):
+    token = (git_token or '').strip()
+    if not token:
+        return repo_url
+    parsed = urllib.parse.urlsplit(repo_url)
+    if parsed.scheme not in {'http', 'https'} or not parsed.netloc:
+        return repo_url
+    if '@' in parsed.netloc:
+        return repo_url
+    encoded_token = urllib.parse.quote(token, safe='')
+    auth_netloc = f'x-access-token:{encoded_token}@{parsed.netloc}'
+    return urllib.parse.urlunsplit((parsed.scheme, auth_netloc, parsed.path, parsed.query, parsed.fragment))
+
+
+def sanitize_git_error_output(output, git_token=None):
+    text_output = output or ''
+    token = (git_token or '').strip()
+    if token:
+        text_output = text_output.replace(token, '***')
+        text_output = text_output.replace(urllib.parse.quote(token, safe=''), '***')
+    text_output = re.sub(r'x-access-token:[^@\s]+@', 'x-access-token:***@', text_output)
+    return text_output
+
+
+GIT_PROVIDERS = {'github', 'gitlab', 'bitbucket', 'generic'}
+GIT_AUTH_TYPES = {'public', 'pat', 'ssh'}
+GIT_BRANCH_PATTERN = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$')
+INTEGRATION_SECRETS_ROOT = os.path.join(app.instance_path, 'integration_secrets')
+APPLICATION_SECRETS_ROOT = os.path.join(app.instance_path, 'application_secrets')
+
+
+def validate_git_repository_url(repo_url, provider='generic'):
+    value = (repo_url or '').strip()
+    if not value or len(value) > 500 or any(char in value for char in '\r\n\x00'):
+        return None, 'GIT_URL_INVALID'
+    if value.startswith('-'):
+        return None, 'GIT_URL_INVALID'
+    if re.fullmatch(r'git@[A-Za-z0-9.-]+:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?', value):
+        host = value.split('@', 1)[1].split(':', 1)[0].lower()
     else:
-        source_dir = repo_dir
-    if access:
-        enforce_application_quota(access, directory_size_safe(source_dir))
-    for root, _, filenames in os.walk(source_dir):
-        for filename in filenames:
-            src_path = os.path.join(root, filename)
-            rel_path = os.path.relpath(src_path, source_dir)
-            dst_path = os.path.join(site_path, rel_path)
-            os.makedirs(os.path.dirname(dst_path), exist_ok=True)
-            with open(src_path, 'rb') as src_handle, open(dst_path, 'wb') as dst_handle:
-                dst_handle.write(src_handle.read())
-    remove_tree(repo_dir)
+        parsed = urllib.parse.urlsplit(value)
+        if parsed.scheme not in {'https', 'ssh'} or not parsed.hostname:
+            return None, 'GIT_URL_INVALID'
+        if parsed.username or parsed.password or parsed.port not in {None, 22, 443}:
+            return None, 'GIT_URL_INVALID'
+        host = parsed.hostname.lower()
+    expected_hosts = {
+        'github': {'github.com'},
+        'gitlab': {'gitlab.com'},
+        'bitbucket': {'bitbucket.org'},
+    }
+    if provider in expected_hosts and host not in expected_hosts[provider]:
+        return None, 'GIT_PROVIDER_MISMATCH'
+    return value, None
+
+
+def validate_git_branch(branch):
+    value = (branch or 'main').strip()
+    if not GIT_BRANCH_PATTERN.fullmatch(value) or '..' in value or value.endswith(('.', '/')) or '@{' in value:
+        return None
+    return value
+
+
+def git_error_code(output):
+    lowered = (output or '').lower()
+    if 'authentication failed' in lowered or 'permission denied' in lowered or 'could not read username' in lowered:
+        return 'GIT_AUTH_FAILED'
+    if 'repository not found' in lowered or 'not found' in lowered:
+        return 'GIT_REPOSITORY_NOT_FOUND'
+    if 'could not resolve host' in lowered or 'failed to connect' in lowered or 'timed out' in lowered:
+        return 'GIT_NETWORK_ERROR'
+    return 'GIT_CONNECTION_FAILED'
+
+
+def test_git_connection(repo_url, branch='main', provider='generic', auth_type='public', token='', ssh_private_key=''):
+    validated_url, validation_error = validate_git_repository_url(repo_url, provider=provider)
+    validated_branch = validate_git_branch(branch)
+    if validation_error:
+        return {'success': False, 'code': validation_error}
+    if not validated_branch:
+        return {'success': False, 'code': 'GIT_BRANCH_INVALID'}
+    if auth_type not in GIT_AUTH_TYPES:
+        return {'success': False, 'code': 'GIT_AUTH_TYPE_INVALID'}
+    command_url = build_authenticated_repo_url(validated_url, git_token=token if auth_type == 'pat' else None)
+    env = os.environ.copy()
+    env['GIT_TERMINAL_PROMPT'] = '0'
+    temporary_key = None
+    try:
+        if auth_type == 'ssh':
+            if not ssh_private_key or len(ssh_private_key) > 65536 or 'PRIVATE KEY' not in ssh_private_key:
+                return {'success': False, 'code': 'GIT_SSH_KEY_INVALID'}
+            descriptor, temporary_key = tempfile.mkstemp(prefix='git-key-', dir=app.instance_path)
+            os.write(descriptor, ssh_private_key.encode('utf-8'))
+            os.close(descriptor)
+            os.chmod(temporary_key, 0o600)
+            env['GIT_SSH_COMMAND'] = f'ssh -i {temporary_key} -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new'
+        process = subprocess.run(
+            ['git', 'ls-remote', '--exit-code', '--heads', command_url, f'refs/heads/{validated_branch}'],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            env=env,
+            check=False,
+        )
+        output = sanitize_git_error_output((process.stdout or '') + '\n' + (process.stderr or ''), token)
+        if process.returncode == 0 and process.stdout.strip():
+            commit = process.stdout.split()[0]
+            return {'success': True, 'code': 'GIT_CONNECTED', 'commit': commit[:40]}
+        if process.returncode == 2 and not output.strip():
+            return {'success': False, 'code': 'GIT_BRANCH_NOT_FOUND'}
+        if not process.stdout.strip() and process.returncode:
+            code = git_error_code(output)
+            if code == 'GIT_CONNECTION_FAILED' and 'remote:' not in output.lower():
+                code = 'GIT_BRANCH_NOT_FOUND'
+            return {'success': False, 'code': code}
+        return {'success': False, 'code': git_error_code(output)}
+    except subprocess.TimeoutExpired:
+        return {'success': False, 'code': 'GIT_NETWORK_TIMEOUT'}
+    except OSError:
+        return {'success': False, 'code': 'GIT_CLIENT_UNAVAILABLE'}
+    finally:
+        if temporary_key:
+            try:
+                os.unlink(temporary_key)
+            except OSError:
+                pass
+
+
+def write_integration_secret(integration, secret_payload):
+    os.makedirs(INTEGRATION_SECRETS_ROOT, mode=0o700, exist_ok=True)
+    os.chmod(INTEGRATION_SECRETS_ROOT, 0o700)
+    path = os.path.join(INTEGRATION_SECRETS_ROOT, f'{integration.id}.json')
+    temporary_path = path + '.tmp'
+    with open(temporary_path, 'w', encoding='utf-8') as handle:
+        json.dump(secret_payload, handle)
+    os.chmod(temporary_path, 0o600)
+    os.replace(temporary_path, path)
+    integration.secret_ref = path
+    return path
+
+
+def read_integration_secret(integration):
+    if not integration or not integration.secret_ref:
+        return {}
+    expected_root = os.path.realpath(INTEGRATION_SECRETS_ROOT)
+    path = os.path.realpath(integration.secret_ref)
+    if os.path.commonpath([expected_root, path]) != expected_root:
+        return {}
+    try:
+        with open(path, 'r', encoding='utf-8') as handle:
+            value = json.load(handle)
+            return value if isinstance(value, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def write_application_secret(site_id, category, item_id, value):
+    directory = os.path.join(APPLICATION_SECRETS_ROOT, str(int(site_id)), category)
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    os.chmod(directory, 0o700)
+    path = os.path.join(directory, f'{int(item_id)}.secret')
+    temporary = path + '.tmp'
+    with open(temporary, 'w', encoding='utf-8') as handle:
+        handle.write(value)
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
+    return path
+
+
+def read_application_secret(path, site_id):
+    expected = os.path.realpath(os.path.join(APPLICATION_SECRETS_ROOT, str(int(site_id))))
+    candidate = os.path.realpath(path or '')
+    if not candidate or os.path.commonpath([expected, candidate]) != expected:
+        return ''
+    try:
+        with open(candidate, 'r', encoding='utf-8') as handle:
+            return handle.read()
+    except OSError:
+        return ''
+
+
+def sync_runtime_environment(site):
+    access = ensure_application_access(site)
+    if not access.deployment_root:
+        return None
+    rows = EnvironmentVariable.query.filter_by(application_id=site.id).order_by(EnvironmentVariable.key).all()
+    env_path = os.path.join(access.deployment_root, 'env.list')
+    os.makedirs(access.deployment_root, exist_ok=True)
+    with open(env_path + '.tmp', 'w', encoding='utf-8') as handle:
+        for row in rows:
+            value = read_application_secret(row.secret_ref, site.id).replace('\n', '\\n')
+            handle.write(f'{row.key}={value}\n')
+    os.chmod(env_path + '.tmp', 0o600)
+    os.replace(env_path + '.tmp', env_path)
+    return env_path
+
+
+def application_runtime_metrics(access):
+    metadata_path = os.path.join(access.deployment_root or '', 'runtime.json')
+    if not os.path.isfile(metadata_path): return {}
+    try: metadata = json.load(open(metadata_path, encoding='utf-8'))
+    except (OSError, json.JSONDecodeError): return {}
+    process = subprocess.run(
+        ['docker', 'stats', '--no-stream', '--format', '{{json .}}'], capture_output=True, text=True, timeout=15, check=False,
+    )
+    rows = []
+    for line in (process.stdout or '').splitlines():
+        try: item = json.loads(line)
+        except json.JSONDecodeError: continue
+        if str(item.get('Name', '')).startswith(metadata.get('project', '') + '-'):
+            rows.append({'name':item.get('Name'),'cpu':item.get('CPUPerc'),'memory':item.get('MemUsage'),'pids':item.get('PIDs')})
+    return {'containers': rows, 'limits': {'cpu':'0.75–1.0 cores','memory':'256–512 MB','pids':'128–192'}}
+
+
+def set_environment_value(site, user, key, value):
+    row = EnvironmentVariable.query.filter_by(application_id=site.id, key=key).first()
+    if not row:
+        row = EnvironmentVariable(application_id=site.id, key=key, secret_ref='pending', created_by=user.id)
+        db.session.add(row)
+        db.session.flush()
+    row.secret_ref = write_application_secret(site.id, 'env', row.id, value)
+    return row
+
+
+def provision_mariadb_database(database_name, database_user, password):
+    if not re.fullmatch(r'[a-z][a-z0-9_]{2,63}', database_name) or not re.fullmatch(r'[a-z][a-z0-9_]{2,63}', database_user):
+        raise ValueError('invalid database identifier')
+    escaped_password = password.replace("'", "''")
+    sql = (
+        f"CREATE DATABASE `{database_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\n"
+        f"CREATE USER '{database_user}'@'%' IDENTIFIED BY '{escaped_password}';\n"
+        f"GRANT ALL PRIVILEGES ON `{database_name}`.* TO '{database_user}'@'%';\nFLUSH PRIVILEGES;\n"
+    )
+    process = subprocess.run(
+        ['docker', 'exec', '-i', 'lab-db', 'sh', '-c', 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mariadb -uroot'],
+        input=sql, capture_output=True, text=True, timeout=30, check=False,
+    )
+    if process.returncode != 0:
+        raise RuntimeError(mask_sensitive_text((process.stderr or process.stdout or 'database provisioning failed')[:500]))
+
+
+def deprovision_mariadb_database(database_name, database_user):
+    if not re.fullmatch(r'[a-z][a-z0-9_]{2,63}', database_name) or not re.fullmatch(r'[a-z][a-z0-9_]{2,63}', database_user):
+        return False
+    sql = f"DROP DATABASE IF EXISTS `{database_name}`;\nDROP USER IF EXISTS '{database_user}'@'%';\nFLUSH PRIVILEGES;\n"
+    process = subprocess.run(
+        ['docker', 'exec', '-i', 'lab-db', 'sh', '-c', 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mariadb -uroot'],
+        input=sql, capture_output=True, text=True, timeout=30, check=False,
+    )
+    return process.returncode == 0
+
+
+def deploy_from_git(repo_url, site_path, access=None, git_token=None):
+    deploy_tmp_root = os.path.join(app.instance_path, 'deploy_tmp')
+    os.makedirs(deploy_tmp_root, exist_ok=True)
+    repo_base = secure_filename(os.path.basename(repo_url).split('.')[0]) or 'repo'
+    repo_dir = tempfile.mkdtemp(prefix=f'{repo_base}-', dir=deploy_tmp_root)
+    clone_url = build_authenticated_repo_url(repo_url, git_token=git_token)
+    try:
+        subprocess.run(['git', 'clone', '--depth', '1', clone_url, repo_dir], check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        if os.path.isdir(os.path.join(repo_dir, 'public')):
+            source_dir = os.path.join(repo_dir, 'public')
+        elif os.path.isdir(os.path.join(repo_dir, 'dist')):
+            source_dir = os.path.join(repo_dir, 'dist')
+        else:
+            source_dir = repo_dir
+        if access:
+            enforce_application_quota(access, directory_size_safe(source_dir))
+        for root, _, filenames in os.walk(source_dir):
+            for filename in filenames:
+                src_path = os.path.join(root, filename)
+                rel_path = os.path.relpath(src_path, source_dir)
+                dst_path = os.path.join(site_path, rel_path)
+                os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                with open(src_path, 'rb') as src_handle, open(dst_path, 'wb') as dst_handle:
+                    dst_handle.write(src_handle.read())
+    finally:
+        # Cleanup should never break deployment flow if temp ownership is inconsistent.
+        shutil.rmtree(repo_dir, ignore_errors=True)
+
+
+def activate_staged_deployment(site, access, staged_source):
+    site_path = application_root(access, bucket='file')
+    detected = detect_stack(staged_source)
+    candidates = set(detected.get('candidates') or [])
+    normalized = {'docker-compose': 'docker'}
+    candidates = {normalized.get(item, item) for item in candidates}
+    if site.runtime_type == 'wordpress' and ('wordpress' in candidates or 'php' in candidates):
+        candidates.add('wordpress')
+    if detected.get('ambiguous') and site.runtime_type not in candidates:
+        raise ValueError(f'Ambiguous stack: {", ".join(sorted(candidates))}')
+    if candidates and site.runtime_type not in candidates and not (site.runtime_type == 'static' and 'node' in candidates):
+        raise ValueError(f'Detected stack {", ".join(sorted(candidates))} does not match runtime {site.runtime_type}')
+    enforce_application_quota(access, directory_size_safe(staged_source))
+    parent = os.path.dirname(site_path)
+    os.makedirs(parent, exist_ok=True)
+    candidate = os.path.join(parent, f'.deploy-{site.id}-{secrets.token_hex(6)}')
+    previous = os.path.join(parent, f'.previous-{site.id}-{datetime.now().strftime("%Y%m%d%H%M%S")}')
+    shutil.copytree(staged_source, candidate)
+    had_previous = os.path.isdir(site_path)
+    old_metadata = {}
+    metadata_path = os.path.join(access.deployment_root, 'runtime.json')
+    if os.path.isfile(metadata_path):
+        try:
+            old_metadata = json.loads(open(metadata_path, encoding='utf-8').read())
+        except (OSError, json.JSONDecodeError):
+            old_metadata = {}
+    try:
+        if had_previous:
+            os.replace(site_path, previous)
+        os.replace(candidate, site_path)
+        inferred = infer_runtime_commands(site_path, site.runtime_type)
+        install_command = site.install_command or inferred['install_command']
+        build_command = site.build_command or inferred['build_command']
+        start_command = site.start_command or inferred['start_command']
+        if site.runtime_type == 'wordpress':
+            prepare_wordpress_runtime(access.deployment_root, site_path, site.internal_port)
+        elif site.runtime_type == 'docker' and ({'docker', 'docker-compose'} & set(detected.get('candidates') or [])):
+            prepare_custom_docker(access.deployment_root, site_path, site.internal_port)
+        else:
+            prepare_runtime(access.deployment_root, site_path, site.runtime_type, site.runtime_version, site.internal_port,
+                            install_command=install_command, build_command=build_command, start_command=start_command)
+        code, output = compose_action(access.deployment_root, 'start')
+        metadata = json.loads(open(os.path.join(access.deployment_root, 'runtime.json'), encoding='utf-8').read())
+        checked = healthcheck(metadata, timeout=25) if code == 0 else {'ok': False}
+        if not checked.get('ok'):
+            raise RuntimeError(f'health check failed: {output[-500:]}')
+        if os.path.isdir(previous): remove_tree(previous)
+        site.deployment_status = 'success'; site.runtime_status = 'running'; site.last_restart_at = datetime.now(); db.session.commit()
+        return detected
+    except Exception:
+        failed = site_path + '.failed'
+        if os.path.exists(site_path): os.replace(site_path, failed)
+        if had_previous and os.path.exists(previous): os.replace(previous, site_path)
+        if os.path.isdir(failed): remove_tree(failed)
+        if os.path.isdir(candidate): remove_tree(candidate)
+        if had_previous:
+            old_detected = detect_stack(site_path)
+            if site.runtime_type == 'wordpress':
+                prepare_wordpress_runtime(access.deployment_root, site_path, site.internal_port)
+            elif site.runtime_type == 'docker' and ({'docker', 'docker-compose'} & set(old_detected.get('candidates') or [])):
+                prepare_custom_docker(access.deployment_root, site_path, site.internal_port)
+            else:
+                prepare_runtime(access.deployment_root, site_path, site.runtime_type, site.runtime_version, site.internal_port,
+                                install_command=old_metadata.get('install_command'), build_command=old_metadata.get('build_command'),
+                                start_command=old_metadata.get('start_command'))
+            compose_action(access.deployment_root, 'start')
+        site.deployment_status = 'failed'; db.session.commit()
+        raise
 
 
 def dashboard_overview():
@@ -2156,6 +3187,47 @@ def api_catalog():
     return catalog
 
 
+def runtime_inventory():
+    image_map = {
+        'static': {'nginx-alpine': 'nginx:1.27-alpine'},
+        'php': {version: f'php:{version}-fpm-alpine' for version in RUNTIME_VERSIONS['php']},
+        'node': {'22': 'node:22-alpine'}, 'python': {'3.12': 'python:3.12-alpine'},
+        'docker': {'engine': None},
+    }
+    try:
+        config = json.load(open(RUNTIME_CONFIG_FILE, encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        config = {}
+    rows = []
+    for runtime, versions in image_map.items():
+        for version, image_name in versions.items():
+            if runtime == 'docker':
+                code, output = run_command(['docker', 'version', '--format', '{{.Server.Version}}'], timeout=10)
+                installed = code == 0; detail = output.strip()
+            else:
+                code, _ = run_command(['docker', 'image', 'inspect', image_name], timeout=10)
+                installed = code == 0; detail = image_name
+            key = f'{runtime}:{version}'
+            rows.append({'runtime':runtime,'version':version,'image':image_name,'installed':installed,
+                         'enabled':config.get(key, {}).get('enabled', True), 'default':config.get(runtime, {}).get('default') == version,
+                         'detail':detail})
+    for runtime in ('go','java','dotnet','ruby'):
+        rows.append({'runtime':runtime,'version':'Docker','image':None,'installed':False,'enabled':False,'default':False,'detail':'Available through validated Docker deployment'})
+    return rows, config
+
+
+def allocate_application_port():
+    with APPLICATION_PORT_LOCK:
+        used = {row[0] for row in db.session.query(Site.internal_port).filter(Site.internal_port.isnot(None)).all()}
+        for port in range(20000, 30000):
+            if port in used: continue
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                try: probe.bind(('127.0.0.1', port))
+                except OSError: continue
+                return port
+    raise RuntimeError('No internal application ports available')
+
+
 # Декоратор для перевірки прав розробника (Крок 2)
 def admin_required(f):
     @wraps(f)
@@ -2164,7 +3236,9 @@ def admin_required(f):
             return redirect(url_for('login'))
         user = db.session.get(User, session['user_id'])
         if not user or not user.is_admin:
-            return abort(403)
+            if request.path.startswith('/api/'):
+                return jsonify({'error': translate('api_forbidden')}), 403
+            return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -2183,31 +3257,134 @@ def developer_required(f):
     return decorated_function
 
 # Динамічний перехоплювач піддоменів (враховує блокування сайтів і користувачів)
+def resolve_site_request_path(site, site_path, requested_path):
+    path = (requested_path or '').lstrip('/')
+    if path:
+        return path
+    default_index = os.path.join(site_path, 'index.html')
+    default_php_index = os.path.join(site_path, 'index.php')
+    if os.path.exists(default_index):
+        return 'index.html'
+    if os.path.exists(default_php_index):
+        return 'index.php'
+    try:
+        has_existing_content = any(True for _ in os.scandir(site_path))
+    except OSError:
+        has_existing_content = False
+    if not has_existing_content:
+        os.makedirs(site_path, exist_ok=True)
+        scaffold_site_content(site_path, site.name)
+    return 'index.html'
+
+
+def is_scaffold_index(index_path):
+    if not os.path.isfile(index_path):
+        return False
+    try:
+        with open(index_path, 'r', encoding='utf-8') as handle:
+            content = handle.read(4096)
+    except OSError:
+        return False
+    return 'працює</h1><p>Завантажте файли статичного сайту через файловий менеджер.' in content
+
+
+def detect_nested_site_entry(site_path):
+    try:
+        names = sorted(os.listdir(site_path))
+    except OSError:
+        return None
+    dirs = [name for name in names if os.path.isdir(os.path.join(site_path, name))]
+    if len(dirs) != 1:
+        return None
+    nested = dirs[0]
+    nested_index_html = os.path.join(site_path, nested, 'index.html')
+    nested_index_php = os.path.join(site_path, nested, 'index.php')
+    if os.path.isfile(nested_index_html) or os.path.isfile(nested_index_php):
+        return nested
+    return None
+
+
+def site_public_root(site):
+    access = ApplicationAccess.query.filter_by(site_id=site.id).first()
+    if access and access.file_root and os.path.isdir(access.file_root):
+        return access.file_root
+    return os.path.join(app.config['UPLOAD_FOLDER'], site.folder_name)
+
+
+def proxy_runtime_request(site):
+    if site.runtime_type not in {'php', 'node', 'python', 'docker', 'wordpress'} or not site.internal_port:
+        return None
+    target = f'http://127.0.0.1:{site.internal_port}{request.full_path}'
+    if target.endswith('?'):
+        target = target[:-1]
+    blocked_headers = {'host', 'connection', 'content-length', 'transfer-encoding'}
+    headers = {key: value for key, value in request.headers if key.lower() not in blocked_headers}
+    headers['X-Forwarded-Host'] = request.host
+    headers['X-Forwarded-Proto'] = request.headers.get('X-Forwarded-Proto', request.scheme)
+    upstream_request = urllib.request.Request(
+        target, data=request.get_data() if request.method not in {'GET', 'HEAD'} else None,
+        headers=headers, method=request.method,
+    )
+    try:
+        upstream = urllib.request.urlopen(upstream_request, timeout=25)
+    except urllib.error.HTTPError as exc:
+        upstream = exc
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return Response('Application unavailable', status=503, content_type='text/plain; charset=utf-8')
+    response_headers = []
+    for key, value in upstream.headers.items():
+        if key.lower() not in {'connection', 'content-length', 'transfer-encoding', 'content-encoding'}:
+            response_headers.append((key, value))
+    return Response(upstream.read(), status=upstream.status, headers=response_headers)
+
+
 @app.before_request
 def handle_subdomain():
     host = request.host.split(':', 1)[0].lower().rstrip('.')
     parts = host.split('.')
-    custom_site = Site.query.filter_by(custom_domain=host).first()
+    try:
+        custom_site = Site.query.filter_by(custom_domain=host).first()
+    except OperationalError:
+        # If schema is not yet available during bootstrap/recovery, do not block core panel routes.
+        custom_site = None
     if custom_site:
         if custom_site.is_banned or (custom_site.owner and custom_site.owner.is_banned):
             abort(403)
-        site_path = os.path.join(app.config['UPLOAD_FOLDER'], custom_site.folder_name)
-        return send_from_directory(site_path, request.path.lstrip('/') or 'index.html')
+        runtime_response = proxy_runtime_request(custom_site)
+        if runtime_response is not None:
+            return runtime_response
+        site_path = site_public_root(custom_site)
+        if request.path in {'', '/'}:
+            nested_entry = detect_nested_site_entry(site_path)
+            if nested_entry and is_scaffold_index(os.path.join(site_path, 'index.html')):
+                return redirect(f'/{nested_entry}/')
+        path = resolve_site_request_path(custom_site, site_path, request.path)
+        if os.path.exists(os.path.join(site_path, path)):
+            return send_from_directory(site_path, path)
+        return abort(404)
 
     if len(parts) > 2 and not host.startswith('192.') and not host.startswith('127.'):
         subdomain = parts[0]
-        
+
         if subdomain not in ['www', 'panel', 'myh']:
-            site = Site.query.filter((Site.name == subdomain) | (Site.folder_name.like(f"%_{subdomain}"))).first()
+            try:
+                site = Site.query.filter((Site.name == subdomain) | (Site.folder_name.like(f"%_{subdomain}"))).first()
+            except OperationalError:
+                site = None
             if site:
                 # СУВОРА ПЕРЕВІРКА БЛОКУВАННЯ: перевіряємо сайт і власника
                 if site.is_banned or (site.owner and site.owner.is_banned):
                     return "<h1>403 Forbidden</h1><p>Цей сайт або обліковий запис власника заблоковано адміністратором.</p>", 403
 
-                site_path = os.path.join(app.config['UPLOAD_FOLDER'], site.folder_name)
-                path = request.path.lstrip('/')
-                if not path:
-                    path = 'index.html'
+                runtime_response = proxy_runtime_request(site)
+                if runtime_response is not None:
+                    return runtime_response
+                site_path = site_public_root(site)
+                if request.path in {'', '/'}:
+                    nested_entry = detect_nested_site_entry(site_path)
+                    if nested_entry and is_scaffold_index(os.path.join(site_path, 'index.html')):
+                        return redirect(f'/{nested_entry}/')
+                path = resolve_site_request_path(site, site_path, request.path)
                 if os.path.exists(os.path.join(site_path, path)):
                     return send_from_directory(site_path, path)
                 else:
@@ -2280,7 +3457,8 @@ def set_language(lang):
     if lang not in SUPPORTED_LANGUAGES:
         lang = DEFAULT_LANGUAGE
     session['language'] = lang
-    next_url = request.args.get('next') or url_for('dashboard' if 'user_id' in session else 'login')
+    fallback = url_for('dashboard' if 'user_id' in session else 'login')
+    next_url = sanitize_next_path(request.args.get('next'), fallback)
     return redirect(next_url)
 
 
@@ -2289,19 +3467,416 @@ def page_not_found(e):
     return render_template('404.html'), 404
 
 
+@app.route('/service-catalog')
+def service_catalog():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    if not user:
+        session.clear()
+        return redirect(url_for('login'))
+    if user.is_banned:
+        session.clear()
+        return redirect(url_for('login'))
+    language = get_current_language()
+    catalog_items = available_service_catalog(user, language=language)
+    return render_template('service_catalog.html', user=user, catalog_items=catalog_items)
+
+
+@app.route('/service-catalog/<slug>')
+def service_catalog_action(slug):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    if not user:
+        session.clear()
+        return redirect(url_for('login'))
+    if user.is_banned:
+        session.clear()
+        return redirect(url_for('login'))
+
+    item = next((entry for entry in SERVICE_CATALOG if entry['slug'] == slug), None)
+    if not item:
+        abort(404)
+    permission = item.get('permission')
+    if permission:
+        require_role_permission(user, permission)
+
+    if item.get('site_type'):
+        return redirect(url_for('create_site_wizard', site_type=item['site_type']))
+
+    redirect_map = {
+        'database': 'developer_applications',
+        'connect-git': 'git_integration_wizard',
+        'connect-domain': 'developer_dns_ssl' if (user.is_admin or user_role(user) == 'admin') else 'dashboard',
+        'create-sftp': 'developer_sftp_access' if user_role(user) in {'developer', 'admin'} or user.is_admin else 'user_sftp_access',
+        'connect-smtp': 'developer_notifications',
+        'connect-telegram': 'developer_notifications',
+        'create-webhook': 'developer_deploy',
+        'configure-backups': 'developer_backup_center' if user_role(user) in {'developer', 'admin'} or user.is_admin else 'dashboard',
+        'php-health': 'php_health_center',
+    }
+    endpoint = redirect_map.get(slug)
+    if not endpoint:
+        abort(404)
+    if endpoint == 'dashboard':
+        flash('Оберіть сайт у панелі, щоб налаштувати цю дію.', 'info')
+    return redirect(url_for(endpoint))
+
+
+GIT_STATUS_MESSAGES = {
+    'uk': {
+        'GIT_CONNECTED': 'Репозиторій і гілка доступні.',
+        'GIT_URL_INVALID': 'Некоректна або небезпечна URL-адреса репозиторію.',
+        'GIT_PROVIDER_MISMATCH': 'URL не відповідає вибраному Git-провайдеру.',
+        'GIT_BRANCH_INVALID': 'Некоректна назва гілки.',
+        'GIT_BRANCH_NOT_FOUND': 'Вказану гілку не знайдено.',
+        'GIT_AUTH_FAILED': 'Не вдалося авторизуватися у Git-провайдера.',
+        'GIT_REPOSITORY_NOT_FOUND': 'Репозиторій не знайдено або доступ заборонено.',
+        'GIT_NETWORK_ERROR': 'Git-провайдер недоступний через мережеву помилку.',
+        'GIT_NETWORK_TIMEOUT': 'Перевірка Git перевищила допустимий час.',
+        'GIT_SSH_KEY_INVALID': 'Некоректний SSH private key.',
+        'GIT_CLIENT_UNAVAILABLE': 'Git client недоступний на сервері.',
+        'GIT_CONNECTION_FAILED': 'Не вдалося перевірити Git-підключення.',
+    },
+    'en': {
+        'GIT_CONNECTED': 'Repository and branch are reachable.',
+        'GIT_URL_INVALID': 'The repository URL is invalid or unsafe.',
+        'GIT_PROVIDER_MISMATCH': 'The URL does not match the selected Git provider.',
+        'GIT_BRANCH_INVALID': 'The branch name is invalid.',
+        'GIT_BRANCH_NOT_FOUND': 'The selected branch was not found.',
+        'GIT_AUTH_FAILED': 'Authentication with the Git provider failed.',
+        'GIT_REPOSITORY_NOT_FOUND': 'Repository was not found or access was denied.',
+        'GIT_NETWORK_ERROR': 'The Git provider is unavailable due to a network error.',
+        'GIT_NETWORK_TIMEOUT': 'The Git connection check timed out.',
+        'GIT_SSH_KEY_INVALID': 'The SSH private key is invalid.',
+        'GIT_CLIENT_UNAVAILABLE': 'Git client is unavailable on the server.',
+        'GIT_CONNECTION_FAILED': 'The Git connection could not be verified.',
+    },
+}
+
+
+def git_status_message(code, language=None):
+    selected = 'en' if resolve_language(language) == 'en' else 'uk'
+    return GIT_STATUS_MESSAGES[selected].get(code, GIT_STATUS_MESSAGES[selected]['GIT_CONNECTION_FAILED'])
+
+
+@app.route('/service-catalog/git', methods=['GET', 'POST'])
+def git_integration_wizard():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    if not user or user.is_banned:
+        session.clear()
+        return redirect(url_for('login'))
+    require_role_permission(user, 'git.connect')
+    allowed_ids = assigned_application_ids(user)
+    sites = Site.query.filter(Site.id.in_(allowed_ids)).order_by(Site.name.asc()).all() if allowed_ids else []
+    integrations = Integration.query.filter(
+        Integration.integration_type == 'git',
+        Integration.application_id.in_(allowed_ids),
+    ).order_by(Integration.updated_at.desc()).all() if allowed_ids else []
+
+    if request.method == 'POST':
+        payload = request.get_json(silent=True) if request.is_json else request.form
+        payload = payload or {}
+        action = str(payload.get('action') or 'test').strip().lower()
+        site_id = int(payload.get('application_id') or 0)
+        site = db.session.get(Site, site_id) if site_id else None
+        if not site or site.id not in allowed_ids:
+            return jsonify({'error': {'code': 'RESOURCE_FORBIDDEN', 'message': 'Application is not available.', 'requestId': g.request_id}}), 403
+        require_application_permission(user, site, 'git.connect')
+        integration = Integration.query.filter_by(application_id=site.id, integration_type='git').first()
+
+        if action == 'disconnect':
+            if integration:
+                secret_path = integration.secret_ref
+                db.session.delete(integration)
+                db.session.commit()
+                if secret_path:
+                    try:
+                        os.unlink(secret_path)
+                    except OSError:
+                        pass
+            log_action('integration.git.disconnect', site.name)
+            return jsonify({'success': True, 'status': 'disconnected'})
+
+        provider = str(payload.get('provider') or 'github').strip().lower()
+        auth_type = str(payload.get('auth_type') or 'public').strip().lower()
+        repo_url = str(payload.get('repository_url') or '').strip()
+        branch = str(payload.get('branch') or 'main').strip()
+        token = str(payload.get('token') or '').strip()
+        ssh_private_key = str(payload.get('ssh_private_key') or '')
+        if provider not in GIT_PROVIDERS or auth_type not in GIT_AUTH_TYPES:
+            result = {'success': False, 'code': 'GIT_CONNECTION_FAILED'}
+        else:
+            result = test_git_connection(repo_url, branch, provider, auth_type, token, ssh_private_key)
+        result['message'] = git_status_message(result['code'])
+        result['requestId'] = g.request_id
+        if not result['success']:
+            log_action('integration.git.test.failed', f'{site.name}:{result["code"]}')
+            return jsonify({'error': result}), 422
+        log_action('integration.git.test', f'{site.name}:{provider}')
+        if action == 'test':
+            return jsonify(result)
+        if action != 'save':
+            return jsonify({'error': {'code': 'ACTION_INVALID', 'message': 'Unsupported action.', 'requestId': g.request_id}}), 400
+
+        if not integration:
+            integration = Integration(application_id=site.id, integration_type='git', created_by=user.id)
+            db.session.add(integration)
+            db.session.flush()
+        integration.provider = provider
+        integration.status = 'ready'
+        integration.config_json = json.dumps({
+            'repository_url': repo_url,
+            'branch': branch,
+            'auth_type': auth_type,
+            'last_commit': result.get('commit', ''),
+        })
+        integration.last_test_at = datetime.now()
+        integration.last_test_status = 'success'
+        if auth_type == 'pat' and token:
+            write_integration_secret(integration, {'token': token})
+        elif auth_type == 'ssh' and ssh_private_key:
+            write_integration_secret(integration, {'ssh_private_key': ssh_private_key})
+        elif auth_type == 'public' and integration.secret_ref:
+            try:
+                os.unlink(integration.secret_ref)
+            except OSError:
+                pass
+            integration.secret_ref = None
+        db.session.commit()
+        log_action('integration.git.connect', f'{site.name}:{provider}')
+        return jsonify({'success': True, 'status': 'ready', 'integrationId': integration.id, 'message': result['message']})
+
+    rows = []
+    for integration in integrations:
+        try:
+            config = json.loads(integration.config_json or '{}')
+        except json.JSONDecodeError:
+            config = {}
+        rows.append({'integration': integration, 'config': config, 'has_secret': bool(integration.secret_ref)})
+    return render_template('git_integration_wizard.html', user=user, sites=sites, git_integrations=rows, providers=sorted(GIT_PROVIDERS))
+
+
+@app.route('/php-health-center')
+def php_health_center():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    if not user:
+        session.clear()
+        return redirect(url_for('login'))
+    if user.is_banned:
+        session.clear()
+        return redirect(url_for('login'))
+
+    if not user_has_role_permission(user, 'health.view'):
+        flash('У вас немає доступу до health-check.', 'error')
+        return redirect(url_for('dashboard'))
+
+    site_ids = assigned_application_ids(user)
+    if not site_ids:
+        return render_template('php_health_center.html', php_sites=[])
+
+    php_sites = Site.query.filter(Site.id.in_(site_ids), Site.php_version == 'php').order_by(Site.name.asc()).all()
+    return render_template('php_health_center.html', php_sites=php_sites)
+
+
+@app.route('/sites/create', methods=['GET', 'POST'])
+def create_site_wizard():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    if not user:
+        session.clear()
+        return redirect(url_for('login'))
+    if user.is_banned:
+        session.clear()
+        return redirect(url_for('login'))
+
+    if not user_has_role_permission(user, 'site.create'):
+        flash('У вас немає дозволу на створення сайтів.', 'error')
+        return redirect(url_for('dashboard'))
+
+    allowed_types = ['static', 'php', 'node', 'python', 'docker', 'wordpress']
+    allowed_php_versions = RUNTIME_VERSIONS['php']
+    source_modes = ['upload', 'sftp', 'git', 'existing']
+    selected_type = request.values.get('site_type', 'static')
+    selected_source = request.values.get('source_mode', 'upload')
+    selected_php_version = request.values.get('php_runtime', '8.2')
+    if selected_type not in allowed_types:
+        selected_type = 'static'
+    if selected_source not in source_modes:
+        selected_source = 'upload'
+    if selected_php_version not in allowed_php_versions:
+        selected_php_version = '8.2'
+
+    if request.method == 'POST':
+        subdomain = request.form.get('site_name', '').strip().lower()
+        domain = request.form.get('domain', '').strip().lower().rstrip('.')
+        site_type = request.form.get('site_type', 'static').strip().lower()
+        source_mode = request.form.get('source_mode', 'upload').strip().lower()
+        php_runtime = request.form.get('php_runtime', '8.2').strip()
+        install_command = (request.form.get('install_command') or '').strip()
+        build_command = (request.form.get('build_command') or '').strip()
+        start_command = (request.form.get('start_command') or '').strip()
+
+        if site_type not in allowed_types:
+            flash('Unsupported site type.', 'error')
+            return redirect(url_for('create_site_wizard'))
+        if source_mode not in source_modes:
+            flash('Unsupported source mode.', 'error')
+            return redirect(url_for('create_site_wizard'))
+        if site_type == 'php' and php_runtime not in allowed_php_versions:
+            flash('Unsupported PHP version.', 'error')
+            return redirect(url_for('create_site_wizard', site_type='php'))
+        if not validate_runtime_commands(install_command, build_command, start_command):
+            flash('Runtime command contains a forbidden host-management operation.', 'error')
+            return redirect(url_for('create_site_wizard', site_type=site_type))
+
+        owner = user
+        if user.is_admin and request.form.get('owner_id'):
+            owner = db.session.get(User, request.form.get('owner_id', type=int))
+            if not owner or owner.is_banned:
+                flash(translate('site_owner_required'), 'error')
+                return redirect(url_for('create_site_wizard'))
+
+        if not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', subdomain):
+            flash(translate('invalid_site_name'), 'error')
+            return redirect(url_for('create_site_wizard'))
+        if Site.query.filter_by(name=subdomain).first():
+            flash(translate('subdomain_taken'), 'error')
+            return redirect(url_for('create_site_wizard'))
+
+        folder_name = f"{owner.username}_{subdomain}"
+        site_path = os.path.join(app.config['UPLOAD_FOLDER'], folder_name)
+        os.makedirs(site_path, exist_ok=True)
+        scaffold_site_content(site_path, subdomain)
+
+        runtime_type = site_type
+        runtime_version = php_runtime if runtime_type == 'php' else RUNTIME_VERSIONS[runtime_type][0]
+        new_site = Site(
+            name=subdomain,
+            folder_name=folder_name,
+            php_version=site_type,
+            user_id=owner.id,
+            runtime_type=runtime_type,
+            runtime_version=runtime_version,
+            runtime_status='configuring',
+            deployment_status='pending',
+            install_command=install_command,
+            build_command=build_command,
+            start_command=start_command,
+        )
+        if domain:
+            new_site.custom_domain = domain
+        db.session.add(new_site)
+        db.session.commit()
+
+        access = ensure_application_access(new_site)
+        document_root = os.path.join(site_path, 'public_html')
+        os.makedirs(document_root, exist_ok=True)
+        if site_type == 'php':
+            ensure_php_site_bootstrap(document_root, f'{subdomain}.myh.guru', runtime_version=runtime_version)
+        stack_root = os.path.join(APP_STACKS_ROOT, folder_name)
+        if site_type == 'wordpress':
+            metadata = prepare_wordpress_runtime(stack_root, document_root, allocate_application_port())
+        else:
+            metadata = prepare_runtime(stack_root, document_root, runtime_type, runtime_version, allocate_application_port(),
+                                       install_command=install_command, build_command=build_command, start_command=start_command)
+        with open(os.path.join(stack_root, 'panel-metadata.json'), 'w', encoding='utf-8') as handle:
+            json.dump({
+                'site_type': site_type, 'source_mode': source_mode,
+                'generated_at': datetime.now().isoformat(timespec='seconds'),
+                'runtime': {'language': runtime_type, 'version': runtime_version},
+            }, handle, indent=2)
+        access.file_root = document_root
+        access.upload_root = document_root
+        access.deployment_root = stack_root
+        new_site.internal_port = metadata['port']
+        db.session.commit()
+        if site_type == 'wordpress':
+            suffix = secrets.token_hex(3); prefix = re.sub(r'[^a-z0-9_]', '_', folder_name.lower())[:40].strip('_') or 'wordpress'
+            database_name = f'{prefix}_{suffix}'[:63]; database_user = f'u_{prefix}_{suffix}'[:63]; database_password = secrets.token_urlsafe(24)
+            try:
+                provision_mariadb_database(database_name, database_user, database_password)
+                resource = DatabaseResource(application_id=new_site.id, engine='mariadb', database_name=database_name,
+                                            database_user=database_user, secret_ref='pending', created_by=user.id)
+                db.session.add(resource); db.session.flush()
+                resource.secret_ref = write_application_secret(new_site.id, 'database', resource.id, database_password)
+                for key, value in {
+                    'WORDPRESS_DB_HOST':'lab-db:3306','WORDPRESS_DB_NAME':database_name,'WORDPRESS_DB_USER':database_user,
+                    'WORDPRESS_DB_PASSWORD':database_password,'DB_HOST':'lab-db','DB_NAME':database_name,
+                    'DB_USER':database_user,'DB_PASSWORD':database_password,
+                }.items(): set_environment_value(new_site, user, key, value)
+                db.session.commit(); sync_runtime_environment(new_site)
+            except (RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+                db.session.rollback(); new_site.runtime_status='error'; new_site.deployment_status='failed'; db.session.commit()
+                flash(f'WordPress database provisioning failed: {str(exc)[:300]}', 'error')
+                return redirect(url_for('manage_site', folder_name=folder_name))
+        if app.config.get('TESTING'):
+            code, runtime_log, check = 0, 'test mode: runtime not started', {'ok': True}
+        else:
+            code, runtime_log = compose_action(stack_root, 'start')
+            check = healthcheck(metadata, timeout=30 if site_type == 'wordpress' else 12) if code == 0 else {'ok': False}
+        new_site.runtime_status = 'running' if check.get('ok') else 'error'
+        new_site.deployment_status = 'success' if check.get('ok') else 'failed'
+        new_site.last_restart_at = datetime.now() if check.get('ok') else None
+        db.session.commit()
+        if not check.get('ok'):
+            log_action('site.runtime.failed', f'{subdomain}: {runtime_log[-500:]}')
+            flash('Сайт створено, але runtime не пройшов health check. Перевірте application logs.', 'error')
+        else:
+            log_action('site.runtime.started', f'{subdomain}:{runtime_type}:{runtime_version}:{metadata["port"]}')
+
+        personal_sftp = SftpAccount.query.filter_by(assigned_user_id=owner.id).first()
+        if personal_sftp:
+            assigned_ids = set(parse_json_list(personal_sftp.assigned_applications_json, int))
+            assigned_ids.add(new_site.id)
+            personal_sftp.assigned_applications_json = dump_json_list(sorted(assigned_ids))
+            db.session.commit()
+            if personal_sftp.enabled:
+                queue_sftp_provision(personal_sftp, 'assign', actor=user.username)
+
+        log_action('site.create.wizard', f'{subdomain} type={site_type} source={source_mode} owner={owner.username}')
+        flash(translate('site_created'), 'success')
+        return redirect(url_for('manage_site', folder_name=folder_name))
+
+    owners = User.query.filter_by(is_banned=False).order_by(User.username).all() if user.is_admin else [user]
+    return render_template(
+        'create_site_wizard.html',
+        user=user,
+        owners=owners,
+        allowed_types=allowed_types,
+        allowed_php_versions=allowed_php_versions,
+        source_modes=source_modes,
+        selected_type=selected_type,
+        selected_source=selected_source,
+        selected_php_version=selected_php_version,
+    )
+
+
 @app.route('/dashboard', methods=['GET', 'POST'])
 def dashboard():
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
     user = db.session.get(User, session['user_id'])
+    if not user:
+        session.clear()
+        return redirect(url_for('login'))
     if user.is_banned:
         session.clear()
         return redirect(url_for('login'))
     
     if request.method == 'POST':
+        require_role_permission(user, 'site.create')
         subdomain = request.form.get('site_name', '').strip().lower()
-        site_type = 'static'
+        site_type = (request.form.get('site_type') or 'static').strip().lower()
+        if site_type not in {'static', 'wordpress', 'node', 'php', 'python'}:
+            site_type = 'static'
         owner = user
         if user.is_admin and request.form.get('owner_id'):
             owner = db.session.get(User, request.form.get('owner_id', type=int))
@@ -2315,16 +3890,16 @@ def dashboard():
             folder_name = f"{owner.username}_{subdomain}"
             site_path = os.path.join(app.config['UPLOAD_FOLDER'], folder_name)
             os.makedirs(site_path, exist_ok=True)
-            
-            default_index = os.path.join(site_path, 'index.html')
-            if not os.path.exists(default_index):
-                with open(default_index, 'w', encoding='utf-8') as f:
-                    f.write(f"<h1>{subdomain}.myh.guru працює</h1><p>Завантажте файли статичного сайту через файловий менеджер.</p>")
+            scaffold_site_content(site_path, subdomain)
 
             new_site = Site(name=subdomain, folder_name=folder_name, php_version=site_type, user_id=owner.id)
             db.session.add(new_site)
             db.session.commit()
-            ensure_application_access(new_site)
+            access = ensure_application_access(new_site)
+            stack_root = scaffold_application_stack(folder_name, site_type, source_mode='upload')
+            if stack_root:
+                access.deployment_root = stack_root
+                db.session.commit()
             log_action('site.create', f'{subdomain} → {owner.username}')
         else:
             flash(translate('invalid_site_name'), 'error')
@@ -2349,7 +3924,7 @@ def dashboard():
         usage = {item.id: user_usage_bytes(item) for item in users}
         recent_logs = AuditLog.query.order_by(AuditLog.id.desc()).limit(15).all()
         overview = dashboard_overview()
-        return render_template('developer_dashboard.html', user=user, sites=all_sites, users=users, usage=usage, recent_logs=recent_logs, metrics=metrics, services=service_statuses, overview=overview)
+        return render_template('developer_dashboard.html', user=user, sites=all_sites, users=users, usage=usage, recent_logs=recent_logs, metrics=metrics, services=service_statuses, overview=overview, is_platform_admin=bool(user_role(user) == 'admin' or user.is_admin), can_create_site=user_has_role_permission(user, 'site.create'))
 
     user_sites = Site.query.filter_by(user_id=session['user_id']).all()
     usage_bytes_value = user_usage_bytes(user)
@@ -2360,7 +3935,7 @@ def dashboard():
         'backups': sum(len(list_site_backups(site)) for site in user_sites),
     }
     metrics = get_server_metrics()
-    return render_template('dashboard.html', user=user, sites=user_sites, usage_bytes=usage_bytes_value, summary=summary, metrics=metrics)
+    return render_template('dashboard.html', user=user, sites=user_sites, usage_bytes=usage_bytes_value, summary=summary, metrics=metrics, can_create_site=user_has_role_permission(user, 'site.create'), can_sftp_access=True)
 
 
 @app.route('/developer/dashboard')
@@ -2593,19 +4168,77 @@ def user_sftp_access():
     user = db.session.get(User, session['user_id'])
     if not user:
         abort(403)
-    if user_role(user) in {'developer', 'admin'}:
-        return redirect(url_for('developer_sftp_access'))
+    require_role_permission(user, 'sftp.access')
+
     site_ids = assigned_application_ids(user)
     sites = Site.query.filter(Site.id.in_(site_ids)).order_by(Site.name.asc()).all() if site_ids else []
     accounts = SftpAccount.query.filter_by(assigned_user_id=user.id, enabled=True).order_by(SftpAccount.username.asc()).all()
     payloads = [sftp_filezilla_payload(account) for account in accounts]
-    return render_template('user_sftp_access.html', user=user, sites=sites, sftp_connections=payloads)
+    personal_account = SftpAccount.query.filter_by(assigned_user_id=user.id).order_by(SftpAccount.id.asc()).first()
+    sftp_self = {
+        'host': sftp_connection_host(),
+        'port': 22,
+        'enabled': bool(personal_account and personal_account.enabled),
+        'username': personal_account.username if personal_account else user.username,
+        'status': personal_account.system_state if personal_account else 'disabled',
+        'has_sites': bool(site_ids),
+    }
+    return render_template('user_sftp_access.html', user=user, sites=sites, sftp_connections=payloads, sftp_self=sftp_self)
+
+
+@app.route('/dashboard/sftp-access/toggle', methods=['POST'])
+def user_sftp_toggle_access():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    if not user or user.is_banned:
+        return abort(403)
+    require_role_permission(user, 'sftp.access')
+
+    desired_state = (request.form.get('desired_state') or '').strip().lower()
+    if desired_state not in {'enable', 'disable'}:
+        flash('Невірна дія SFTP.', 'error')
+        return redirect(url_for('user_sftp_access'))
+
+    account, error_message = get_or_prepare_personal_sftp_account(user)
+    if error_message:
+        flash(error_message, 'error')
+        return redirect(url_for('user_sftp_access'))
+
+    if desired_state == 'enable':
+        account.enabled = True
+        compatible_hash = normalize_sftp_password_hash(user.password)
+        temporary_password = None
+        if compatible_hash:
+            account.password_hash = compatible_hash
+        elif not account.password_hash:
+            temporary_password = generate_temporary_password()
+            account.password_hash = build_sftp_password_hash(temporary_password)
+        account.auth_type = 'password'
+        db.session.commit()
+        queue_sftp_provision(account, 'create' if account.system_state in {'pending', ''} else 'toggle', actor=user.username)
+        record_sftp_audit(account, 'self_service_enabled', status='success')
+        log_action('sftp.self.enable', user.username)
+        if temporary_password:
+            flash(f'SFTP доступ увімкнено. Тимчасовий пароль (показується один раз): {temporary_password}', 'success')
+        else:
+            flash('SFTP доступ увімкнено. Використовуйте чинний SFTP пароль.', 'success')
+    else:
+        account.enabled = False
+        db.session.commit()
+        queue_sftp_provision(account, 'toggle', actor=user.username)
+        record_sftp_audit(account, 'self_service_disabled', status='success')
+        log_action('sftp.self.disable', user.username)
+        flash('SFTP доступ вимкнено.', 'success')
+
+    return redirect(url_for('user_sftp_access'))
 
 
 @app.route('/developer/sftp-access')
 @developer_required
 def developer_sftp_access():
     user = db.session.get(User, session['user_id'])
+    require_role_permission(user, 'sftp.access')
     site_ids = assigned_application_ids(user)
     sites = Site.query.filter(Site.id.in_(site_ids)).order_by(Site.name.asc()).all() if site_ids else []
     accounts = SftpAccount.query.filter(
@@ -2667,7 +4300,7 @@ def developer_sftp_users_create():
         assigned_applications_json=dump_json_list(assigned_site_ids),
         chroot_directory=chroot_directory,
         auth_type=auth_type,
-        password_hash=generate_password_hash(temp_password) if temp_password else None,
+        password_hash=build_sftp_password_hash(temp_password) if temp_password else None,
         public_keys_json='[]',
         enabled=True,
         system_state='pending',
@@ -2705,7 +4338,7 @@ def developer_sftp_users_reset_password(account_id):
     if not account:
         abort(404)
     temporary_password = generate_temporary_password()
-    account.password_hash = generate_password_hash(temporary_password)
+    account.password_hash = build_sftp_password_hash(temporary_password)
     if account.auth_type == 'key':
         account.auth_type = 'both'
     db.session.commit()
@@ -2752,10 +4385,7 @@ def developer_sftp_users_assign(account_id):
     account.assigned_user_id = assigned_user.id if assigned_user else None
     account.assigned_applications_json = dump_json_list(site_ids)
     if site_ids:
-        site = db.session.get(Site, site_ids[0])
-        if site:
-            access = ensure_application_access(site)
-            account.chroot_directory = access.upload_root or access.file_root
+        account.chroot_directory = os.path.join('/srv/apps', account.username)
     db.session.commit()
     queue_sftp_provision(account, 'assign', actor=session.get('username', 'admin'))
     record_sftp_audit(account, 'assignments_updated', status='success', detail=f'apps={len(site_ids)}')
@@ -2838,7 +4468,7 @@ def queue_restore_site_backup(site_id, backup_name):
         return redirect(url_for('login'))
     user = db.session.get(User, session['user_id'])
     site = db.session.get(Site, site_id)
-    require_application_permission(user, site, 'deployment.request')
+    require_application_permission(user, site, 'backup.restore')
     get_backup_path(site, backup_name)
     job = create_job('site.restore', target=f'{site.name}:{backup_name}', payload={'site_id': site.id, 'backup_name': backup_name}, created_by=user.username)
     log_action('backup.restore.queue', f'#{job.id} {site.name}:{backup_name}')
@@ -2862,12 +4492,29 @@ def manage_site(folder_name):
         require_application_permission(user, site, 'files.view')
     site_path = application_root(access, bucket='file')
     os.makedirs(site_path, exist_ok=True)
+
+    current_dir = normalized_relative_path(request.values.get('dir', ''))
+    if current_dir:
+        enforce_wordpress_path_permission(user, access, site_path, current_dir)
+        current_abs_path = safe_resource_path(access, current_dir, bucket='file')
+        if not os.path.isdir(current_abs_path):
+            abort(404)
+    else:
+        current_abs_path = site_path
+
+    def redirect_manage_with_dir(dir_value):
+        safe_dir = normalized_relative_path(dir_value or '')
+        if safe_dir:
+            return redirect(url_for('manage_site', folder_name=folder_name, dir=safe_dir))
+        return redirect(url_for('manage_site', folder_name=folder_name))
     
     if request.method == 'POST':
         action = request.form.get('action', 'upload')
+        current_dir_form = normalized_relative_path(request.form.get('current_dir', current_dir))
         if action == 'mkdir':
             require_application_permission(user, site, 'files.create')
-            folder = request.form.get('folder_name', '').strip().replace('\\', '/')
+            folder_input = request.form.get('folder_name', '').strip().replace('\\', '/')
+            folder = normalized_relative_path(os.path.join(current_dir_form, folder_input)) if folder_input else ''
             if not folder or any(part in {'', '.', '..'} for part in folder.split('/')):
                 flash(translate('invalid_directory_name'), 'error')
             else:
@@ -2890,7 +4537,7 @@ def manage_site(folder_name):
             if projected > app_quota_bytes:
                 flash('Перевищено квоту застосунку.', 'error')
                 record_upload_history(site, user, relative, new_size, source='panel', status='blocked', deployment='', detail='application-quota-limit-save')
-                return redirect(url_for('manage_site', folder_name=folder_name))
+                return redirect_manage_with_dir(current_dir_form)
             with open(target, 'w', encoding='utf-8', newline='') as handle:
                 handle.write(content)
             flash(translate('file_saved'), 'success')
@@ -2915,7 +4562,7 @@ def manage_site(folder_name):
                 flash('Перейменовано.', 'success')
         else:
             require_application_permission(user, site, 'files.upload')
-            target_dir_relative = request.form.get('target_dir', '')
+            target_dir_relative = normalized_relative_path(request.form.get('target_dir', current_dir_form))
             enforce_wordpress_path_permission(user, access, site_path, target_dir_relative)
             target_dir = safe_resource_path(access, target_dir_relative, bucket='upload')
             os.makedirs(target_dir, exist_ok=True)
@@ -2960,19 +4607,33 @@ def manage_site(folder_name):
                 if filename.lower().endswith('.zip'):
                     try:
                         with zipfile.ZipFile(file_path, 'r') as zip_ref:
-                            extracted_size = sum(item.file_size for item in zip_ref.infolist())
-                            if len(zip_ref.infolist()) > 1000 or extracted_size > 128 * 1024 * 1024:
+                            members = zip_ref.infolist()
+                            extracted_size = sum(item.file_size for item in members)
+                            if len(members) > 1000 or extracted_size > 128 * 1024 * 1024:
                                 raise ValueError('Архів перевищує безпечний ліміт')
                             if user_usage_bytes(site.owner) - upload_size + extracted_size > quota_bytes:
                                 raise ValueError('Розпакований архів перевищить квоту користувача')
                             if application_usage_bytes - upload_size + extracted_size > application_quota_bytes:
                                 raise ValueError('Розпакований архів перевищить квоту застосунку')
-                            for member in zip_ref.infolist():
-                                member_rel = normalized_relative_path(os.path.join(target_dir_relative, member.filename))
+                            strip_prefix = zip_single_root_folder(members) if not target_dir_relative else None
+                            strip_with_sep = f'{strip_prefix}/' if strip_prefix else ''
+                            for member in members:
+                                member_name = (member.filename or '').replace('\\', '/')
+                                if strip_prefix:
+                                    normalized_member = os.path.normpath(member_name).replace('\\', '/')
+                                    if normalized_member == strip_prefix:
+                                        continue
+                                    if not normalized_member.startswith(strip_with_sep):
+                                        raise ValueError('Архів має некоректну структуру для clean mode')
+                                    member_name = normalized_member[len(strip_with_sep):]
+                                    if not member_name:
+                                        continue
+                                member_rel = normalized_relative_path(os.path.join(target_dir_relative, member_name))
                                 enforce_wordpress_path_permission(user, access, site_path, member_rel)
-                            safe_extract_zip(zip_ref, target_dir)
+                            safe_extract_zip(zip_ref, target_dir, strip_prefix=strip_prefix or '')
                         application_usage_bytes = application_usage_bytes_for_access(access)
-                        record_upload_history(site, user, filename, upload_size, source='panel', status='success', deployment='', detail='zip-upload+extract')
+                        detail = 'zip-upload+extract-clean' if strip_prefix else 'zip-upload+extract'
+                        record_upload_history(site, user, filename, upload_size, source='panel', status='success', deployment='', detail=detail)
                     except (zipfile.BadZipFile, ValueError) as exc:
                         flash(str(exc), 'error')
                         application_usage_bytes = max(0, application_usage_bytes - upload_size)
@@ -2985,16 +4646,25 @@ def manage_site(folder_name):
             if uploaded:
                 log_action('file.upload', f'{site.name}: {uploaded} файлів')
                 flash(f'{translate("files_uploaded")} {uploaded}.', 'success')
-        return redirect(url_for('manage_site', folder_name=folder_name))
+        return redirect_manage_with_dir(current_dir_form)
         
     files = []
     directories = []
-    for root, dirs, filenames in os.walk(site_path):
-        for directory in dirs:
-            directories.append(os.path.relpath(os.path.join(root, directory), site_path))
-        for f in filenames:
-            rel_path = os.path.relpath(os.path.join(root, f), site_path)
-            files.append({'path': rel_path, 'size': os.path.getsize(os.path.join(root, f))})
+    try:
+        entries = sorted(
+            os.scandir(current_abs_path),
+            key=lambda item: (not item.is_dir(follow_symlinks=False), item.name.lower())
+        )
+    except OSError:
+        entries = []
+    for entry in entries:
+        rel_path = normalized_relative_path(os.path.join(current_dir, entry.name))
+        if entry.is_dir(follow_symlinks=False):
+            directories.append({'name': entry.name, 'path': rel_path})
+        elif entry.is_file(follow_symlinks=False):
+            files.append({'name': entry.name, 'path': rel_path, 'size': entry.stat().st_size})
+
+    parent_dir = normalized_relative_path(os.path.dirname(current_dir)) if current_dir else ''
 
     edit_path = request.args.get('edit', '')
     edit_content = None
@@ -3008,7 +4678,23 @@ def manage_site(folder_name):
             except UnicodeDecodeError:
                 flash('Цей файл не є текстовим.', 'error')
 
-    return render_template('manage_site.html', site=site, access=access, files=sorted(files, key=lambda item: item['path']), directories=sorted(directories), edit_path=edit_path, edit_content=edit_content, backups=list_site_backups(site, access=access), usage_bytes=user_usage_bytes(site.owner), quota=quota_snapshot(access))
+    permissions = user_permissions_for_application(user, access)
+    return render_template(
+        'manage_site.html',
+        site=site,
+        access=access,
+        files=files,
+        directories=directories,
+        current_dir=current_dir,
+        parent_dir=parent_dir,
+        edit_path=edit_path,
+        edit_content=edit_content,
+        backups=list_site_backups(site, access=access),
+        usage_bytes=user_usage_bytes(site.owner),
+        quota=quota_snapshot(access),
+        permissions=permissions,
+        runtime_metrics=application_runtime_metrics(access),
+    )
 
 @app.route('/view-site/<folder_name>/', defaults={'subpath': 'index.html'})
 @app.route('/view-site/<folder_name>/<path:subpath>')
@@ -3019,6 +4705,20 @@ def view_site(folder_name, subpath):
 
     access = ensure_application_access(site)
     site_path = application_root(access, bucket='file')
+    if subpath in {'', 'index.html'}:
+        index_html = os.path.join(site_path, 'index.html')
+        index_php = os.path.join(site_path, 'index.php')
+        if not os.path.exists(index_html):
+            if os.path.exists(index_php):
+                subpath = 'index.php'
+            else:
+                try:
+                    has_existing_content = any(True for _ in os.scandir(site_path))
+                except OSError:
+                    has_existing_content = False
+                if not has_existing_content:
+                    os.makedirs(site_path, exist_ok=True)
+                    scaffold_site_content(site_path, site.name)
     return send_from_directory(site_path, subpath)
 
 
@@ -3059,8 +4759,24 @@ def download_site_backup(site_id, backup_name):
         return redirect(url_for('login'))
     user = db.session.get(User, session['user_id'])
     site = db.session.get(Site, site_id)
-    require_application_permission(user, site, 'backup.view')
+    require_application_permission(user, site, 'backup.download')
     return send_file(get_backup_path(site, backup_name), as_attachment=True, download_name=f'{site.name}-{backup_name}')
+
+
+@app.route('/site/<int:site_id>/backup/<backup_name>/delete', methods=['POST'])
+def delete_site_backup(site_id, backup_name):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    site = db.session.get(Site, site_id)
+    require_application_permission(user, site, 'backup.restore')
+    archive_path = get_backup_path(site, backup_name)
+    archive_size = os.path.getsize(archive_path)
+    os.remove(archive_path)
+    log_action('backup.delete', f'{site.name}: {backup_name}')
+    record_upload_history(site, user, backup_name, archive_size, source='panel', status='success', deployment='backup-delete', detail='delete backup')
+    flash('Резервну копію видалено.', 'success')
+    return redirect(url_for('manage_site', folder_name=site.folder_name))
 
 
 @app.route('/site/<int:site_id>/backup/<backup_name>/restore', methods=['POST'])
@@ -3069,7 +4785,7 @@ def restore_site_backup(site_id, backup_name):
         return redirect(url_for('login'))
     user = db.session.get(User, session['user_id'])
     site = db.session.get(Site, site_id)
-    require_application_permission(user, site, 'deployment.request')
+    require_application_permission(user, site, 'backup.restore')
     archive_path = get_backup_path(site, backup_name)
     access = ensure_application_access(site)
     site_path = application_root(access, bucket='file')
@@ -3099,13 +4815,21 @@ def set_custom_domain(site_id):
         return redirect(url_for('login'))
     user = db.session.get(User, session['user_id'])
     site = db.session.get(Site, site_id)
-    require_application_permission(user, site, 'site.view')
+    require_application_permission(user, site, 'domain.manage')
     domain = request.form.get('custom_domain', '').strip().lower().rstrip('.')
     if domain and not re.fullmatch(r'(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}', domain):
         flash(translate('invalid_domain'), 'error')
     elif domain and Site.query.filter(Site.custom_domain == domain, Site.id != site.id).first():
         flash(translate('domain_taken'), 'error')
     else:
+        old_domain = site.custom_domain
+        if domain:
+            success, detail = ensure_cloudflare_domain_record(domain)
+            if not success:
+                flash(f'DNS/SSL activation failed: {detail[:300]}', 'error')
+                return redirect(url_for('manage_site', folder_name=site.folder_name))
+        if old_domain and old_domain != domain:
+            ensure_cloudflare_domain_record(old_domain, remove=True)
         site.custom_domain = domain or None
         db.session.commit()
         log_action('domain.update', f'{site.name}: {domain or "removed"}')
@@ -3119,26 +4843,173 @@ def delete_site(site_id):
     
     user = db.session.get(User, session['user_id'])
     site = Site.query.get_or_404(site_id)
-    require_application_permission(user, site, 'files.delete')
+    require_application_permission(user, site, 'site.manage')
 
     access = ensure_application_access(site)
+    # Detach the application from every SFTP chroot before removing its source.
+    for account in SftpAccount.query.all():
+        assigned = parse_json_list(account.assigned_applications_json)
+        remaining = [item for item in assigned if str(item) != str(site.id)]
+        if remaining != assigned:
+            account.assigned_applications_json = dump_json_list(remaining)
+            queue_sftp_provision(account, action='assign')
+    db.session.commit()
+    try:
+        subprocess.run(['sudo', 'systemctl', 'start', 'myh-sftp-provision.service'],
+                       capture_output=True, text=True, timeout=45, check=False)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    if access.deployment_root and os.path.isfile(os.path.join(access.deployment_root, 'runtime.json')):
+        try:
+            compose_action(access.deployment_root, 'delete')
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
     site_path = application_root(access, bucket='file')
     if os.path.exists(site_path):
         try:
             create_backup_archive(site, access=access)
         except ValueError:
             pass
-        remove_tree(site_path)
+        try:
+            remove_tree(site_path)
+        except PermissionError:
+            # WordPress owns generated files as its unprivileged container UID.
+            subprocess.run(['docker', 'run', '--rm', '--network', 'none', '-v', f'{site_path}:/target',
+                            'alpine:3.22', 'find', '/target', '-mindepth', '1', '-delete'],
+                           capture_output=True, text=True, timeout=90, check=False)
+            remove_tree(site_path)
         
     site_name = site.name
+    for resource in DatabaseResource.query.filter_by(application_id=site.id).all():
+        deprovision_mariadb_database(resource.database_name, resource.database_user)
+        db.session.delete(resource)
+    for variable in EnvironmentVariable.query.filter_by(application_id=site.id).all():
+        db.session.delete(variable)
+    for integration in Integration.query.filter_by(application_id=site.id).all():
+        db.session.delete(integration)
     access = ApplicationAccess.query.filter_by(site_id=site.id).first()
     if access:
         db.session.delete(access)
     db.session.delete(site)
     db.session.commit()
+    if access.deployment_root and os.path.isdir(access.deployment_root):
+        remove_tree(access.deployment_root)
+    secret_root = os.path.join(app.instance_path, 'application_secrets', str(site_id))
+    if os.path.isdir(secret_root):
+        remove_tree(secret_root)
     log_action('site.delete', f'{site_name}; backup retained')
     
     return redirect(url_for('dashboard'))
+
+
+@app.route('/site/<int:site_id>/runtime/<action>', methods=['POST'])
+def site_runtime_action(site_id, action):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    site = db.session.get(Site, site_id)
+    require_application_permission(user, site, 'site.manage')
+    if action not in {'start', 'stop', 'restart'}:
+        abort(404)
+    access = ensure_application_access(site)
+    if not os.path.isfile(os.path.join(access.deployment_root, 'runtime.json')):
+        flash('Runtime configuration is not available for this legacy site.', 'error')
+        return redirect(url_for('manage_site', folder_name=site.folder_name))
+    code, output = compose_action(access.deployment_root, action)
+    if code != 0:
+        site.runtime_status = 'error'
+        db.session.commit()
+        log_action(f'site.runtime.{action}.failed', f'{site.name}:{output[-500:]}')
+        flash('Runtime operation failed. Check application logs.', 'error')
+        return redirect(url_for('manage_site', folder_name=site.folder_name))
+    if action == 'stop':
+        site.runtime_status = 'stopped'
+    else:
+        metadata = json.loads(open(os.path.join(access.deployment_root, 'runtime.json'), encoding='utf-8').read())
+        check = healthcheck(metadata, timeout=12)
+        site.runtime_status = 'running' if check.get('ok') else 'error'
+        site.deployment_status = 'success' if check.get('ok') else 'failed'
+        site.last_restart_at = datetime.now()
+    db.session.commit()
+    log_action(f'site.runtime.{action}', site.name)
+    flash(f'Runtime: {action} completed.', 'success')
+    return redirect(url_for('manage_site', folder_name=site.folder_name))
+
+
+@app.route('/site/<int:site_id>/environment', methods=['POST'])
+def site_environment(site_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id']); site = db.session.get(Site, site_id)
+    require_application_permission(user, site, 'environment.manage')
+    key = (request.form.get('key') or '').strip().upper()
+    value = request.form.get('value') or ''
+    action = request.form.get('action', 'save')
+    if not re.fullmatch(r'[A-Z_][A-Z0-9_]{0,119}', key):
+        flash('Invalid environment variable name.', 'error')
+    else:
+        row = EnvironmentVariable.query.filter_by(application_id=site.id, key=key).first()
+        if action == 'delete':
+            if row:
+                secret_path = row.secret_ref; db.session.delete(row); db.session.commit()
+                if secret_path and os.path.isfile(secret_path): os.remove(secret_path)
+                sync_runtime_environment(site)
+            flash('Environment variable deleted.', 'success')
+        elif not value:
+            flash('Environment value cannot be empty.', 'error')
+        else:
+            set_environment_value(site, user, key, value); db.session.commit(); sync_runtime_environment(site)
+            log_action('environment.update', f'{site.name}:{key}')
+            flash('Environment variable saved. Value is write-only.', 'success')
+    return redirect(url_for('manage_site', folder_name=site.folder_name))
+
+
+@app.route('/site/<int:site_id>/database', methods=['POST'])
+def site_database_create(site_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id']); site = db.session.get(Site, site_id)
+    require_application_permission(user, site, 'database.create')
+    suffix = secrets.token_hex(3)
+    prefix = re.sub(r'[^a-z0-9_]', '_', site.folder_name.lower())[:42].strip('_') or 'app'
+    database_name = f'{prefix}_{suffix}'[:63]; database_user = f'u_{prefix}_{suffix}'[:63]
+    password = secrets.token_urlsafe(24)
+    try:
+        provision_mariadb_database(database_name, database_user, password)
+        resource = DatabaseResource(application_id=site.id, engine='mariadb', database_name=database_name,
+                                    database_user=database_user, secret_ref='pending', created_by=user.id)
+        db.session.add(resource); db.session.flush()
+        resource.secret_ref = write_application_secret(site.id, 'database', resource.id, password)
+        for key, value in {
+            'DB_HOST': 'lab-db', 'DB_PORT': '3306', 'DB_NAME': database_name,
+            'DB_USER': database_user, 'DB_PASSWORD': password,
+            'DATABASE_URL': f'mysql://{database_user}:{urllib.parse.quote(password, safe="")}@lab-db:3306/{database_name}',
+        }.items(): set_environment_value(site, user, key, value)
+        db.session.commit(); sync_runtime_environment(site)
+        log_action('database.create', f'{site.name}:{database_name}')
+        flash(f'Database {database_name} created. Credentials were added as write-only environment variables.', 'success')
+    except (RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+        db.session.rollback(); flash(f'Database provisioning failed: {str(exc)[:300]}', 'error')
+    return redirect(url_for('manage_site', folder_name=site.folder_name))
+
+
+@app.route('/site/<int:site_id>/runtime/logs')
+def site_runtime_logs(site_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    site = db.session.get(Site, site_id)
+    require_application_permission(user, site, 'site.manage')
+    access = ensure_application_access(site)
+    metadata_path = os.path.join(access.deployment_root, 'runtime.json')
+    if not os.path.isfile(metadata_path):
+        abort(404)
+    metadata = json.loads(open(metadata_path, encoding='utf-8').read())
+    process = subprocess.run(
+        ['docker', 'compose', '-p', metadata['project'], '-f', os.path.join(access.deployment_root, 'compose.yml'), 'logs', '--tail', '300', '--no-color'],
+        capture_output=True, text=True, timeout=20, check=False,
+    )
+    return (process.stdout + process.stderr, 200, {'Content-Type': 'text/plain; charset=utf-8'})
 
 
 @app.route('/api/metrics')
@@ -3239,7 +5110,7 @@ def api_site_status(site_id):
         return jsonify({'online': False}), 401
     user = db.session.get(User, session['user_id'])
     site = db.session.get(Site, site_id)
-    require_application_permission(user, site, 'site.view')
+    require_application_permission(user, site, 'health.view')
     url = f'https://{site.name}.myh.guru/'
     started = time.monotonic()
     try:
@@ -3251,14 +5122,104 @@ def api_site_status(site_id):
         return jsonify({'online': False, 'status': None, 'latency_ms': round((time.monotonic() - started) * 1000), 'error': str(exc)[:120]})
 
 
+@app.route('/api/sites/<int:site_id>/php-health')
+def api_site_php_health(site_id):
+    if 'user_id' not in session:
+        return jsonify({'ok': False, 'error': 'unauthorized'}), 401
+    user = db.session.get(User, session['user_id'])
+    site = db.session.get(Site, site_id)
+    require_application_permission(user, site, 'health.view')
+
+    if site.php_version != 'php':
+        return jsonify({'ok': False, 'error': 'not a php site'}), 400
+
+    access = ensure_application_access(site)
+    site_root = application_root(access, bucket='file')
+    stack_root = application_root(access, bucket='deployment')
+
+    index_php = os.path.join(site_root, 'index.php')
+    metadata_path = os.path.join(stack_root, 'panel-metadata.json')
+    runtime_version = None
+    runtime_language = None
+    metadata_ok = False
+    if os.path.isfile(metadata_path):
+        try:
+            with open(metadata_path, 'r', encoding='utf-8') as meta_handle:
+                payload = json.load(meta_handle)
+            runtime = payload.get('runtime') or {}
+            runtime_language = (runtime.get('language') or '').strip().lower() or None
+            runtime_version = (runtime.get('version') or '').strip() or None
+            metadata_ok = True
+        except (OSError, ValueError, json.JSONDecodeError):
+            metadata_ok = False
+
+    image = f'php:{runtime_version or site.runtime_version}-fpm-alpine'
+    php_code, _ = run_command(['docker', 'image', 'inspect', image], timeout=10)
+    php_available = php_code == 0
+    php_line = f'container image {image}'
+
+    bootstrap_exists = os.path.isfile(index_php)
+    ok = bootstrap_exists and metadata_ok
+    return jsonify({
+        'ok': ok,
+        'site': site.name,
+        'bootstrap_exists': bootstrap_exists,
+        'metadata_ok': metadata_ok,
+        'runtime_language': runtime_language,
+        'runtime_version': runtime_version,
+        'php_binary_available': php_available,
+        'php_binary_version_line': php_line,
+    }), (200 if ok else 503)
+
+
+@app.route('/api/php/runtime-check', methods=['POST'])
+def api_php_runtime_check():
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'error': 'unauthorized'}), 401
+    user = db.session.get(User, session['user_id'])
+    if not user_has_role_permission(user, 'site.create'):
+        return jsonify({'success': False, 'error': 'forbidden'}), 403
+
+    payload = request.get_json(silent=True) or {}
+    selected_version = (payload.get('php_runtime') or '').strip() or '8.2'
+    if selected_version not in set(RUNTIME_VERSIONS['php']):
+        return jsonify({'success': False, 'error': 'unsupported version'}), 400
+
+    image = f'php:{selected_version}-fpm-alpine'
+    host_code, host_output = run_command(['php', '--version'], timeout=10)
+    host_version = parse_php_version_string(host_output) if host_code == 0 else None
+    code, _ = run_command(['docker', 'image', 'inspect', image], timeout=10)
+    available_code, _ = run_command(['docker', 'manifest', 'inspect', image], timeout=20)
+    available = bool(host_version) or code == 0 or available_code == 0
+    installed_version = host_version or (selected_version if code == 0 else None)
+    compatible = php_runtime_compatible(selected_version, host_version) if host_version else available
+    return jsonify({
+        'success': True,
+        'selected_version': selected_version,
+        'php_available': available,
+        'installed_version': installed_version,
+        'compatible': compatible,
+        'version_line': image,
+    })
+
+
 @app.route('/developer/logs')
 @developer_required
 def developer_logs():
+    user = db.session.get(User, session['user_id'])
     source = request.args.get('source', 'panel')
+    lines = request.args.get('lines', default=200, type=int) or 200
+    lines = max(50, min(lines, 500))
+
+    if not user or (user_role(user) not in {'admin'} and not user.is_admin):
+        log_lines = collect_application_logs_for_user(user, lines=lines)
+        scoped_sources = {
+            'app': {'label': 'assigned application logs'},
+        }
+        return render_template('developer_logs.html', source='app', source_label='assigned application logs', lines=lines, log_lines=log_lines, log_sources=scoped_sources)
+
     source_key = source if source in LOG_SOURCES else 'panel'
     log_config = LOG_SOURCES[source_key]
-    lines = request.args.get('lines', default='200', type=int) or 200
-    lines = max(50, min(lines, 500))
     code, output = run_command(log_config['command'][:], timeout=20)
     if code != 0:
         output = output or 'Log source unavailable.'
@@ -3494,13 +5455,17 @@ def developer_applications():
 @app.route('/developer/docker')
 @developer_required
 def developer_docker():
-    containers = list_docker_containers()
-    return render_template('developer_docker.html', containers=containers)
+    user = db.session.get(User, session['user_id'])
+    can_manage_docker = bool(user and (user_role(user) == 'admin' or user.is_admin))
+    containers = list_scoped_docker_containers(user)
+    return render_template('developer_docker.html', containers=containers, can_manage_docker=can_manage_docker)
 
 
 @app.route('/developer/notifications', methods=['GET', 'POST'])
 @developer_required
 def developer_notifications():
+    user = db.session.get(User, session['user_id'])
+    require_role_permission(user, 'integration.manage')
     if request.method == 'POST':
         message = (request.form.get('message') or '').strip()
         if message:
@@ -3514,25 +5479,36 @@ def developer_notifications():
 
 @app.route('/api/webhook/notify', methods=['POST'])
 def api_webhook_notify():
+    if NOTIFY_WEBHOOK_SECRET:
+        if not is_signed_webhook_secret_valid(request, NOTIFY_WEBHOOK_SECRET):
+            return jsonify({'success': False, 'error': 'forbidden'}), 403
+    elif not ALLOW_INSECURE_NOTIFY_WEBHOOK:
+        return jsonify({'success': False, 'error': 'webhook disabled'}), 503
+
     payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({'success': False, 'error': 'invalid payload'}), 400
     message = payload.get('message') or payload.get('event') or 'Webhook notification'
-    send_notification(str(message), level='info')
-    return jsonify({'success': True, 'message': str(message)})
+    safe_message = str(message)[:500]
+    send_notification(safe_message, level='info')
+    return jsonify({'success': True, 'message': safe_message})
 
 
 @app.route('/api/github/webhook', methods=['POST'])
 def api_github_webhook():
     payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({'success': False, 'error': 'invalid payload'}), 400
     repo = payload.get('repository', {}).get('full_name') or payload.get('repository', {}).get('name') or 'unknown'
     ref = payload.get('ref') or 'unknown'
     site_name = payload.get('site_name') or 'default'
     site = Site.query.filter_by(name=site_name).first() if site_name != 'default' else None
-    signature = request.headers.get('X-Hub-Signature-256', '')
     expected_secret = site.webhook_secret if site and site.webhook_secret else os.environ.get('GITHUB_WEBHOOK_SECRET', '').strip()
     if expected_secret:
-        expected_signature = 'sha256=' + hashlib.sha256((expected_secret).encode('utf-8')).hexdigest()
-        if not signature or not secrets.compare_digest(signature, expected_signature):
+        if not github_signature_valid(request, expected_secret):
             return jsonify({'success': False, 'error': 'invalid signature'}), 401
+    elif not ALLOW_UNSIGNED_GITHUB_WEBHOOK:
+        return jsonify({'success': False, 'error': 'webhook secret not configured'}), 503
     if site and site.webhook_branch:
         branch_name = ref.split('/')[-1]
         if branch_name != site.webhook_branch:
@@ -3542,7 +5518,8 @@ def api_github_webhook():
     send_notification(message, level='info')
     if site:
         try:
-            deploy_from_git(payload.get('repository', {}).get('clone_url') or payload.get('repository', {}).get('html_url') or '', os.path.join(app.config['UPLOAD_FOLDER'], site.folder_name))
+            access = ensure_application_access(site)
+            deploy_from_git(payload.get('repository', {}).get('clone_url') or payload.get('repository', {}).get('html_url') or '', application_root(access, bucket='file'), access=access)
             record_deployment_event(site.name, deploy_mode='git', status='success', detail='GitHub webhook deployment completed', repo_url=payload.get('repository', {}).get('clone_url'))
             append_deploy_log(site.name, 'GitHub webhook deployment completed')
             log_action('deploy.github', f'{site.name}:{repo}')
@@ -3555,24 +5532,68 @@ def api_github_webhook():
 
 
 @app.route('/developer/deploy/history')
-@developer_required
+@app.route('/dashboard/deploy/history')
 def developer_deploy_history():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
     user = db.session.get(User, session['user_id'])
+    if not user:
+        abort(403)
+    role = user_role(user)
     events = DeploymentEvent.query.order_by(DeploymentEvent.created_at.desc()).limit(200).all()
-    if user_role(user) != 'admin' and not user.is_admin:
+    if role != 'admin' and not user.is_admin:
         allowed_names = {site.name for site in Site.query.filter(Site.id.in_(assigned_application_ids(user))).all()}
         events = [event for event in events if event.site_name in allowed_names]
     else:
         events = events[:50]
-    return render_template('developer_deploy_history.html', events=events)
+    back_to_panel_endpoint = 'developer_dashboard' if role in {'developer', 'admin'} or user.is_admin else 'dashboard'
+    deploy_endpoint = 'developer_deploy'
+    return render_template('developer_deploy_history.html', events=events, back_to_panel_endpoint=back_to_panel_endpoint, deploy_endpoint=deploy_endpoint)
 
 
 @app.route('/developer/deploy', methods=['GET', 'POST'])
-@developer_required
+@app.route('/dashboard/deploy', methods=['GET', 'POST'])
 def developer_deploy():
+    def normalize_deploy_target(raw_value):
+        candidate = (raw_value or '').strip()
+        if not candidate:
+            return ''
+        parsed = urllib.parse.urlparse(candidate)
+        if parsed.scheme and parsed.netloc:
+            candidate = parsed.netloc
+        candidate = candidate.split('/', 1)[0].split(':', 1)[0].strip()
+        return candidate
+
+    def resolve_deploy_site(target_value, allowed_ids=None):
+        candidate = normalize_deploy_target(target_value)
+        if not candidate:
+            return None
+        candidate_lower = candidate.lower()
+        query = Site.query.filter(
+            (func.lower(Site.name) == candidate_lower)
+            | (func.lower(Site.folder_name) == candidate_lower)
+            | (func.lower(func.coalesce(Site.custom_domain, '')) == candidate_lower)
+        )
+        site = query.first()
+        if not site and candidate.isdigit():
+            site = db.session.get(Site, int(candidate))
+        if site and allowed_ids is not None and site.id not in allowed_ids:
+            return None
+        return site
+
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
     user = db.session.get(User, session['user_id'])
+    if not user:
+        abort(403)
     role = user_role(user)
     allowed_site_ids = set(assigned_application_ids(user)) if role != 'admin' and not user.is_admin else None
+    back_to_panel_endpoint = 'developer_dashboard' if role in {'developer', 'admin'} or user.is_admin else 'dashboard'
+    available_sites_query = Site.query.order_by(Site.name.asc())
+    if allowed_site_ids is not None:
+        available_sites_query = available_sites_query.filter(Site.id.in_(allowed_site_ids))
+    available_sites = available_sites_query.all()
+
     if request.method == 'POST':
         if request.form.get('action') == 'save_webhook_config':
             site_name = (request.form.get('site_name') or '').strip()
@@ -3581,12 +5602,11 @@ def developer_deploy():
             if not site_name:
                 flash('Site name is required.', 'error')
                 return redirect(url_for('developer_deploy'))
-            site = Site.query.filter_by(name=site_name).first()
+            site = resolve_deploy_site(site_name, allowed_site_ids)
             if not site:
                 flash('Target site was not found.', 'error')
                 return redirect(url_for('developer_deploy'))
-            if allowed_site_ids is not None and site.id not in allowed_site_ids:
-                abort(403)
+            require_application_permission(user, site, 'integration.manage')
             site.webhook_secret = secret or None
             site.webhook_branch = branch or None
             db.session.commit()
@@ -3597,26 +5617,53 @@ def developer_deploy():
         if not target_name:
             flash('Target site is required.', 'error')
             return redirect(url_for('developer_deploy'))
-        site = Site.query.filter_by(name=target_name).first()
+        site = resolve_deploy_site(target_name, allowed_site_ids)
         if not site:
-            flash('Target site was not found.', 'error')
+            hint_names = ', '.join(item.name for item in available_sites[:8])
+            hint_tail = '...' if len(available_sites) > 8 else ''
+            if hint_names:
+                flash(f'Target site was not found. Available sites: {hint_names}{hint_tail}', 'error')
+            else:
+                flash('Target site was not found. No available sites for your account.', 'error')
             return redirect(url_for('developer_deploy'))
-        if allowed_site_ids is not None and site.id not in allowed_site_ids:
-            abort(403)
         require_application_permission(user, site, 'deployment.execute')
+        if deploy_mode == 'git':
+            require_application_permission(user, site, 'git.connect')
         access = ensure_application_access(site)
-        site_path = application_root(access, bucket='deployment')
+        site_path = application_root(access, bucket='file')
         os.makedirs(site_path, exist_ok=True)
         if deploy_mode == 'git':
             repo_url = (request.form.get('repo_url') or '').strip()
+            github_token = (request.form.get('github_token') or '').strip()
+            branch = (request.form.get('branch') or 'main').strip()
             if not repo_url:
                 flash('Git repository URL is required.', 'error')
                 return redirect(url_for('developer_deploy'))
-            try:
-                deploy_from_git(repo_url, site_path)
-            except subprocess.CalledProcessError as exc:
-                flash(f'Git deploy failed: {exc.output[:500]}', 'error')
+            if not validate_git_repository_url(repo_url) or not GIT_BRANCH_PATTERN.fullmatch(branch):
+                flash('Git URL or branch is invalid.', 'error')
                 return redirect(url_for('developer_deploy'))
+            deploy_tmp_root = os.path.join(app.instance_path, 'deploy_tmp'); os.makedirs(deploy_tmp_root, exist_ok=True)
+            staged_repo = tempfile.mkdtemp(prefix=f'deploy-{site.id}-', dir=deploy_tmp_root)
+            try:
+                clone_url = build_authenticated_repo_url(repo_url, git_token=github_token)
+                subprocess.run(['git', 'clone', '--depth', '1', '--branch', branch, '--single-branch', clone_url, staged_repo],
+                               check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=180)
+                git_metadata = os.path.join(staged_repo, '.git')
+                if os.path.isdir(git_metadata): shutil.rmtree(git_metadata)
+                detected = activate_staged_deployment(site, access, staged_repo)
+            except subprocess.CalledProcessError as exc:
+                safe_output = sanitize_git_error_output(exc.output, git_token=github_token)
+                if 'could not read Username' in safe_output or 'Authentication failed' in safe_output or 'Repository not found' in safe_output:
+                    flash('Git deploy failed: repository requires access. Add GitHub token for private repository.', 'error')
+                else:
+                    flash(f'Git deploy failed: {safe_output[:500]}', 'error')
+                return redirect(url_for('developer_deploy'))
+            except Exception as exc:
+                record_deployment_event(site.name, deploy_mode='git', status='failed', detail=str(exc)[:500], repo_url=repo_url)
+                flash(f'Git deploy failed: {str(exc)[:500]}', 'error')
+                return redirect(url_for('developer_deploy'))
+            finally:
+                shutil.rmtree(staged_repo, ignore_errors=True)
             record_deployment_event(site.name, deploy_mode='git', status='success', detail='Git deployment completed', repo_url=repo_url)
             record_upload_history(site, user, repo_url, 0, source='git', status='success', deployment='deploy-git', detail='git deployment')
             log_action('deploy.git', f'{site.name}:{repo_url}')
@@ -3629,20 +5676,57 @@ def developer_deploy():
             temp_path = os.path.join(app.instance_path, 'deploy_tmp', secure_filename(uploaded.filename))
             os.makedirs(os.path.dirname(temp_path), exist_ok=True)
             uploaded.save(temp_path)
+            staged_zip = tempfile.mkdtemp(prefix=f'deploy-{site.id}-', dir=os.path.join(app.instance_path, 'deploy_tmp'))
             try:
-                extract_zip_to_site(temp_path, site_path)
-            except zipfile.BadZipFile as exc:
+                with zipfile.ZipFile(temp_path, 'r') as archive:
+                    safe_extract_zip(archive, staged_zip)
+                staged_source = staged_zip
+                nested_root = detect_single_root_folder(staged_zip)
+                if nested_root:
+                    staged_source = os.path.join(staged_zip, nested_root)
+                activate_staged_deployment(site, access, staged_source)
+            except (zipfile.BadZipFile, ValueError, RuntimeError) as exc:
+                record_deployment_event(site.name, deploy_mode='zip', status='failed', detail=str(exc)[:500], repo_url=None)
                 flash(f'Invalid archive: {exc}', 'error')
                 return redirect(url_for('developer_deploy'))
             finally:
                 if os.path.exists(temp_path):
                     os.remove(temp_path)
+                shutil.rmtree(staged_zip, ignore_errors=True)
             record_deployment_event(site.name, deploy_mode='zip', status='success', detail=f'ZIP deployment completed: {uploaded.filename}', repo_url=None)
             record_upload_history(site, user, uploaded.filename, 0, source='panel', status='success', deployment='deploy-zip', detail='zip deployment')
             log_action('deploy.zip', f'{site.name}:{uploaded.filename}')
             flash('ZIP deployment completed.', 'success')
         return redirect(url_for('developer_deploy'))
-    return render_template('developer_deploy.html')
+    return render_template('developer_deploy.html', available_sites=available_sites, back_to_panel_endpoint=back_to_panel_endpoint)
+
+
+@app.route('/developer/runtimes', methods=['GET', 'POST'])
+@admin_required
+def developer_runtimes():
+    rows, config = runtime_inventory()
+    if request.method == 'POST':
+        runtime = (request.form.get('runtime') or '').strip(); version = (request.form.get('version') or '').strip()
+        action = (request.form.get('action') or '').strip()
+        row = next((item for item in rows if item['runtime'] == runtime and item['version'] == version and item.get('image')), None)
+        if not row:
+            flash('Unsupported runtime target.', 'error')
+        elif action == 'install':
+            code, output = run_command(['docker', 'pull', row['image']], timeout=300)
+            flash('Runtime image installed.' if code == 0 else f'Runtime install failed: {output[-300:]}', 'success' if code == 0 else 'error')
+        elif action in {'enable', 'disable'}:
+            config[f'{runtime}:{version}'] = {'enabled': action == 'enable'}
+            with open(RUNTIME_CONFIG_FILE + '.tmp', 'w', encoding='utf-8') as handle: json.dump(config, handle, indent=2)
+            os.chmod(RUNTIME_CONFIG_FILE + '.tmp', 0o600); os.replace(RUNTIME_CONFIG_FILE + '.tmp', RUNTIME_CONFIG_FILE)
+            flash('Runtime status updated.', 'success')
+        elif action == 'default':
+            config[runtime] = {'default': version}
+            with open(RUNTIME_CONFIG_FILE + '.tmp', 'w', encoding='utf-8') as handle: json.dump(config, handle, indent=2)
+            os.chmod(RUNTIME_CONFIG_FILE + '.tmp', 0o600); os.replace(RUNTIME_CONFIG_FILE + '.tmp', RUNTIME_CONFIG_FILE)
+            flash('Default runtime updated. Existing applications remain pinned.', 'success')
+        log_action('runtime.admin', f'{runtime}:{version}:{action}')
+        return redirect(url_for('developer_runtimes'))
+    return render_template('developer_runtimes.html', runtimes=rows)
 
 
 @app.route('/developer/marketplace', methods=['GET', 'POST'])
@@ -3893,6 +5977,13 @@ def change_password():
         user.password = generate_password_hash(new_password)
         user.must_change_password = False
         db.session.commit()
+        personal_account = SftpAccount.query.filter_by(assigned_user_id=user.id, username=user.username, enabled=True).first()
+        if personal_account:
+            personal_account.password_hash = build_sftp_password_hash(new_password)
+            personal_account.auth_type = 'password'
+            db.session.commit()
+            queue_sftp_provision(personal_account, 'reset-credentials', actor=user.username)
+            record_sftp_audit(personal_account, 'self_password_synced', status='success')
         log_action('account.password', 'Пароль змінено')
         flash('Пароль успішно змінено.', 'success')
     return redirect(url_for('dashboard'))
@@ -3910,6 +6001,7 @@ def delete_file(folder_name):
     site_root = application_root(access, bucket='file')
         
     file_to_delete = request.form.get('file_path')
+    current_dir = normalized_relative_path(request.form.get('current_dir', ''))
     if file_to_delete:
         enforce_wordpress_path_permission(user, access, site_root, file_to_delete)
         file_path = safe_resource_path(access, file_to_delete, bucket='file')
@@ -3925,7 +6017,9 @@ def delete_file(folder_name):
                 record_upload_history(site, user, file_to_delete, 0, source='panel', status='success', deployment='', detail='delete-directory')
             except OSError:
                 flash('Каталог не порожній.', 'error')
-            
+
+    if current_dir:
+        return redirect(url_for('manage_site', folder_name=folder_name, dir=current_dir))
     return redirect(url_for('manage_site', folder_name=folder_name))
 
 @app.route('/logout', methods=['POST'])

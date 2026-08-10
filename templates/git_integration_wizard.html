@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-shell git-wizard-shell">
+  <header class="page-header wizard-header">
+    <div>
+      <p class="eyebrow">Git</p>
+      <h1>{% if current_language == 'en' %}Connect a Git repository{% else %}Підключення Git-репозиторію{% endif %}</h1>
+      <p>{% if current_language == 'en' %}Verify repository access and save a write-only credential for an assigned application.{% else %}Перевірте доступ до репозиторію та збережіть write-only credential для призначеного застосунку.{% endif %}</p>
+    </div>
+    <a class="ghost-btn" href="{{ url_for('service_catalog') }}">← {% if current_language == 'en' %}Catalog{% else %}Каталог{% endif %}</a>
+  </header>
+
+  <section class="panel-card full-width">
+    <div class="wizard-steps" aria-label="{% if current_language == 'en' %}Wizard steps{% else %}Кроки майстра{% endif %}">
+      <span>1. {% if current_language == 'en' %}Provider{% else %}Провайдер{% endif %}</span>
+      <span>2. Repository</span><span>3. Auth</span><span>4. Branch</span>
+      <span>5. Application</span><span>6. Test</span><span>7. Save</span>
+    </div>
+    {% if sites %}
+    <form id="git-integration-form" class="stack-form" novalidate>
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+      <div class="form-grid">
+        <label>{% if current_language == 'en' %}Provider{% else %}Провайдер{% endif %}
+          <select name="provider" required>
+            <option value="github">GitHub</option><option value="gitlab">GitLab</option>
+            <option value="bitbucket">Bitbucket</option><option value="generic">Generic Git</option>
+          </select>
+        </label>
+        <label>{% if current_language == 'en' %}Repository URL{% else %}URL репозиторію{% endif %}
+          <input name="repository_url" type="url" inputmode="url" placeholder="https://github.com/owner/repository.git" required maxlength="500">
+        </label>
+        <label>{% if current_language == 'en' %}Authentication{% else %}Автентифікація{% endif %}
+          <select name="auth_type" id="git-auth-type" required>
+            <option value="public">{% if current_language == 'en' %}Public repository{% else %}Публічний репозиторій{% endif %}</option>
+            <option value="pat">Personal Access Token</option>
+            <option value="ssh">SSH deploy key</option>
+          </select>
+        </label>
+        <label>{% if current_language == 'en' %}Branch{% else %}Гілка{% endif %}
+          <input name="branch" value="main" required maxlength="200" pattern="[A-Za-z0-9][A-Za-z0-9._/-]{0,199}">
+        </label>
+        <label>{% if current_language == 'en' %}Target application{% else %}Цільовий застосунок{% endif %}
+          <select name="application_id" required>
+            {% for site in sites %}<option value="{{ site.id }}">{{ site.name }}</option>{% endfor %}
+          </select>
+        </label>
+      </div>
+      <label id="git-token-field" class="secret-field" hidden>Personal Access Token
+        <input name="token" type="password" autocomplete="new-password" maxlength="4096" placeholder="••••••••">
+        <small>{% if current_language == 'en' %}Write-only. It is never returned by the API.{% else %}Write-only: API ніколи не повертає токен.{% endif %}</small>
+      </label>
+      <label id="git-key-field" class="secret-field" hidden>SSH private deploy key
+        <textarea name="ssh_private_key" autocomplete="off" spellcheck="false" rows="7" maxlength="65536"></textarea>
+        <small>{% if current_language == 'en' %}Use a repository-scoped deploy key, not your personal SSH identity.{% else %}Використовуйте deploy key лише для цього репозиторію, не особистий SSH-ключ.{% endif %}</small>
+      </label>
+      <div id="git-status" class="wizard-status" role="status" aria-live="polite"></div>
+      <div class="wizard-actions">
+        <button type="button" class="ghost-btn" id="git-test">{% if current_language == 'en' %}Test connection{% else %}Перевірити підключення{% endif %}</button>
+        <button type="submit" id="git-save" disabled>{% if current_language == 'en' %}Save integration{% else %}Зберегти інтеграцію{% endif %}</button>
+        <a class="ghost-btn" href="{{ url_for('service_catalog') }}">{% if current_language == 'en' %}Cancel{% else %}Скасувати{% endif %}</a>
+      </div>
+    </form>
+    {% else %}
+      <p class="empty-state">{% if current_language == 'en' %}Create or receive access to an application before connecting Git.{% else %}Створіть застосунок або отримайте до нього доступ перед підключенням Git.{% endif %}</p>
+    {% endif %}
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head"><h2>{% if current_language == 'en' %}Configured repositories{% else %}Налаштовані репозиторії{% endif %}</h2><span class="status-pill">{{ git_integrations|length }}</span></div>
+    <div class="site-list">
+      {% for row in git_integrations %}
+      <article class="site-row">
+        <div><strong>{{ row.integration.application.name }}</strong><div class="site-meta">{{ row.integration.provider }} · {{ row.config.repository_url }} · {{ row.config.branch }}</div><small>{% if row.has_secret %}Credential: ********{% else %}Public access{% endif %}</small></div>
+        <span class="status-badge {{ 'working' if row.integration.status == 'ready' else 'partial' }}">{{ row.integration.status }}</span>
+        <button type="button" class="danger-btn git-disconnect" data-application-id="{{ row.integration.application_id }}">{% if current_language == 'en' %}Disconnect{% else %}Відключити{% endif %}</button>
+      </article>
+      {% else %}<p class="empty-state">{% if current_language == 'en' %}Git is not connected yet.{% else %}Git ще не підключено.{% endif %}</p>{% endfor %}
+    </div>
+  </section>
+</section>
+
+<style>
+  .git-wizard-shell { max-width: 1100px; margin: 0 auto; }
+  .wizard-header { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; }
+  .wizard-steps { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:6px; margin-bottom:20px; }
+  .wizard-steps span { padding:8px; border-radius:9px; background:#eef5fb; color:#29445f; font-size:12px; text-align:center; }
+  .secret-field { display:grid; gap:7px; }
+  .secret-field textarea { width:100%; resize:vertical; }
+  .wizard-actions { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .wizard-status { min-height:22px; padding:10px 0; font-weight:650; }
+  .wizard-status.success { color:#116329; } .wizard-status.error { color:#a11d1d; }
+  @media (max-width:800px) { .wizard-steps { grid-template-columns:repeat(2,1fr); } .wizard-header { flex-direction:column; } }
+</style>
+
+<script nonce="{{ csp_nonce }}">
+(function () {
+  const form = document.getElementById('git-integration-form');
+  if (!form) return;
+  const auth = document.getElementById('git-auth-type');
+  const tokenField = document.getElementById('git-token-field');
+  const keyField = document.getElementById('git-key-field');
+  const testButton = document.getElementById('git-test');
+  const saveButton = document.getElementById('git-save');
+  const status = document.getElementById('git-status');
+  const csrf = form.querySelector('[name="_csrf_token"]').value;
+  let testedSignature = '';
+
+  function signature() { return new URLSearchParams(new FormData(form)).toString(); }
+  function syncAuth() { tokenField.hidden = auth.value !== 'pat'; keyField.hidden = auth.value !== 'ssh'; testedSignature = ''; saveButton.disabled = true; }
+  function show(message, ok) { status.textContent = message; status.className = 'wizard-status ' + (ok ? 'success' : 'error'); }
+  async function requestAction(action, applicationId) {
+    const data = Object.fromEntries(new FormData(form).entries()); data.action = action;
+    if (applicationId) data.application_id = applicationId;
+    testButton.disabled = true; saveButton.disabled = true; show('{% if current_language == "en" %}Checking…{% else %}Перевірка…{% endif %}', true);
+    try {
+      const response = await fetch('{{ url_for("git_integration_wizard") }}', {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':csrf}, body:JSON.stringify(data)});
+      const body = await response.json();
+      if (!response.ok) throw new Error((body.error && body.error.message) || 'Request failed');
+      show(body.message || '{% if current_language == "en" %}Connected{% else %}Підключено{% endif %}', true);
+      if (action === 'test') { testedSignature = signature(); saveButton.disabled = false; }
+      if (action === 'save' || action === 'disconnect') window.location.reload();
+    } catch (error) { show(error.message, false); testedSignature = ''; }
+    finally { testButton.disabled = false; if (testedSignature === signature()) saveButton.disabled = false; }
+  }
+  auth.addEventListener('change', syncAuth); form.addEventListener('input', function(){ if (testedSignature !== signature()) saveButton.disabled = true; });
+  testButton.addEventListener('click', function(){ if (form.reportValidity()) requestAction('test'); });
+  form.addEventListener('submit', function(event){ event.preventDefault(); if (testedSignature === signature()) requestAction('save'); });
+  document.querySelectorAll('.git-disconnect').forEach(function(button){ button.addEventListener('click', function(){ if (confirm('{% if current_language == "en" %}Disconnect this repository?{% else %}Відключити цей репозиторій?{% endif %}')) requestAction('disconnect', button.dataset.applicationId); }); });
+  syncAuth();
+})();
+</script>
+{% endblock %}

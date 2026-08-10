@@ -21,6 +21,7 @@
         <span>
           <strong>{{ item.username }}</strong>
           <small>Protocol: {{ item.protocol }} | Host: {{ item.host }} | Port: {{ item.port }}</small>
+          <small>Use host without ftp:// prefix</small>
           <small>Root: {{ item.root }}</small>
           <small>Auth: {{ item.auth_type }}</small>
           <small>{% if current_language == 'en' %}Assigned applications{% else %}Призначені застосунки{% endif %}: {% for site in item.assigned_sites %}{{ site.name }}{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</small>

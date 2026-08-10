@@ -9,7 +9,7 @@
     </div>
     <div class="hero-actions">
       <a class="ghost-btn" href="{{ url_for('developer_deploy_history') }}">📜 {% if current_language == 'en' %}Deployment history{% else %}Історія розгортань{% endif %}</a>
-      <a class="ghost-btn" href="{{ url_for('developer_dashboard') }}">← {% if current_language == 'en' %}Back to panel{% else %}До панелі{% endif %}</a>
+      <a class="ghost-btn" href="{{ url_for(back_to_panel_endpoint or 'dashboard') }}">← {% if current_language == 'en' %}Back to panel{% else %}До панелі{% endif %}</a>
     </div>
   </header>
 
@@ -24,10 +24,18 @@
         <option value="zip">ZIP archive</option>
         <option value="git">Git repository</option>
       </select>
-      <input type="text" name="target_name" placeholder="example-site" required>
+      <input type="text" name="target_name" list="deploy-site-list" placeholder="example-site" required>
+      <datalist id="deploy-site-list">
+        {% for site in available_sites or [] %}
+        <option value="{{ site.name }}">{{ site.folder_name }}</option>
+        <option value="{{ site.folder_name }}">{{ site.name }}</option>
+        {% endfor %}
+      </datalist>
       <input type="file" name="archive" accept=".zip,application/zip">
       <input type="text" name="repo_url" placeholder="https://github.com/example/project.git">
-      <p class="service-meta">{% if current_language == 'en' %}Upload a ZIP archive or provide a Git repo URL to deploy static content.{% else %}Завантажте ZIP-архів або вкажіть URL Git-репозиторію для розгортання статичного контенту.{% endif %}</p>
+      <input type="text" name="branch" value="main" placeholder="main">
+      <input type="password" name="github_token" placeholder="GitHub token (optional for private repo)" autocomplete="off">
+      <p class="service-meta">{% if current_language == 'en' %}Upload ZIP or provide Git URL. For private GitHub repositories, add a token (repo read access) for this deploy only. Target supports site name or folder name.{% else %}Завантажте ZIP або вкажіть Git URL. Для приватних GitHub репозиторіїв додайте token (читання repo) лише на цей деплой. Ціль можна вказати як ім'я сайту або folder name.{% endif %}</p>
       <button type="submit">{% if current_language == 'en' %}Deploy{% else %}Розгорнути{% endif %}</button>
     </form>
   </section>
@@ -40,7 +48,7 @@
     <form method="POST" class="stack-form">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="action" value="save_webhook_config">
-      <input type="text" name="site_name" placeholder="demo-site" required>
+      <input type="text" name="site_name" list="deploy-site-list" placeholder="demo-site" required>
       <input type="text" name="webhook_secret" placeholder="shared-secret">
       <input type="text" name="webhook_branch" placeholder="main">
       <p class="service-meta">{% if current_language == 'en' %}Save a secret and branch for GitHub webhook-triggered deployment.{% else %}Збережіть секрет і гілку для розгортання по GitHub webhook.{% endif %}</p>

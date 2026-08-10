@@ -46,18 +46,30 @@
       <span class="status-pill online">FastPanel-style</span>
     </div>
     <div class="quick-actions">
-      <a class="action-card" href="#create-site">
+      {% if can_create_site %}
+      <a class="action-card" href="{{ url_for('create_site_wizard') }}">
         <div class="action-title">{% if current_language == 'en' %}Create site{% else %}Створити сайт{% endif %}</div>
-        <div class="action-meta">{% if current_language == 'en' %}Launch a new static project{% else %}Запустити новий статичний проєкт{% endif %}</div>
+        <div class="action-meta">{% if current_language == 'en' %}Open wizard for Static, WordPress, Node, PHP, Python{% else %}Відкрити wizard для Static, WordPress, Node, PHP, Python{% endif %}</div>
+      </a>
+      {% endif %}
+      <a class="action-card" href="{{ url_for('service_catalog') }}">
+        <div class="action-title">{% if current_language == 'en' %}Service Catalog{% else %}Каталог сервісів{% endif %}</div>
+        <div class="action-meta">{% if current_language == 'en' %}Approved templates and integrations{% else %}Затверджені шаблони та інтеграції{% endif %}</div>
       </a>
       <a class="action-card" href="#site-list">
         <div class="action-title">{% if current_language == 'en' %}Manage sites{% else %}Керувати сайтами{% endif %}</div>
         <div class="action-meta">{% if current_language == 'en' %}Open files, domains, and backups{% else %}Відкрити файли, домени й резервні копії{% endif %}</div>
       </a>
+      <a class="action-card" href="/dashboard/deploy">
+        <div class="action-title">{% if current_language == 'en' %}Deploy from GitHub{% else %}Розгорнути з GitHub{% endif %}</div>
+        <div class="action-meta">{% if current_language == 'en' %}Paste repository URL and deploy to your site{% else %}Вставте URL репозиторію та розгорніть на свій сайт{% endif %}</div>
+      </a>
+      {% if can_sftp_access %}
       <a class="action-card" href="{{ url_for('user_sftp_access') }}">
         <div class="action-title">SFTP / FileZilla</div>
         <div class="action-meta">{% if current_language == 'en' %}Connection profile and assigned roots{% else %}Профіль підключення та призначені корені{% endif %}</div>
       </a>
+      {% endif %}
       <a class="action-card" href="#account-panel">
         <div class="action-title">{% if current_language == 'en' %}Account{% else %}Обліковий запис{% endif %}</div>
         <div class="action-meta">{% if current_language == 'en' %}Reset your password securely{% else %}Безпечно змінити пароль{% endif %}</div>
@@ -81,6 +93,7 @@
   </section>
 
   <section class="panel-grid" style="grid-template-columns:1fr">
+    {% if can_create_site %}
     <article class="panel-card" id="create-site">
       <div class="panel-head">
         <h3>➕ {% if current_language == 'en' %}Create a new site{% else %}Додати новий сайт{% endif %}</h3>
@@ -93,6 +106,7 @@
         <button type="submit">{% if current_language == 'en' %}Create site{% else %}Створити сайт{% endif %}</button>
       </form>
     </article>
+    {% endif %}
 
   </section>
 
@@ -109,7 +123,7 @@
         <div class="site-row" data-site-card="{{ site.name }} {{ site.folder_name }} {{ site.custom_domain or '' }}">
           <div>
             <div class="site-name">{{ site.name }}</div>
-            <div class="site-meta">{% if current_language == 'en' %}Static · {{ site.folder_name }} · <span data-site-status="{{ site.id }}">checking…</span>{% else %}Статичний · {{ site.folder_name }} · <span data-site-status="{{ site.id }}">перевірка…</span>{% endif %}</div>
+            <div class="site-meta">{{ (site.php_version or 'static')|upper }} · {{ site.folder_name }} · <span data-site-status="{{ site.id }}">checking…</span></div>
             <div class="site-meta">{% if site.custom_domain %}{% if current_language == 'en' %}Custom domain: {{ site.custom_domain }}{% else %}Кастомний домен: {{ site.custom_domain }}{% endif %}{% else %}{% if current_language == 'en' %}Default hostname: {{ site.name }}.myh.guru{% else %}Стандартний hostname: {{ site.name }}.myh.guru{% endif %}{% endif %}</div>
           </div>
           <div class="site-actions">
