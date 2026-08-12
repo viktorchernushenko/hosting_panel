@@ -12,7 +12,7 @@ EnvironmentFile=/etc/hosting-panel.env
 Environment=TMPDIR=/run/myh-guru
 RuntimeDirectory=myh-guru
 RuntimeDirectoryMode=0755
-ExecStart=/home/myserver/hosting_panel/venv/bin/gunicorn --workers 1 --threads 4 --bind 127.0.0.1:5000 --bind 127.0.0.1:5001 --worker-tmp-dir /run/myh-guru --timeout 30 --access-logfile - --error-logfile - app:app
+ExecStart=/home/myserver/hosting_panel/venv/bin/gunicorn --workers 1 --threads 4 --bind 127.0.0.1:5000 --bind 127.0.0.1:5001 --worker-tmp-dir /run/myh-guru --timeout 150 --access-logfile - --error-logfile - app:app
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true

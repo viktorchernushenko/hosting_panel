@@ -1,0 +1,41 @@
+[Unit]
+Description=MyH local read-only AI inference
+After=network.target
+
+[Service]
+Type=simple
+User=myh-ai
+Group=myh-ai
+Environment=LD_LIBRARY_PATH=/usr/local/lib/myh-ai
+ExecStart=/usr/local/lib/myh-ai/llama-server --model /var/lib/myh-ai/models/qwen2.5-0.5b-instruct-q4_k_m.gguf --host 127.0.0.1 --port 11435 --ctx-size 2048 --threads 1 --threads-batch 2 --parallel 1 --batch-size 256 --ubatch-size 128 --cache-type-k q8_0 --cache-type-v q8_0 --api-key-file /etc/myh-ai.key --cors-origins http://127.0.0.1 --no-webui --no-slots
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+MemoryMax=900M
+MemoryHigh=800M
+CPUQuota=100%
+TasksMax=64
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+RemoveIPC=true
+
+[Install]
+WantedBy=multi-user.target
