@@ -313,6 +313,7 @@ for username in sorted(state.keys()):
     if enabled:
         lines.append(f"    ChrootDirectory {chroot}")
         lines.append("    ForceCommand internal-sftp -d /upload")
+        lines.append("    DisableForwarding yes")
         lines.append("    AllowTcpForwarding no")
         lines.append("    X11Forwarding no")
         lines.append("    PermitTunnel no")

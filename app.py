@@ -26,6 +26,7 @@ import threading
 import traceback
 import shutil
 import tempfile
+import pymysql
 from runtime_engine import RUNTIME_VERSIONS, SUPPORTED_RUNTIMES, compose_action, detect_stack, healthcheck, infer_runtime_commands, prepare_custom_docker, prepare_runtime, prepare_wordpress_runtime, validate_runtime_commands
 from collections import defaultdict, deque
 from datetime import datetime
@@ -61,6 +62,12 @@ CLOUDFLARE_TOKEN_FILE = os.environ.get('CLOUDFLARE_TOKEN_FILE', '/tmp/.cf_token'
 CLOUDFLARE_LOCAL_TOKEN_FILE = os.path.join(app.instance_path, 'cloudflare_api_token')
 CLOUDFLARE_LOCAL_ZONE_FILE = os.path.join(app.instance_path, 'cloudflare_zone_name')
 APP_VERSION = os.environ.get('HOSTING_PANEL_VERSION', '1.9.1')
+MYSQL_HOST = os.environ.get('MYSQL_HOST', '172.23.0.1').strip()
+MYSQL_PORT = int(os.environ.get('MYSQL_PORT', '3306'))
+MYSQL_PROVISION_CNF = os.environ.get('MYSQL_PROVISION_CNF', '/etc/mysql/myh-provisioner.cnf')
+MYSQL_BACKUP_ROOT = os.environ.get('MYSQL_BACKUP_ROOT', '/srv/backups/mysql')
+MYSQL_SSL_CA = os.environ.get('MYSQL_SSL_CA', '/etc/mysql/myh-ca.pem')
+MYSQL_HEALTH_CACHE = {'checked_at': 0.0, 'ok': False}
 PUBLIC_HOME_PREFS_FILE = os.path.join(app.instance_path, 'public_home_prefs.json')
 DEFAULT_PUBLIC_HOME_PREFS = {
     'show_cpu': True,
@@ -588,15 +595,17 @@ class EnvironmentVariable(db.Model):
 class DatabaseResource(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     application_id = db.Column(db.Integer, db.ForeignKey('site.id'), nullable=False)
-    engine = db.Column(db.String(20), nullable=False, default='mariadb')
+    display_name = db.Column(db.String(80), nullable=False, default='database')
+    engine = db.Column(db.String(20), nullable=False, default='mysql')
     database_name = db.Column(db.String(64), nullable=False, unique=True)
     database_user = db.Column(db.String(64), nullable=False, unique=True)
-    host = db.Column(db.String(120), nullable=False, default='lab-db')
+    host = db.Column(db.String(120), nullable=False, default='172.23.0.1')
     port = db.Column(db.Integer, nullable=False, default=3306)
     secret_ref = db.Column(db.String(500), nullable=False)
     status = db.Column(db.String(20), nullable=False, default='ready')
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
     application = db.relationship('Site', backref='database_resources', lazy=True)
 
 
@@ -882,6 +891,14 @@ def ensure_database_schema(force=False):
                     conn.execute(text("ALTER TABLE application_access ADD COLUMN wordpress_permissions_user_json TEXT NOT NULL DEFAULT '[]'"))
                 if 'wordpress_permissions_developer_json' not in access_columns:
                     conn.execute(text("ALTER TABLE application_access ADD COLUMN wordpress_permissions_developer_json TEXT NOT NULL DEFAULT '[]'"))
+
+        if 'database_resource' in inspector.get_table_names():
+            resource_columns = {column['name'] for column in inspector.get_columns('database_resource')}
+            with db.engine.begin() as conn:
+                if 'display_name' not in resource_columns:
+                    conn.execute(text("ALTER TABLE database_resource ADD COLUMN display_name VARCHAR(80) NOT NULL DEFAULT 'database'"))
+                if 'updated_at' not in resource_columns:
+                    conn.execute(text("ALTER TABLE database_resource ADD COLUMN updated_at DATETIME"))
 
         existing_modules = {module.slug for module in PluginModule.query.all()}
         seeded = False
@@ -1209,6 +1226,31 @@ def list_docker_containers():
     if code != 0:
         return []
     return parse_docker_container_output(output)
+
+
+def actual_site_runtime_status(site):
+    """Return runtime state from Docker, never from stale database metadata."""
+    if site.is_banned:
+        return 'stopped'
+    access = ApplicationAccess.query.filter_by(site_id=site.id).first()
+    metadata_path = os.path.join(access.deployment_root or '', 'runtime.json') if access else ''
+    try:
+        with open(metadata_path, encoding='utf-8') as handle:
+            project = str(json.load(handle).get('project') or '')
+    except (OSError, ValueError, TypeError):
+        return 'not deployed'
+    if not project:
+        return 'not deployed'
+    project_containers = [item for item in list_docker_containers() if item.get('project') == project]
+    if not project_containers:
+        return 'stopped'
+    if any('unhealthy' in item.get('status', '').lower() or item.get('state') != 'running' for item in project_containers):
+        return 'error'
+    return 'running'
+
+
+def actual_site_runtime_statuses(sites):
+    return {site.id: actual_site_runtime_status(site) for site in sites}
 
 
 def list_scoped_docker_containers(user):
@@ -2560,32 +2602,119 @@ def set_environment_value(site, user, key, value):
     return row
 
 
-def provision_mariadb_database(database_name, database_user, password):
-    if not re.fullmatch(r'[a-z][a-z0-9_]{2,63}', database_name) or not re.fullmatch(r'[a-z][a-z0-9_]{2,63}', database_user):
-        raise ValueError('invalid database identifier')
-    escaped_password = password.replace("'", "''")
-    sql = (
-        f"CREATE DATABASE `{database_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\n"
-        f"CREATE USER '{database_user}'@'%' IDENTIFIED BY '{escaped_password}';\n"
-        f"GRANT ALL PRIVILEGES ON `{database_name}`.* TO '{database_user}'@'%';\nFLUSH PRIVILEGES;\n"
+def mysql_provision_connection():
+    return pymysql.connect(
+        read_default_file=MYSQL_PROVISION_CNF, database='myh_admin',
+        ssl={'check_hostname': False},
+        connect_timeout=5, read_timeout=30, write_timeout=30, autocommit=True,
     )
-    process = subprocess.run(
-        ['docker', 'exec', '-i', 'lab-db', 'sh', '-c', 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mariadb -uroot'],
-        input=sql, capture_output=True, text=True, timeout=30, check=False,
-    )
-    if process.returncode != 0:
-        raise RuntimeError(mask_sensitive_text((process.stderr or process.stdout or 'database provisioning failed')[:500]))
 
 
-def deprovision_mariadb_database(database_name, database_user):
-    if not re.fullmatch(r'[a-z][a-z0-9_]{2,63}', database_name) or not re.fullmatch(r'[a-z][a-z0-9_]{2,63}', database_user):
-        return False
-    sql = f"DROP DATABASE IF EXISTS `{database_name}`;\nDROP USER IF EXISTS '{database_user}'@'%';\nFLUSH PRIVILEGES;\n"
-    process = subprocess.run(
-        ['docker', 'exec', '-i', 'lab-db', 'sh', '-c', 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mariadb -uroot'],
-        input=sql, capture_output=True, text=True, timeout=30, check=False,
-    )
-    return process.returncode == 0
+def generated_database_identifiers(owner_id, display_name):
+    slug = re.sub(r'[^a-z0-9]+', '_', (display_name or '').strip().lower()).strip('_')[:32]
+    if not slug:
+        raise ValueError('Database name must contain a letter or number.')
+    suffix = secrets.token_hex(4)
+    return f'myh_{int(owner_id)}_{slug}_{suffix}'[:64], f'u{int(owner_id)}_{secrets.token_hex(6)}'[:32]
+
+
+def provision_mysql_database(database_name, database_user, password):
+    with mysql_provision_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.callproc('create_tenant_database', (database_name, database_user, password))
+
+
+def deprovision_mysql_database(database_name, database_user):
+    with mysql_provision_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.callproc('drop_tenant_database', (database_name, database_user))
+    return True
+
+
+def reset_mysql_password(database_user, password):
+    with mysql_provision_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.callproc('reset_tenant_password', (database_user, password))
+
+
+def database_owner_or_404(resource_id, user):
+    resource = db.session.get(DatabaseResource, resource_id)
+    if not resource or not resource.application:
+        abort(404)
+    if not (user.is_admin or resource.application.user_id == user.id):
+        abort(404)
+    return resource
+
+
+def database_size_bytes(resource):
+    password = read_application_secret(resource.secret_ref, resource.application_id)
+    if not password:
+        return 0
+    connection = pymysql.connect(host=resource.host, port=resource.port, user=resource.database_user,
+                                 password=password, database=resource.database_name,
+                                 ssl={'check_hostname': False}, connect_timeout=5)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT COALESCE(SUM(data_length + index_length), 0) FROM information_schema.tables WHERE table_schema=%s", (resource.database_name,))
+            return int(cursor.fetchone()[0] or 0)
+    finally:
+        connection.close()
+
+
+def database_backup_directory(resource):
+    path = os.path.join(MYSQL_BACKUP_ROOT, str(resource.application.user_id), str(resource.id))
+    os.makedirs(path, mode=0o700, exist_ok=True)
+    os.chmod(path, 0o700)
+    return path
+
+
+def database_client_defaults(resource):
+    handle = tempfile.NamedTemporaryFile(mode='w', prefix='myh-mysql-', delete=False)
+    try:
+        os.chmod(handle.name, 0o600)
+        password = read_application_secret(resource.secret_ref, resource.application_id)
+        handle.write('[client]\n')
+        handle.write(f'host={resource.host}\nport={resource.port}\nuser={resource.database_user}\npassword={password}\nssl-mode=REQUIRED\n')
+        handle.close()
+        return handle.name
+    except Exception:
+        handle.close()
+        os.unlink(handle.name)
+        raise
+
+
+def create_database_backup(resource):
+    destination = os.path.join(database_backup_directory(resource), datetime.now().strftime('%Y%m%d-%H%M%S') + '.sql')
+    defaults = database_client_defaults(resource)
+    try:
+        with open(destination, 'wb') as output:
+            process = subprocess.run(['mysqldump', f'--defaults-extra-file={defaults}', '--single-transaction',
+                                      '--triggers', '--no-tablespaces', resource.database_name],
+                                     stdout=output, stderr=subprocess.PIPE, timeout=300, check=False)
+        if process.returncode:
+            os.unlink(destination)
+            raise RuntimeError('Database backup failed.')
+        os.chmod(destination, 0o600)
+        return destination
+    finally:
+        os.unlink(defaults)
+
+
+def restore_database_backup(resource, backup_name):
+    if not re.fullmatch(r'\d{8}-\d{6}\.sql', backup_name):
+        abort(404)
+    source = os.path.realpath(os.path.join(database_backup_directory(resource), backup_name))
+    if os.path.dirname(source) != os.path.realpath(database_backup_directory(resource)) or not os.path.isfile(source):
+        abort(404)
+    defaults = database_client_defaults(resource)
+    try:
+        with open(source, 'rb') as input_file:
+            process = subprocess.run(['mysql', f'--defaults-extra-file={defaults}', resource.database_name],
+                                     stdin=input_file, stderr=subprocess.PIPE, timeout=300, check=False)
+        if process.returncode:
+            raise RuntimeError('Database restore failed.')
+    finally:
+        os.unlink(defaults)
 
 
 def deploy_from_git(repo_url, site_path, access=None, git_token=None):
@@ -2775,35 +2904,40 @@ def build_system_audit():
         'ssh': get_service_status('ssh'),
         'docker': get_service_status('docker'),
         'fail2ban': get_service_status('fail2ban'),
+        'mysql': get_service_status('mysql'),
     }
     public_ip = probe_public_ip()
-    container_names = {item['name'] for item in containers}
-    docker_images = {item['image'] for item in containers}
+    container_by_name = {item['name']: item for item in containers}
+    required_images = ('myh-stack-php:8.2', 'myh-stack-php:8.3', 'myh-stack-php:8.4', 'myh-stack-python-web:latest', 'myh-stack-web:latest')
+    missing_images = [image for image in required_images if run_command(['docker', 'image', 'inspect', image], timeout=10)[0] != 0]
+    nextcloud = container_by_name.get('nextcloud')
+    backup_roots = ('/srv/backups/platform-audit', MYSQL_BACKUP_ROOT)
+    backups_ready = os.path.isdir(backup_roots[0]) and any(os.scandir(backup_roots[0])) and os.path.isdir(backup_roots[1])
     readiness = [
         {
             'name': 'General Docker Hosting',
-            'status': 'READY' if containers else 'WARNING',
-            'detail': 'Docker engine is available and containers are present.' if containers else 'No running containers were detected.',
+            'status': 'READY' if services['docker']['active'] and not missing_images else 'WARNING',
+            'detail': 'Docker engine and all managed runtime images are available.' if not missing_images else 'Missing runtime images: ' + ', '.join(missing_images),
         },
         {
-            'name': 'Reverse Proxy',
-            'status': 'WARNING' if 'nginx-proxy-manager' in container_names else 'NOT READY',
-            'detail': 'Nginx Proxy Manager is installed, but the shared proxy network is not normalized yet.',
+            'name': 'Public ingress',
+            'status': 'READY' if services['tunnel']['active'] else 'NOT READY',
+            'detail': 'Cloudflare Tunnel is the active public ingress.' if services['tunnel']['active'] else services['tunnel']['detail'],
         },
         {
-            'name': 'WordPress Ready',
-            'status': 'NOT READY' if 'wordpress' not in docker_images else 'WARNING',
-            'detail': 'WordPress stack is not standardized yet.',
+            'name': 'MySQL Hosting',
+            'status': 'READY' if services['mysql']['active'] else 'NOT READY',
+            'detail': 'MySQL provisioning and isolated application databases are available.' if services['mysql']['active'] else services['mysql']['detail'],
         },
         {
             'name': 'Nextcloud',
-            'status': 'NOT READY' if 'nextcloud' in restarting else 'WARNING',
-            'detail': 'Nextcloud is currently in a restart loop due to a data/image version mismatch.',
+            'status': 'READY' if nextcloud and nextcloud['state'] == 'running' and 'healthy' in nextcloud['status'].lower() else 'WARNING',
+            'detail': nextcloud['status'] if nextcloud else 'Nextcloud container is not present.',
         },
         {
             'name': 'Backups',
-            'status': 'WARNING',
-            'detail': 'Per-site backups exist, but centralized backup registry is still missing.',
+            'status': 'READY' if backups_ready else 'WARNING',
+            'detail': 'Platform and MySQL backup repositories are populated.' if backups_ready else 'One or more backup repositories are empty or unavailable.',
         },
         {
             'name': 'Control Panel',
@@ -2816,10 +2950,12 @@ def build_system_audit():
         problems.append('Restarting containers: ' + ', '.join(restarting[:6]))
     if failed_services:
         problems.append('Failed services: ' + ', '.join(failed_services[:6]))
-    if 'nextcloud' in restarting:
-        problems.append('Nextcloud data volume is ahead of the current image version.')
-    if 'lab-db' in restarting:
-        problems.append('MariaDB crash recovery is failing on tc.log.')
+    if memory.percent >= 90: problems.append(f'RAM usage is critical: {memory.percent:.1f}%.')
+    if swap.percent >= 75: problems.append(f'Swap usage is high: {swap.percent:.1f}%.')
+    if disk.percent >= 85: problems.append(f'Root filesystem usage is high: {disk.percent:.1f}%.')
+    unhealthy = [item['name'] for item in containers if 'unhealthy' in item['status'].lower()]
+    if unhealthy: problems.append('Unhealthy containers: ' + ', '.join(unhealthy[:6]))
+    if missing_images: problems.append('Missing managed runtime images: ' + ', '.join(missing_images))
     if not public_ip:
         problems.append('Public IP probe unavailable from the panel runtime.')
     return {
@@ -3804,21 +3940,23 @@ def create_site_wizard():
         new_site.internal_port = metadata['port']
         db.session.commit()
         if site_type == 'wordpress':
-            suffix = secrets.token_hex(3); prefix = re.sub(r'[^a-z0-9_]', '_', folder_name.lower())[:40].strip('_') or 'wordpress'
-            database_name = f'{prefix}_{suffix}'[:63]; database_user = f'u_{prefix}_{suffix}'[:63]; database_password = secrets.token_urlsafe(24)
+            database_name, database_user = generated_database_identifiers(owner.id, f'{subdomain}_wordpress')
+            database_password = secrets.token_urlsafe(32)
             try:
-                provision_mariadb_database(database_name, database_user, database_password)
-                resource = DatabaseResource(application_id=new_site.id, engine='mariadb', database_name=database_name,
-                                            database_user=database_user, secret_ref='pending', created_by=user.id)
+                provision_mysql_database(database_name, database_user, database_password)
+                resource = DatabaseResource(application_id=new_site.id, display_name='wordpress', engine='mysql', database_name=database_name,
+                                            database_user=database_user, host=MYSQL_HOST, port=MYSQL_PORT, secret_ref='pending', created_by=user.id)
                 db.session.add(resource); db.session.flush()
                 resource.secret_ref = write_application_secret(new_site.id, 'database', resource.id, database_password)
                 for key, value in {
-                    'WORDPRESS_DB_HOST':'lab-db:3306','WORDPRESS_DB_NAME':database_name,'WORDPRESS_DB_USER':database_user,
-                    'WORDPRESS_DB_PASSWORD':database_password,'DB_HOST':'lab-db','DB_NAME':database_name,
+                    'WORDPRESS_DB_HOST':f'{MYSQL_HOST}:{MYSQL_PORT}','WORDPRESS_DB_NAME':database_name,'WORDPRESS_DB_USER':database_user,
+                    'WORDPRESS_DB_PASSWORD':database_password,'DB_HOST':MYSQL_HOST,'DB_PORT':str(MYSQL_PORT),'DB_NAME':database_name,
                     'DB_USER':database_user,'DB_PASSWORD':database_password,
                 }.items(): set_environment_value(new_site, user, key, value)
                 db.session.commit(); sync_runtime_environment(new_site)
-            except (RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+            except (RuntimeError, ValueError, pymysql.MySQLError) as exc:
+                try: deprovision_mysql_database(database_name, database_user)
+                except Exception: pass
                 db.session.rollback(); new_site.runtime_status='error'; new_site.deployment_status='failed'; db.session.commit()
                 flash(f'WordPress database provisioning failed: {str(exc)[:300]}', 'error')
                 return redirect(url_for('manage_site', folder_name=folder_name))
@@ -3933,6 +4071,7 @@ def dashboard():
         return render_template('developer_dashboard.html', user=user, sites=all_sites, users=users, usage=usage, recent_logs=recent_logs, metrics=metrics, services=service_statuses, overview=overview, is_platform_admin=bool(user_role(user) == 'admin' or user.is_admin), can_create_site=user_has_role_permission(user, 'site.create'))
 
     user_sites = Site.query.filter_by(user_id=session['user_id']).all()
+    actual_statuses = actual_site_runtime_statuses(user_sites)
     usage_bytes_value = user_usage_bytes(user)
     summary = {
         'sites': len(user_sites),
@@ -3940,8 +4079,8 @@ def dashboard():
         'domains': sum(1 for site in user_sites if site.custom_domain),
         'backups': sum(len(list_site_backups(site)) for site in user_sites),
         'databases': sum(len(site.database_resources) for site in user_sites),
-        'running': sum(1 for site in user_sites if site.runtime_status in {'running', 'configured'} and not site.is_banned),
-        'attention': sum(1 for site in user_sites if site.is_banned or site.runtime_status == 'error' or site.deployment_status == 'failed'),
+        'running': sum(1 for site in user_sites if actual_statuses.get(site.id) == 'running'),
+        'attention': sum(1 for site in user_sites if actual_statuses.get(site.id) in {'error', 'stopped'} or site.deployment_status == 'failed'),
     }
     metrics = get_server_metrics()
     recent_activity = AuditLog.query.filter_by(user_id=user.id).order_by(AuditLog.created_at.desc()).limit(6).all()
@@ -4181,7 +4320,8 @@ def user_sites_index():
     if 'user_id' not in session: return redirect(url_for('login'))
     user = db.session.get(User, session['user_id'])
     if not user or user.is_banned: abort(403)
-    return render_template('sites.html', user=user, sites=current_user_sites(user), can_create_site=user_has_role_permission(user, 'site.create'))
+    sites = current_user_sites(user)
+    return render_template('sites.html', user=user, sites=sites, actual_statuses=actual_site_runtime_statuses(sites), can_create_site=user_has_role_permission(user, 'site.create'))
 
 
 @app.route('/domains')
@@ -4199,7 +4339,124 @@ def user_databases_index():
     if not user or user.is_banned: abort(403)
     sites = current_user_sites(user); site_ids = [site.id for site in sites]
     databases = DatabaseResource.query.filter(DatabaseResource.application_id.in_(site_ids)).order_by(DatabaseResource.created_at.desc()).all() if site_ids else []
-    return render_template('databases.html', user=user, sites=sites, databases=databases)
+    sizes = {}
+    backups = {}
+    for resource in databases:
+        try: sizes[resource.id] = database_size_bytes(resource)
+        except pymysql.MySQLError: sizes[resource.id] = None
+        path = os.path.join(MYSQL_BACKUP_ROOT, str(resource.application.user_id), str(resource.id))
+        backups[resource.id] = sorted([name for name in os.listdir(path) if re.fullmatch(r'\d{8}-\d{6}\.sql', name)], reverse=True) if os.path.isdir(path) else []
+    return render_template('databases.html', user=user, sites=sites, databases=databases, database_sizes=sizes, database_backups=backups)
+
+
+@app.route('/databases/create', methods=['POST'])
+def database_create():
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    site = db.session.get(Site, request.form.get('site_id', type=int))
+    require_application_permission(user, site, 'database.create')
+    return site_database_create(site.id)
+
+
+@app.route('/databases/<int:resource_id>/reset', methods=['POST'])
+def database_reset(resource_id):
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id']); resource = database_owner_or_404(resource_id, user)
+    password = secrets.token_urlsafe(32)
+    reset_mysql_password(resource.database_user, password)
+    resource.secret_ref = write_application_secret(resource.application_id, 'database', resource.id, password)
+    for key, value in {'DB_PASSWORD': password, 'DATABASE_URL': f'mysql://{resource.database_user}:{urllib.parse.quote(password, safe="")}@{resource.host}:{resource.port}/{resource.database_name}'}.items():
+        set_environment_value(resource.application, user, key, value)
+    db.session.commit(); sync_runtime_environment(resource.application)
+    log_action('database.credentials.reset', resource.database_name)
+    flash('Database credentials reset and runtime secrets updated.', 'success')
+    return redirect(url_for('user_databases_index'))
+
+
+@app.route('/databases/<int:resource_id>/delete', methods=['POST'])
+def database_delete(resource_id):
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id']); resource = database_owner_or_404(resource_id, user)
+    name = resource.database_name
+    deprovision_mysql_database(resource.database_name, resource.database_user)
+    db.session.delete(resource); db.session.commit()
+    log_action('database.delete', name); flash('Database and its MySQL account were deleted.', 'success')
+    return redirect(url_for('user_databases_index'))
+
+
+@app.route('/databases/<int:resource_id>/backup', methods=['POST'])
+def database_backup(resource_id):
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id']); resource = database_owner_or_404(resource_id, user)
+    path = create_database_backup(resource)
+    log_action('database.backup', f'{resource.database_name}:{os.path.basename(path)}')
+    flash('Database backup created.', 'success'); return redirect(url_for('user_databases_index'))
+
+
+@app.route('/databases/<int:resource_id>/backups/<backup_name>/download')
+def database_backup_download(resource_id, backup_name):
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id']); resource = database_owner_or_404(resource_id, user)
+    if not re.fullmatch(r'\d{8}-\d{6}\.sql', backup_name): abort(404)
+    path = os.path.realpath(os.path.join(database_backup_directory(resource), backup_name))
+    if os.path.dirname(path) != os.path.realpath(database_backup_directory(resource)) or not os.path.isfile(path): abort(404)
+    return send_file(path, as_attachment=True, download_name=f'{resource.display_name}-{backup_name}')
+
+
+@app.route('/databases/<int:resource_id>/backups/<backup_name>/delete', methods=['POST'])
+def database_backup_delete(resource_id, backup_name):
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id']); resource = database_owner_or_404(resource_id, user)
+    if not re.fullmatch(r'\d{8}-\d{6}\.sql', backup_name): abort(404)
+    path = os.path.realpath(os.path.join(database_backup_directory(resource), backup_name))
+    if os.path.dirname(path) != os.path.realpath(database_backup_directory(resource)) or not os.path.isfile(path): abort(404)
+    os.unlink(path); log_action('database.backup.delete', f'{resource.database_name}:{backup_name}')
+    flash('Database backup deleted.', 'success'); return redirect(url_for('user_databases_index'))
+
+
+@app.route('/databases/<int:resource_id>/backups/<backup_name>/restore', methods=['POST'])
+def database_backup_restore(resource_id, backup_name):
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id']); resource = database_owner_or_404(resource_id, user)
+    if request.form.get('confirm') != resource.database_name: abort(400)
+    restore_database_backup(resource, backup_name)
+    log_action('database.restore', f'{resource.database_name}:{backup_name}')
+    flash('Database restored.', 'success'); return redirect(url_for('user_databases_index'))
+
+
+@app.route('/api/databases')
+def api_databases():
+    if 'user_id' not in session: abort(401)
+    user = db.session.get(User, session['user_id']); sites = current_user_sites(user); site_ids = [site.id for site in sites]
+    rows = DatabaseResource.query.filter(DatabaseResource.application_id.in_(site_ids)).all() if site_ids else []
+    return jsonify([{'id': r.id, 'name': r.display_name, 'physicalName': r.database_name, 'engine': r.engine,
+                     'siteId': r.application_id, 'status': r.status, 'host': r.host, 'port': r.port,
+                     'username': r.database_user, 'createdAt': r.created_at.isoformat()} for r in rows])
+
+
+@app.route('/api/databases/<int:resource_id>')
+def api_database(resource_id):
+    if 'user_id' not in session: abort(401)
+    user = db.session.get(User, session['user_id']); r = database_owner_or_404(resource_id, user)
+    return jsonify({'id': r.id, 'name': r.display_name, 'physicalName': r.database_name, 'engine': r.engine,
+                    'siteId': r.application_id, 'status': r.status, 'host': r.host, 'port': r.port,
+                    'username': r.database_user, 'createdAt': r.created_at.isoformat()})
+
+
+@app.route('/api/mysql/health')
+def api_mysql_health():
+    if 'user_id' not in session: abort(401)
+    user = db.session.get(User, session['user_id'])
+    if not user or not user.is_admin: abort(403)
+    now = time.monotonic()
+    if now - MYSQL_HEALTH_CACHE['checked_at'] >= 10:
+        try:
+            with mysql_provision_connection() as connection:
+                with connection.cursor() as cursor: cursor.execute('SELECT 1')
+            MYSQL_HEALTH_CACHE.update(checked_at=now, ok=True)
+        except pymysql.MySQLError:
+            MYSQL_HEALTH_CACHE.update(checked_at=now, ok=False)
+    return jsonify({'service': 'mysql', 'ok': MYSQL_HEALTH_CACHE['ok']}), (200 if MYSQL_HEALTH_CACHE['ok'] else 503)
 
 
 @app.route('/backups')
@@ -4983,7 +5240,7 @@ def delete_site(site_id):
         
     site_name = site.name
     for resource in DatabaseResource.query.filter_by(application_id=site.id).all():
-        deprovision_mariadb_database(resource.database_name, resource.database_user)
+        deprovision_mysql_database(resource.database_name, resource.database_user)
         db.session.delete(resource)
     for variable in EnvironmentVariable.query.filter_by(application_id=site.id).all():
         db.session.delete(variable)
@@ -5072,27 +5329,29 @@ def site_database_create(site_id):
         return redirect(url_for('login'))
     user = db.session.get(User, session['user_id']); site = db.session.get(Site, site_id)
     require_application_permission(user, site, 'database.create')
-    suffix = secrets.token_hex(3)
-    prefix = re.sub(r'[^a-z0-9_]', '_', site.folder_name.lower())[:42].strip('_') or 'app'
-    database_name = f'{prefix}_{suffix}'[:63]; database_user = f'u_{prefix}_{suffix}'[:63]
-    password = secrets.token_urlsafe(24)
+    display_name = (request.form.get('database_name') or site.name or 'database').strip()[:80]
+    database_name, database_user = generated_database_identifiers(site.user_id, display_name)
+    password = secrets.token_urlsafe(32)
     try:
-        provision_mariadb_database(database_name, database_user, password)
-        resource = DatabaseResource(application_id=site.id, engine='mariadb', database_name=database_name,
-                                    database_user=database_user, secret_ref='pending', created_by=user.id)
+        provision_mysql_database(database_name, database_user, password)
+        resource = DatabaseResource(application_id=site.id, display_name=display_name, engine='mysql', database_name=database_name,
+                                    database_user=database_user, host=MYSQL_HOST, port=MYSQL_PORT, secret_ref='pending', status='ready', created_by=user.id)
         db.session.add(resource); db.session.flush()
         resource.secret_ref = write_application_secret(site.id, 'database', resource.id, password)
         for key, value in {
-            'DB_HOST': 'lab-db', 'DB_PORT': '3306', 'DB_NAME': database_name,
+            'DB_HOST': MYSQL_HOST, 'DB_PORT': str(MYSQL_PORT), 'DB_NAME': database_name,
             'DB_USER': database_user, 'DB_PASSWORD': password,
-            'DATABASE_URL': f'mysql://{database_user}:{urllib.parse.quote(password, safe="")}@lab-db:3306/{database_name}',
+            'DATABASE_URL': f'mysql://{database_user}:{urllib.parse.quote(password, safe="")}@{MYSQL_HOST}:{MYSQL_PORT}/{database_name}',
         }.items(): set_environment_value(site, user, key, value)
         db.session.commit(); sync_runtime_environment(site)
         log_action('database.create', f'{site.name}:{database_name}')
         flash(f'Database {database_name} created. Credentials were added as write-only environment variables.', 'success')
-    except (RuntimeError, ValueError, subprocess.SubprocessError) as exc:
-        db.session.rollback(); flash(f'Database provisioning failed: {str(exc)[:300]}', 'error')
-    return redirect(url_for('manage_site', folder_name=site.folder_name))
+    except (RuntimeError, ValueError, pymysql.MySQLError) as exc:
+        db.session.rollback()
+        try: deprovision_mysql_database(database_name, database_user)
+        except Exception: pass
+        flash(f'Database provisioning failed: {mask_sensitive_text(str(exc))[:300]}', 'error')
+    return redirect(request.referrer or url_for('user_databases_index'))
 
 
 @app.route('/site/<int:site_id>/runtime/logs')

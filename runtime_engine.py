@@ -121,16 +121,16 @@ def prepare_custom_docker(stack_root: str, source_root: str, port: int | None = 
   {entry_service}:
     restart: unless-stopped
     ports: ["127.0.0.1:{port}:8080"]
-    networks: [web-proxy, app-internal, hosting-databases]
+    networks: [app-internal, hosting-databases]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID]
     mem_limit: 512m
     cpus: 1.0
     pids_limit: 192
     logging: {{driver: json-file, options: {{max-size: "10m", max-file: "3"}}}}
 networks:
-  web-proxy: {{external: true}}
-  app-internal: {{driver: bridge, internal: true}}
+  app-internal: {{driver: bridge}}
   hosting-databases: {{external: true}}
 '''
         _write(stack / 'compose.yml', override)
@@ -141,16 +141,16 @@ networks:
     build: {{context: "{source}", dockerfile: Dockerfile}}
     restart: unless-stopped
     ports: ["127.0.0.1:{port}:8080"]
-    networks: [web-proxy, app-internal, hosting-databases]
+    networks: [app-internal, hosting-databases]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID]
     mem_limit: 512m
     cpus: 1.0
     pids_limit: 192
     logging: {{driver: json-file, options: {{max-size: "10m", max-file: "3"}}}}
 networks:
-  web-proxy: {{external: true}}
-  app-internal: {{driver: bridge, internal: true}}
+  app-internal: {{driver: bridge}}
   hosting-databases: {{external: true}}
 '''
         _write(stack / 'compose.yml', compose); compose_files = [str(stack / 'compose.yml')]
@@ -173,7 +173,7 @@ def prepare_wordpress_runtime(stack_root: str, source_root: str, port: int | Non
     user: "101:101"
     restart: unless-stopped
     ports: ["127.0.0.1:{port}:8080"]
-    networks: [web-proxy, app-internal]
+    networks: [app-internal]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     group_add: ["{source_gid}", "33"]
@@ -188,7 +188,7 @@ def prepare_wordpress_runtime(stack_root: str, source_root: str, port: int | Non
     image: wordpress:6-php8.3-fpm-alpine
     user: "82:82"
     restart: unless-stopped
-    networks: [web-proxy, app-internal, hosting-databases]
+    networks: [app-internal, hosting-databases]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     group_add: ["{source_gid}", "33"]
@@ -198,8 +198,7 @@ def prepare_wordpress_runtime(stack_root: str, source_root: str, port: int | Non
     cpus: 0.75
     pids_limit: 128
 networks:
-  web-proxy: {{external: true}}
-  app-internal: {{driver: bridge, internal: true}}
+  app-internal: {{driver: bridge}}
   hosting-databases: {{external: true}}
 '''
     _write(stack / 'compose.yml', compose)
@@ -251,7 +250,7 @@ def prepare_runtime(stack_root: str, source_root: str, runtime: str, version: st
     database_network = ', hosting-databases' if runtime in {'php', 'node', 'python'} else ''
     common = '''    restart: unless-stopped
     ports: ["127.0.0.1:{port}:8080"]
-    networks: [web-proxy, app-internal{database_network}]
+    networks: [app-internal{database_network}]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     group_add: ["{source_gid}", "33"]
@@ -289,7 +288,7 @@ def prepare_runtime(stack_root: str, source_root: str, runtime: str, version: st
     depends_on: [php]
     healthcheck: {{test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ >/dev/null"], interval: 10s, timeout: 3s, retries: 8}}
   php:
-    image: php:{version}-fpm-alpine
+    image: myh-stack-php:{version}
     user: "82:82"
     restart: unless-stopped
     networks: [app-internal, hosting-databases]
@@ -349,8 +348,7 @@ CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--access-logfile",
     healthcheck: {{test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ >/dev/null"], interval: 10s, timeout: 3s, retries: 8}}
 '''
     compose += '''networks:
-  web-proxy: {external: true}
-  app-internal: {driver: bridge, internal: true}
+  app-internal: {driver: bridge}
   hosting-databases: {external: true}
 '''
     _write(stack / 'compose.yml', compose)

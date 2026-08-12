@@ -32,3 +32,8 @@
 - Safer Docker integration
 - Shared proxy network review
 - Backup restore confirmation flow
+# Production security baseline
+
+UFW is active. Public web traffic enters through Cloudflare Tunnel; application ports and Nextcloud are loopback-only. MySQL is private to `myh-db0`. SSH denies root login, Fail2ban is active, and SFTP users are chrooted with forwarding disabled. Samba and CUPS remain enabled because they are actively used and are restricted to the trusted LAN.
+
+Administrator password SSH remains enabled until a verified administrator key is installed; disabling it earlier risks lockout. Secrets must remain outside Git with mode 0600. Review failed services, unhealthy containers, disk/RAM/swap thresholds, TLS expiry, backup checksums, and restore tests regularly.
