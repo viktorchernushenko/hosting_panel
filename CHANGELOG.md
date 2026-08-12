@@ -18,6 +18,7 @@ MyH follows Semantic Versioning. Entries below are reconstructed from the actual
 ### Fixed
 
 - Removed the legacy dashboard form and POST path that silently defaulted new sites to Static. All creation now uses the backend-driven runtime wizard.
+- Ensured a site's scoped backup directory exists before creating its first archive, including on clean installations and CI runners.
 
 ### Security
 

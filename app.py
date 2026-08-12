@@ -2450,7 +2450,7 @@ def list_site_backups(site, access=None):
 def create_backup_archive(site, access=None):
     access = access or ensure_application_access(site)
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-    destination = os.path.join(application_root(access, bucket='backup'), f'{timestamp}.zip')
+    destination = os.path.join(backup_directory(site, access=access), f'{timestamp}.zip')
     source = application_root(access, bucket='file')
     estimated_size = directory_size_safe(source)
     enforce_backup_quota(access, additional_bytes=estimated_size)
