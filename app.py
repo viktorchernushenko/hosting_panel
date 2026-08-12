@@ -5583,11 +5583,18 @@ def repair_missing_runtime_configuration(site, access):
         if site.runtime_type == 'wordpress':
             metadata = prepare_wordpress_runtime(stack_root, site_path, port)
         else:
+            inferred = infer_runtime_commands(site_path, site.runtime_type)
+            install_command = site.install_command or inferred.get('install_command', '')
+            build_command = site.build_command or inferred.get('build_command', '')
+            start_command = site.start_command or inferred.get('start_command', '')
             metadata = prepare_runtime(
                 stack_root, site_path, site.runtime_type, site.runtime_version, port,
-                install_command=site.install_command, build_command=site.build_command,
-                start_command=site.start_command, spa_enabled=site.spa_enabled,
+                install_command=install_command, build_command=build_command,
+                start_command=start_command, spa_enabled=site.spa_enabled,
             )
+            site.install_command = install_command
+            site.build_command = build_command
+            site.start_command = start_command
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
         return False, mask_sensitive_text(str(exc))[:300]
     access.deployment_root = stack_root
