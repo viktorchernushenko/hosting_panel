@@ -159,6 +159,62 @@ class ServiceCatalogWizardTests(unittest.TestCase):
         self.assertTrue(os.path.isdir(stack_root))
         self.assertTrue(os.path.exists(os.path.join(stack_root, 'panel-metadata.json')))
 
+    @mock.patch.object(panel_app, 'healthcheck', return_value={'ok': True})
+    @mock.patch.object(panel_app, 'compose_action', return_value=(0, 'started'))
+    @mock.patch.object(panel_app, 'sync_runtime_environment')
+    @mock.patch.object(panel_app, 'prepare_runtime')
+    def test_start_repairs_missing_node_runtime_configuration(
+        self, mocked_prepare, _mocked_sync, _mocked_compose, _mocked_health,
+    ):
+        site = self._create_site(self.admin, name='repairnode')
+        site.runtime_type = 'node'
+        site.runtime_version = '22'
+        site.runtime_status = 'error'
+        site.deployment_status = 'failed'
+        panel_app.db.session.commit()
+        access = panel_app.ensure_application_access(site)
+
+        def prepare(stack_root, _site_path, _runtime_type, _version, port, **_kwargs):
+            os.makedirs(stack_root, exist_ok=True)
+            with open(os.path.join(stack_root, 'runtime.json'), 'w', encoding='utf-8') as handle:
+                json.dump({'project': 'repairnode', 'port': port}, handle)
+            return {'project': 'repairnode', 'port': port}
+
+        mocked_prepare.side_effect = prepare
+        client = self.app.test_client()
+        self._auth_session(client, self.admin.id, role='admin')
+        response = client.post(
+            f'/site/{site.id}/runtime/start',
+            data={'_csrf_token': 'csrf-token'},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        panel_app.db.session.refresh(site)
+        panel_app.db.session.refresh(access)
+        self.assertEqual(site.runtime_status, 'running')
+        self.assertEqual(site.deployment_status, 'success')
+        self.assertTrue(os.path.isfile(os.path.join(access.deployment_root, 'runtime.json')))
+        mocked_prepare.assert_called_once()
+
+    def test_registry_reports_actual_runtime_type(self):
+        site = self._create_site(self.admin, name='registrynode')
+        site.runtime_type = 'node'
+        panel_app.db.session.commit()
+        with mock.patch.object(panel_app.urllib.request, 'urlopen') as urlopen:
+            urlopen.return_value.__enter__.return_value.status = 200
+            registry = panel_app.build_application_registry()
+        row = next(item for item in registry['applications'] if item['id'] == site.id)
+        self.assertEqual(row['type'], 'Node.js')
+        self.assertEqual(row['stack'], 'node')
+
+    def test_backup_root_is_scoped_by_id_and_folder(self):
+        first = mock.Mock(id=1, folder_name='alice-old', name='old')
+        replacement = mock.Mock(id=1, folder_name='alice-new', name='new')
+        self.assertNotEqual(
+            panel_app.scoped_site_backup_root(first),
+            panel_app.scoped_site_backup_root(replacement),
+        )
+
     def test_create_php_site_wizard_runtime_and_bootstrap(self):
         client = self.app.test_client()
         self._auth_session(client, self.admin.id, role='admin')
