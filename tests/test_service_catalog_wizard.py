@@ -196,6 +196,23 @@ class ServiceCatalogWizardTests(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(access.deployment_root, 'runtime.json')))
         mocked_prepare.assert_called_once()
 
+    @mock.patch.object(panel_app.runtime_engine.Path, 'chmod', side_effect=PermissionError(1, 'Operation not permitted'))
+    def test_prepare_runtime_tolerates_sftp_owned_source_directory(self, _mocked_chmod):
+        with tempfile.TemporaryDirectory() as temp_root:
+            stack_root = os.path.join(temp_root, 'stack')
+            source_root = os.path.join(temp_root, 'source')
+            os.makedirs(source_root)
+            metadata = panel_app.prepare_runtime(
+                stack_root,
+                source_root,
+                'node',
+                '22',
+                18080,
+                start_command='npm start',
+            )
+            self.assertEqual(metadata['runtime'], 'node')
+            self.assertTrue(os.path.isfile(os.path.join(stack_root, 'runtime.json')))
+
     def test_registry_reports_actual_runtime_type(self):
         site = self._create_site(self.admin, name='registrynode')
         site.runtime_type = 'node'
