@@ -13,6 +13,7 @@ Production-oriented Flask hosting panel with developer controls, deployment work
 - Hardened systemd unit templates and backup/watchdog scripts
 - Secure-by-default webhook controls (signed GitHub webhook, protected notify webhook)
 - Approved service templates under /srv/templates for WordPress, static, Node, Python, and PHP
+- Verified runtime registry for Static, PHP, Node.js, Python, and validated Docker; see `RUNTIMES.md`
 
 ## Quick Install (Any Server)
 

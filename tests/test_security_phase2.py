@@ -379,6 +379,40 @@ class SecurityPhase2Tests(unittest.TestCase):
         self.assertEqual(html.count('class="lang-switcher compact-lang-switcher"'), 1)
         self.assertNotIn('Українська / English', html)
 
+    def test_runtime_api_uses_safe_central_registry(self):
+        response = self.app.test_client().get('/api/runtimes')
+        self.assertEqual(response.status_code, 200)
+        runtimes = response.get_json()['runtimes']
+        self.assertEqual([item['id'] for item in runtimes], ['static', 'php', 'node', 'python', 'docker'])
+        self.assertTrue(all(item['available'] for item in runtimes))
+        self.assertTrue(all('template' not in item and 'detail' not in item for item in runtimes))
+
+    def test_runtime_detection_recommends_but_never_selects(self):
+        owner = self._create_user('detect-owner')
+        client = self.app.test_client()
+        self._auth_session(client, owner.id)
+        headers = {'X-CSRF-Token': 'csrf-token'}
+        vite = client.post('/api/runtimes/detect', json={
+            'files': ['package.json', 'vite.config.js', 'src/main.js'],
+            'packageJson': {'scripts': {'build': 'vite build'}, 'devDependencies': {'vite': '^7'}},
+        }, headers=headers).get_json()['detection']
+        self.assertEqual(vite['recommended'], 'static')
+        self.assertTrue(vite['requires_confirmation'])
+        docker = client.post('/api/runtimes/detect', json={
+            'files': ['Dockerfile', 'package.json'], 'packageJson': {'dependencies': {'express': '^5'}},
+        }, headers=headers).get_json()['detection']
+        self.assertEqual(docker['recommended'], 'docker')
+
+    def test_create_site_uses_accessible_runtime_cards(self):
+        owner = self._create_user('cards-owner')
+        client = self.app.test_client()
+        self._auth_session(client, owner.id)
+        html = client.get('/sites/create').get_data(as_text=True)
+        self.assertIn('class="runtime-card-grid"', html)
+        self.assertEqual(html.count('<input type="radio" name="site_type"'), 5)
+        self.assertNotIn('value="wordpress"', html)
+        self.assertIn('name="spa_enabled"', html)
+
 
 if __name__ == '__main__':
     unittest.main()

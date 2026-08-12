@@ -169,7 +169,7 @@ class ServiceCatalogWizardTests(unittest.TestCase):
                 'site_name': 'phpwizard',
                 'site_type': 'php',
                 'source_mode': 'upload',
-                'php_runtime': '8.3',
+                'php_runtime': '8.2',
             },
             follow_redirects=False,
         )
@@ -189,7 +189,7 @@ class ServiceCatalogWizardTests(unittest.TestCase):
         with open(metadata_path, 'r', encoding='utf-8') as handle:
             payload = json.load(handle)
         self.assertEqual(payload.get('runtime', {}).get('language'), 'php')
-        self.assertEqual(payload.get('runtime', {}).get('version'), '8.3')
+        self.assertEqual(payload.get('runtime', {}).get('version'), '8.2')
 
     def test_domain_update_requires_domain_manage_permission(self):
         site = self._create_site(self.admin, name='domdemo')

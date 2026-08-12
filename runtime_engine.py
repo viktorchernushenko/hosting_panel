@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import socket
 import subprocess
 import urllib.error
@@ -52,7 +51,7 @@ def detect_stack(source_root: str) -> dict:
     markers = []
     checks = {
         'docker-compose': ('compose.yml', 'compose.yaml', 'docker-compose.yml', 'docker-compose.yaml'),
-        'docker': ('Dockerfile',), 'node': ('package.json',), 'php': ('composer.json',),
+        'docker': ('Dockerfile',), 'node': ('package.json',), 'php': ('composer.json', 'index.php'),
         'python': ('requirements.txt', 'pyproject.toml'), 'go': ('go.mod',),
         'java': ('pom.xml', 'build.gradle'), 'dotnet': (), 'ruby': ('Gemfile',),
     }
@@ -67,6 +66,60 @@ def detect_stack(source_root: str) -> dict:
     elif (root / 'manage.py').exists(): framework = 'django'
     elif (root / 'vite.config.js').exists() or (root / 'vite.config.ts').exists(): framework = 'vite'
     return {'candidates': sorted(set(markers)), 'framework': framework, 'ambiguous': len(set(markers)) > 1}
+
+
+def recommend_runtime(markers: dict, package: dict | None = None) -> dict:
+    """Recommend, but never select, a runtime from sanitized project metadata."""
+    candidates = set(markers.get('candidates') or [])
+    framework = markers.get('framework')
+    scripts = package.get('scripts', {}) if isinstance(package, dict) and isinstance(package.get('scripts'), dict) else {}
+    dependencies = {}
+    if isinstance(package, dict):
+        dependencies.update(package.get('dependencies') or {})
+        dependencies.update(package.get('devDependencies') or {})
+    if {'docker', 'docker-compose'} & candidates:
+        recommendation, reason = 'docker', 'Dockerfile or Compose configuration found'
+    elif 'php' in candidates:
+        recommendation, reason = 'php', 'index.php or composer.json found'
+    elif 'python' in candidates:
+        recommendation, reason = 'python', 'Python dependency metadata found'
+    elif 'node' in candidates:
+        static_tools = {'vite', 'react', 'vue', '@angular/core', 'svelte'} & set(dependencies)
+        server_tools = {'express', '@nestjs/core', 'fastify', 'next', 'nuxt'} & set(dependencies)
+        if (framework == 'vite' or static_tools) and not server_tools and 'start' not in scripts:
+            recommendation, reason = 'static', 'frontend build tooling found without a server start script'
+        else:
+            recommendation, reason = 'node', 'server package metadata or start script found'
+    elif 'static' in candidates:
+        recommendation, reason = 'static', 'index.html found'
+    else:
+        recommendation, reason = None, 'not enough metadata'
+    return {'recommended': recommendation, 'reason': reason, 'requires_confirmation': True, **markers}
+
+
+def detect_file_names(names: list[str], package: dict | None = None) -> dict:
+    basenames = {Path(str(name).replace('\\', '/')).name for name in names[:500]}
+    candidates = []
+    for runtime, markers in {
+        'docker-compose': {'compose.yml', 'compose.yaml', 'docker-compose.yml', 'docker-compose.yaml'},
+        'docker': {'Dockerfile'}, 'node': {'package.json'}, 'php': {'composer.json', 'index.php'},
+        'python': {'requirements.txt', 'pyproject.toml', 'Pipfile'},
+    }.items():
+        if basenames & markers:
+            candidates.append(runtime)
+    if not candidates and basenames & {'index.html', 'index.htm'}:
+        candidates.append('static')
+    framework = None
+    if {'wp-config.php'} & basenames or 'wp-content' in basenames:
+        framework = 'wordpress'
+    elif 'artisan' in basenames:
+        framework = 'laravel'
+    elif 'manage.py' in basenames:
+        framework = 'django'
+    elif {'vite.config.js', 'vite.config.ts'} & basenames:
+        framework = 'vite'
+    markers = {'candidates': sorted(set(candidates)), 'framework': framework, 'ambiguous': len(set(candidates)) > 1}
+    return recommend_runtime(markers, package)
 
 
 def infer_runtime_commands(source_root: str, runtime: str) -> dict:
@@ -97,45 +150,17 @@ def validate_custom_compose(text: str) -> list[str]:
 def prepare_custom_docker(stack_root: str, source_root: str, port: int | None = None) -> dict:
     stack, source = Path(stack_root).resolve(), Path(source_root).resolve()
     stack.mkdir(parents=True, exist_ok=True)
+    source.mkdir(parents=True, exist_ok=True)
+    source.chmod(0o2750)
+    try:
+        os.chown(source, -1, 33)
+    except PermissionError:
+        pass
     compose_source = next((source / name for name in ('compose.yml', 'compose.yaml', 'docker-compose.yml', 'docker-compose.yaml') if (source / name).is_file()), None)
     port = int(port or allocate_loopback_port()); project = safe_project_name(stack.name)
     if compose_source:
-        raw = compose_source.read_text(encoding='utf-8', errors='replace')
-        if validate_custom_compose(raw): raise ValueError('compose contains forbidden host access')
-        process = subprocess.run(['docker', 'compose', '-f', str(compose_source), '--project-directory', str(source), 'config', '--format', 'json'], capture_output=True, text=True, timeout=30, check=False)
-        if process.returncode != 0: raise ValueError((process.stderr or 'invalid compose')[-500:])
-        config = json.loads(process.stdout); services = config.get('services') or {}
-        if not services: raise ValueError('compose has no services')
-        for name, service in services.items():
-            if service.get('privileged') or service.get('devices') or service.get('cap_add'): raise ValueError(f'{name}: forbidden privileges')
-            if service.get('network_mode') in {'host', 'service'} or service.get('pid') == 'host' or service.get('ipc') == 'host': raise ValueError(f'{name}: forbidden namespace mode')
-            if service.get('ports'): raise ValueError(f'{name}: public ports are managed by platform')
-            for volume in service.get('volumes') or []:
-                bind_source = volume.get('source') if isinstance(volume, dict) and volume.get('type') == 'bind' else None
-                if bind_source and os.path.commonpath([str(source), str(Path(bind_source).resolve())]) != str(source): raise ValueError(f'{name}: bind mount outside application')
-        entry_service = next(iter(services))
-        exposed = {str(item).split('/')[0] for item in (services[entry_service].get('expose') or [])}
-        if '8080' not in exposed: raise ValueError(f'{entry_service}: entry service must expose internal port 8080')
-        snapshot = stack / 'user-compose.yml'; shutil.copy2(compose_source, snapshot); snapshot.chmod(0o600)
-        override = f'''services:
-  {entry_service}:
-    restart: unless-stopped
-    ports: ["127.0.0.1:{port}:8080"]
-    networks: [app-internal, hosting-databases]
-    security_opt: ["no-new-privileges:true"]
-    cap_drop: [ALL]
-    cap_add: [CHOWN, SETGID, SETUID]
-    mem_limit: 512m
-    cpus: 1.0
-    pids_limit: 192
-    logging: {{driver: json-file, options: {{max-size: "10m", max-file: "3"}}}}
-networks:
-  app-internal: {{driver: bridge}}
-  hosting-databases: {{external: true}}
-'''
-        _write(stack / 'compose.yml', override)
-        compose_files = [str(snapshot), str(stack / 'compose.yml')]
-    elif (source / 'Dockerfile').is_file():
+        raise ValueError('customer Docker Compose is not enabled; deploy a single validated Dockerfile')
+    if (source / 'Dockerfile').is_file():
         compose = f'''services:
   web:
     build: {{context: "{source}", dockerfile: Dockerfile}}
@@ -145,6 +170,8 @@ networks:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     cap_add: [CHOWN, SETGID, SETUID]
+    read_only: true
+    tmpfs: ["/tmp:exec,mode=1777", "/run:mode=0755", "/var/cache/nginx:mode=0755"]
     mem_limit: 512m
     cpus: 1.0
     pids_limit: 192
@@ -231,7 +258,8 @@ def validate_runtime_commands(*commands: str | None) -> bool:
 
 
 def prepare_runtime(stack_root: str, source_root: str, runtime: str, version: str | None = None, port: int | None = None,
-                    install_command: str | None = None, build_command: str | None = None, start_command: str | None = None) -> dict:
+                    install_command: str | None = None, build_command: str | None = None, start_command: str | None = None,
+                    spa_enabled: bool = False) -> dict:
     if runtime not in SUPPORTED_RUNTIMES: raise ValueError('unsupported runtime')
     allowed_versions = RUNTIME_VERSIONS[runtime]
     version = version or allowed_versions[0]
@@ -239,6 +267,10 @@ def prepare_runtime(stack_root: str, source_root: str, runtime: str, version: st
     stack, source = Path(stack_root).resolve(), Path(source_root).resolve()
     stack.mkdir(parents=True, exist_ok=True); source.mkdir(parents=True, exist_ok=True)
     source.chmod(0o2750)
+    try:
+        os.chown(source, -1, 33)
+    except PermissionError:
+        pass
     source_gid = source.stat().st_gid
     port = int(port or allocate_loopback_port())
     if not 1024 <= port <= 65535: raise ValueError('invalid internal port')
@@ -273,7 +305,17 @@ def prepare_runtime(stack_root: str, source_root: str, runtime: str, version: st
     tmpfs: ["/var/cache/nginx:uid=101,gid=101,mode=0750", "/var/run:uid=101,gid=101,mode=0750"]
     healthcheck: {{test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ >/dev/null"], interval: 10s, timeout: 3s, retries: 6}}
 '''
-        _write(stack / 'default.conf', 'server { listen 8080; root /usr/share/nginx/html; index index.html index.htm; location / { try_files $uri $uri/ =404; } }\n', 0o644)
+        fallback = '/index.html' if spa_enabled else '=404'
+        _write(stack / 'default.conf', f'''server {{
+    listen 8080;
+    root /usr/share/nginx/html;
+    index index.html index.htm;
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+    error_page 404 /404.html;
+    location / {{ try_files $uri $uri/ {fallback}; }}
+    location ~* \\.(?:css|js|png|jpg|jpeg|gif|svg|webp|woff2?)$ {{ expires 7d; add_header Cache-Control "public, max-age=604800"; try_files $uri =404; }}
+}}\n''', 0o644)
         compose = compose.replace(f'    volumes: ["{source}:/usr/share/nginx/html:ro"]', f'    volumes: ["{source}:/usr/share/nginx/html:ro", "{stack / "default.conf"}:/etc/nginx/conf.d/default.conf:ro"]')
     elif runtime == 'php':
         if not (source / 'index.php').exists(): _write(source / 'index.php', '<?php echo "PHP OK"; ?>\n')
@@ -292,6 +334,7 @@ def prepare_runtime(stack_root: str, source_root: str, runtime: str, version: st
     user: "82:82"
     restart: unless-stopped
     networks: [app-internal, hosting-databases]
+    env_file: ["{env_file}"]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     group_add: ["{source_gid}", "33"]
@@ -322,12 +365,6 @@ def prepare_runtime(stack_root: str, source_root: str, runtime: str, version: st
 '''
     else:
         if not (source / 'app.py').exists(): _write(source / 'app.py', "def app(environ, start_response):\n    start_response('200 OK', [('Content-Type', 'text/plain')])\n    return [b'Python OK']\n")
-        _write(stack / 'Dockerfile', f'''FROM python:{version}-alpine
-RUN pip install --no-cache-dir gunicorn==23.0.0
-USER 65534:65534
-WORKDIR /app
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--access-logfile", "-", "--error-logfile", "-", "app:app"]
-''')
         install_command = _safe_command(install_command)
         build_command = _safe_command(build_command)
         start_command = _safe_command(start_command, 'gunicorn --bind 0.0.0.0:8080 --workers 2 --access-logfile - --error-logfile - app:app')
@@ -336,9 +373,7 @@ CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--access-logfile",
         python_boot = f'rm -rf /tmp/app; mkdir /tmp/app; cp -R /workspace/. /tmp/app/; cd /tmp/app; export HOME=/tmp; {lifecycle}'
         compose = f'''services:
   web:
-    build:
-      context: "{stack}"
-      dockerfile: Dockerfile
+    image: myh-stack-python-web:3.12
 {common}    user: "65534:65534"
     read_only: true
     working_dir: /tmp
@@ -353,7 +388,8 @@ CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--access-logfile",
 '''
     _write(stack / 'compose.yml', compose)
     metadata = {'runtime': runtime, 'version': version, 'port': port, 'project': project, 'source_root': str(source), 'status': 'configured',
-                'install_command': install_command or '', 'build_command': build_command or '', 'start_command': start_command or ''}
+                'install_command': install_command or '', 'build_command': build_command or '', 'start_command': start_command or '',
+                'spa_enabled': bool(spa_enabled)}
     _write(stack / 'runtime.json', json.dumps(metadata, indent=2) + '\n', 0o600)
     return metadata
 

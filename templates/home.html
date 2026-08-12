@@ -36,6 +36,18 @@
       </div>
     </article>
   </section>
+
+  {% if runtimes %}
+  <section class="panel-card full-width">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}Hosting for different web projects{% else %}Хостинг для різних типів вебпроєктів{% endif %}</h3><a class="ghost-btn" href="{{ url_for('supported_technologies') }}">{% if current_language == 'en' %}Details{% else %}Детальніше{% endif %}</a></div>
+    <p class="subtitle">{% if current_language == 'en' %}Only environments that passed a complete lifecycle test are listed here.{% else %}Тут показані лише середовища, які пройшли повний lifecycle test.{% endif %}</p>
+    <div class="runtime-card-grid">
+      {% for runtime in runtimes %}
+      <article class="runtime-choice"><span class="runtime-choice-head"><strong>{{ runtime.name }}</strong>{% if runtime.advanced %}<span class="status-pill">Advanced</span>{% endif %}</span><span>{{ runtime.description }}</span><small>{{ runtime.recommendedFor|join(' · ') }}</small><span class="runtime-availability online">✓ {% if current_language == 'en' %}Available{% else %}Доступно{% endif %}</span></article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
 </div>
 
 {% endblock %}

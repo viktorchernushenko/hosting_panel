@@ -29,7 +29,8 @@ import traceback
 import shutil
 import tempfile
 import pymysql
-from runtime_engine import RUNTIME_VERSIONS, SUPPORTED_RUNTIMES, compose_action, detect_stack, healthcheck, infer_runtime_commands, prepare_custom_docker, prepare_runtime, prepare_wordpress_runtime, validate_runtime_commands
+from runtime_engine import RUNTIME_VERSIONS, SUPPORTED_RUNTIMES, compose_action, detect_file_names, detect_stack, healthcheck, infer_runtime_commands, prepare_custom_docker, prepare_runtime, prepare_wordpress_runtime, recommend_runtime, validate_runtime_commands
+from runtime_registry import public_runtime, runtime_catalog
 from collections import defaultdict, deque
 from datetime import datetime
 
@@ -87,6 +88,7 @@ MYH_AI_MODEL = os.environ.get('MYH_AI_MODEL', 'qwen2.5-0.5b-instruct-q4_k_m')
 MYSQL_HEALTH_CACHE = {'checked_at': 0.0, 'ok': False}
 APP_STACKS_ROOT = os.path.join(app.instance_path, 'app_stacks')
 RUNTIME_CONFIG_FILE = os.path.join(app.instance_path, 'runtime_config.json')
+RUNTIME_HEALTH_FILE = os.path.join(app.instance_path, 'runtime_health.json')
 REQUIRED_CORE_TABLES = {
     'user',
     'site',
@@ -509,6 +511,7 @@ class Site(db.Model):
     install_command = db.Column(db.String(500), nullable=False, default='')
     build_command = db.Column(db.String(500), nullable=False, default='')
     start_command = db.Column(db.String(500), nullable=False, default='')
+    spa_enabled = db.Column(db.Boolean, nullable=False, default=False)
 
 
 class AuditLog(db.Model):
@@ -739,6 +742,7 @@ def ensure_database_schema(force=False):
             ('site', 'install_command', "ALTER TABLE site ADD COLUMN install_command VARCHAR(500) NOT NULL DEFAULT ''", site_columns),
             ('site', 'build_command', "ALTER TABLE site ADD COLUMN build_command VARCHAR(500) NOT NULL DEFAULT ''", site_columns),
             ('site', 'start_command', "ALTER TABLE site ADD COLUMN start_command VARCHAR(500) NOT NULL DEFAULT ''", site_columns),
+            ('site', 'spa_enabled', "ALTER TABLE site ADD COLUMN spa_enabled BOOLEAN NOT NULL DEFAULT 0", site_columns),
         ]
 
         with db.engine.begin() as conn:
@@ -749,6 +753,9 @@ def ensure_database_schema(force=False):
                 conn.execute(text("UPDATE user SET quota_mb = 51200 WHERE quota_mb = 256"))
             conn.execute(text("UPDATE user SET role = 'admin' WHERE is_admin = 1 AND (role IS NULL OR role = '' OR role = 'user')"))
             conn.execute(text("UPDATE user SET role = 'user' WHERE role IS NULL OR role = ''"))
+            if 'site' in table_names:
+                conn.execute(text("UPDATE site SET runtime_type = 'static' WHERE runtime_type IS NULL OR runtime_type = ''"))
+                conn.execute(text("UPDATE site SET runtime_version = 'nginx-alpine' WHERE runtime_version IS NULL OR runtime_version = ''"))
 
         inspector = inspect(db.engine)
         job_tables = {table_name for table_name in inspector.get_table_names()}
@@ -2842,7 +2849,8 @@ def activate_staged_deployment(site, access, staged_source):
             prepare_custom_docker(access.deployment_root, site_path, site.internal_port)
         else:
             prepare_runtime(access.deployment_root, site_path, site.runtime_type, site.runtime_version, site.internal_port,
-                            install_command=install_command, build_command=build_command, start_command=start_command)
+                            install_command=install_command, build_command=build_command, start_command=start_command,
+                            spa_enabled=site.spa_enabled)
         code, output = compose_action(access.deployment_root, 'start')
         metadata = json.loads(open(os.path.join(access.deployment_root, 'runtime.json'), encoding='utf-8').read())
         checked = healthcheck(metadata, timeout=25) if code == 0 else {'ok': False}
@@ -2866,7 +2874,7 @@ def activate_staged_deployment(site, access, staged_source):
             else:
                 prepare_runtime(access.deployment_root, site_path, site.runtime_type, site.runtime_version, site.internal_port,
                                 install_command=old_metadata.get('install_command'), build_command=old_metadata.get('build_command'),
-                                start_command=old_metadata.get('start_command'))
+                                start_command=old_metadata.get('start_command'), spa_enabled=site.spa_enabled)
             compose_action(access.deployment_root, 'start')
         site.deployment_status = 'failed'; db.session.commit()
         raise
@@ -3382,32 +3390,28 @@ def api_catalog():
     return catalog
 
 
+def current_runtime_catalog(language=None):
+    return runtime_catalog(
+        RUNTIME_CONFIG_FILE,
+        RUNTIME_HEALTH_FILE,
+        language=language or resolve_language(),
+        testing=bool(app.config.get('TESTING')),
+    )
+
+
 def runtime_inventory():
-    image_map = {
-        'static': {'nginx-alpine': 'nginx:1.27-alpine'},
-        'php': {version: f'php:{version}-fpm-alpine' for version in RUNTIME_VERSIONS['php']},
-        'node': {'22': 'node:22-alpine'}, 'python': {'3.12': 'python:3.12-alpine'},
-        'docker': {'engine': None},
-    }
     try:
         config = json.load(open(RUNTIME_CONFIG_FILE, encoding='utf-8'))
     except (OSError, json.JSONDecodeError):
         config = {}
     rows = []
-    for runtime, versions in image_map.items():
-        for version, image_name in versions.items():
-            if runtime == 'docker':
-                code, output = run_command(['docker', 'version', '--format', '{{.Server.Version}}'], timeout=10)
-                installed = code == 0; detail = output.strip()
-            else:
-                code, _ = run_command(['docker', 'image', 'inspect', image_name], timeout=10)
-                installed = code == 0; detail = image_name
-            key = f'{runtime}:{version}'
-            rows.append({'runtime':runtime,'version':version,'image':image_name,'installed':installed,
-                         'enabled':config.get(key, {}).get('enabled', True), 'default':config.get(runtime, {}).get('default') == version,
-                         'detail':detail})
-    for runtime in ('go','java','dotnet','ruby'):
-        rows.append({'runtime':runtime,'version':'Docker','image':None,'installed':False,'enabled':False,'default':False,'detail':'Available through validated Docker deployment'})
+    for item in current_runtime_catalog('en'):
+        row = dict(item)
+        row.update({
+            'runtime': item['id'], 'image': None if item['id'] == 'docker' else item['template'],
+            'default': config.get(item['id'], {}).get('default', item['version']) == item['version'],
+        })
+        rows.append(row)
     return rows, config
 
 
@@ -3595,7 +3599,36 @@ def handle_subdomain():
 def index():
     if 'user_id' in session:
         return redirect(url_for('dashboard'))
-    return render_template('home.html')
+    runtimes = [public_runtime(item) for item in current_runtime_catalog() if item['available']]
+    return render_template('home.html', runtimes=runtimes)
+
+
+@app.route('/technologies')
+def supported_technologies():
+    return render_template('technologies.html', runtimes=current_runtime_catalog())
+
+
+@app.route('/api/runtimes')
+def api_runtimes():
+    return jsonify({'runtimes': [public_runtime(item) for item in current_runtime_catalog()], 'requestId': g.request_id})
+
+
+@app.route('/api/runtimes/detect', methods=['POST'])
+def api_runtime_detect():
+    user = db.session.get(User, session.get('user_id')) if session.get('user_id') else None
+    if not user or user.is_banned:
+        abort(401)
+    require_role_permission(user, 'site.create')
+    payload = request.get_json(silent=True) or {}
+    files = payload.get('files') or []
+    package = payload.get('packageJson') or {}
+    if not isinstance(files, list) or len(files) > 500 or not isinstance(package, dict):
+        abort(400, 'Invalid project metadata.')
+    sanitized = [str(name)[:240] for name in files if isinstance(name, str)]
+    detected = detect_file_names(sanitized, package)
+    available = {row['id'] for row in current_runtime_catalog() if row['available']}
+    detected['available'] = detected.get('recommended') in available
+    return jsonify({'detection': detected, 'requestId': g.request_id})
 
 
 @app.route('/favicon.ico')
@@ -3899,14 +3932,15 @@ def create_site_wizard():
         flash('У вас немає дозволу на створення сайтів.', 'error')
         return redirect(url_for('dashboard'))
 
-    allowed_types = ['static', 'php', 'node', 'python', 'docker', 'wordpress']
-    allowed_php_versions = RUNTIME_VERSIONS['php']
+    runtime_options = current_runtime_catalog()
+    allowed_types = [item['id'] for item in runtime_options if item['available']]
+    allowed_php_versions = ['8.2']
     source_modes = ['upload', 'sftp', 'git', 'existing']
     selected_type = request.values.get('site_type', 'static')
     selected_source = request.values.get('source_mode', 'upload')
     selected_php_version = request.values.get('php_runtime', '8.2')
     if selected_type not in allowed_types:
-        selected_type = 'static'
+        selected_type = allowed_types[0] if allowed_types else ''
     if selected_source not in source_modes:
         selected_source = 'upload'
     if selected_php_version not in allowed_php_versions:
@@ -3921,6 +3955,7 @@ def create_site_wizard():
         install_command = (request.form.get('install_command') or '').strip()
         build_command = (request.form.get('build_command') or '').strip()
         start_command = (request.form.get('start_command') or '').strip()
+        spa_enabled = site_type == 'static' and request.form.get('spa_enabled') == '1'
 
         if site_type not in allowed_types:
             flash('Unsupported site type.', 'error')
@@ -3968,6 +4003,7 @@ def create_site_wizard():
             install_command=install_command,
             build_command=build_command,
             start_command=start_command,
+            spa_enabled=spa_enabled,
         )
         if domain:
             new_site.custom_domain = domain
@@ -3980,11 +4016,20 @@ def create_site_wizard():
         if site_type == 'php':
             ensure_php_site_bootstrap(document_root, f'{subdomain}.myh.guru', runtime_version=runtime_version)
         stack_root = os.path.join(APP_STACKS_ROOT, folder_name)
-        if site_type == 'wordpress':
-            metadata = prepare_wordpress_runtime(stack_root, document_root, allocate_application_port())
-        else:
-            metadata = prepare_runtime(stack_root, document_root, runtime_type, runtime_version, allocate_application_port(),
-                                       install_command=install_command, build_command=build_command, start_command=start_command)
+        try:
+            if site_type == 'wordpress':
+                metadata = prepare_wordpress_runtime(stack_root, document_root, allocate_application_port())
+            else:
+                metadata = prepare_runtime(stack_root, document_root, runtime_type, runtime_version, allocate_application_port(),
+                                           install_command=install_command, build_command=build_command, start_command=start_command,
+                                           spa_enabled=spa_enabled)
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+            new_site.runtime_status = 'error'
+            new_site.deployment_status = 'failed'
+            db.session.commit()
+            log_action('site.runtime.provision.failed', f'{subdomain}: {mask_sensitive_text(str(exc))[:300]}')
+            flash('Сайт збережено зі статусом Failed: середовище не вдалося підготувати. Ресурси можна безпечно видалити або повторити запуск після виправлення.', 'error')
+            return redirect(url_for('manage_site', folder_name=folder_name))
         with open(os.path.join(stack_root, 'panel-metadata.json'), 'w', encoding='utf-8') as handle:
             json.dump({
                 'site_type': site_type, 'source_mode': source_mode,
@@ -4027,6 +4072,10 @@ def create_site_wizard():
         new_site.last_restart_at = datetime.now() if check.get('ok') else None
         db.session.commit()
         if not check.get('ok'):
+            try:
+                compose_action(stack_root, 'delete')
+            except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
+                pass
             log_action('site.runtime.failed', f'{subdomain}: {runtime_log[-500:]}')
             flash('Сайт створено, але runtime не пройшов health check. Перевірте application logs.', 'error')
         else:
@@ -4056,6 +4105,7 @@ def create_site_wizard():
         selected_type=selected_type,
         selected_source=selected_source,
         selected_php_version=selected_php_version,
+        runtime_options=runtime_options,
     )
 
 
@@ -5534,7 +5584,7 @@ def api_ai_diagnose(site_id):
     domain_state = probe_domain_status(domain)
     latest_deploy = DeploymentEvent.query.filter_by(site_name=site.name).order_by(DeploymentEvent.created_at.desc()).first()
     context = {
-        'runtime': runtime_state,
+        'runtime': {'type': site.runtime_type, 'version': site.runtime_version, 'state': runtime_state},
         'dns': domain_state.get('dns'),
         'tls': domain_state.get('ssl'),
         'deploy': latest_deploy.status if latest_deploy else 'none',
@@ -6220,9 +6270,23 @@ def developer_deploy():
 @admin_required
 def developer_runtimes():
     rows, config = runtime_inventory()
+    application_counts = dict(db.session.query(Site.runtime_type, func.count(Site.id)).group_by(Site.runtime_type).all())
+    for row in rows:
+        row['applications'] = int(application_counts.get(row['runtime'], 0))
     if request.method == 'POST':
         runtime = (request.form.get('runtime') or '').strip(); version = (request.form.get('version') or '').strip()
         action = (request.form.get('action') or '').strip()
+        if action == 'verify_all':
+            result = subprocess.run(
+                [os.path.join(app.root_path, 'venv', 'bin', 'python'), os.path.join(app.root_path, 'scripts', 'runtime_smoke.py'), '--output', RUNTIME_HEALTH_FILE],
+                cwd=app.root_path, capture_output=True, text=True, timeout=600, check=False,
+                env={**os.environ, 'PYTHONPATH': app.root_path},
+            )
+            if os.path.isfile(RUNTIME_HEALTH_FILE):
+                os.chmod(RUNTIME_HEALTH_FILE, 0o600)
+            log_action('runtime.verify_all', f'exit={result.returncode}')
+            flash('Runtime verification passed.' if result.returncode == 0 else 'Runtime verification found unavailable environments.', 'success' if result.returncode == 0 else 'error')
+            return redirect(url_for('developer_runtimes'))
         row = next((item for item in rows if item['runtime'] == runtime and item['version'] == version and item.get('image')), None)
         if not row:
             flash('Unsupported runtime target.', 'error')

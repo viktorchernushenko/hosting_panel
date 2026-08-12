@@ -7,7 +7,7 @@
     <p>{% if current_language == 'en' %}Create an application from approved templates only.{% else %}Створення застосунку лише із затверджених шаблонів.{% endif %}</p>
   </header>
 
-  <form method="post" class="card form-card">
+  <form method="post" class="card form-card" id="create-site-form">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
 
     {% if user.is_admin %}
@@ -25,14 +25,23 @@
     <label for="domain">{% if current_language == 'en' %}Custom domain (optional){% else %}Кастомний домен (необов'язково){% endif %}</label>
     <input id="domain" name="domain" type="text" placeholder="example.com">
 
-    <label for="site_type">{% if current_language == 'en' %}Application type{% else %}Тип застосунку{% endif %}</label>
-    <select id="site_type" name="site_type" required>
-      {% for app_type in allowed_types %}
-        <option value="{{ app_type }}" {% if selected_type == app_type %}selected{% endif %}>{{ app_type|upper }}</option>
-      {% endfor %}
-    </select>
+    <fieldset class="runtime-fieldset">
+      <legend>{% if current_language == 'en' %}Execution environment{% else %}Середовище виконання{% endif %}</legend>
+      <p class="service-meta">{% if current_language == 'en' %}Choose the technology your site uses.{% else %}Оберіть технологію, на якій працює ваш сайт.{% endif %}</p>
+      <div class="runtime-card-grid">
+        {% for runtime in runtime_options %}
+        <label class="runtime-choice {{ 'unavailable' if not runtime.available else '' }}" data-runtime-card="{{ runtime.id }}">
+          <input type="radio" name="site_type" value="{{ runtime.id }}" {% if selected_type == runtime.id %}checked{% endif %} {% if not runtime.available %}disabled{% endif %} required>
+          <span class="runtime-choice-head"><strong>{{ runtime.name }}</strong>{% if runtime.advanced %}<span class="status-pill">Advanced</span>{% endif %}</span>
+          <span>{{ runtime.description }}</span>
+          <small>{{ runtime.recommendedFor|join(' · ') }}</small>
+          <span class="runtime-availability {{ 'online' if runtime.available else '' }}">{% if runtime.available %}✓ {% if current_language == 'en' %}Available{% else %}Доступно{% endif %}{% else %}{% if current_language == 'en' %}Temporarily unavailable{% else %}Тимчасово недоступно{% endif %}{% endif %}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
 
-    <p class="service-meta">Static/PHP: <code>public_html/</code>. Node/Python: завантажте application-файли у цю саму папку; platform керує процесом і внутрішнім портом.</p>
+    <details class="runtime-help"><summary>{% if current_language == 'en' %}Not sure what to choose?{% else %}Не знаєте, що обрати?{% endif %}</summary><p class="service-meta">HTML/CSS/JS або готовий React/Vue/Vite build → Static. <code>index.php</code> → PHP. Серверний <code>package.json</code> → Node.js. <code>requirements.txt</code> / <code>pyproject.toml</code> → Python. <code>Dockerfile</code> → Docker. Остаточний вибір завжди підтверджуєте ви.</p></details>
 
     <details class="advanced-settings" id="process-command-shell"><summary>{% if current_language == 'en' %}Advanced runtime settings{% else %}Розширені налаштування runtime{% endif %}</summary><div id="process-command-block" class="advanced-settings-body">
       <label for="install_command">Install command</label><input id="install_command" name="install_command" placeholder="npm ci / pip install --target /tmp/deps -r requirements.txt">
@@ -40,6 +49,15 @@
       <label for="start_command">Start command</label><input id="start_command" name="start_command" placeholder="npm start / gunicorn app:app --bind 0.0.0.0:8080">
       <p class="service-meta">Commands execute inside the isolated application container. Port must be 8080.</p>
     </div></details>
+
+    <div id="static-settings-block" class="advanced-settings-body">
+      <label class="runtime-toggle"><input type="checkbox" name="spa_enabled" value="1"> <span>{% if current_language == 'en' %}Single Page Application fallback{% else %}Fallback для Single Page Application (SPA){% endif %}</span></label>
+      <p class="service-meta">{% if current_language == 'en' %}Enable only for client-side routers that must fall back to index.html.{% else %}Вмикайте лише для клієнтських router, яким потрібен fallback на index.html.{% endif %}</p>
+    </div>
+
+    <div id="docker-settings-block" class="advanced-settings-body" style="display:none">
+      <p class="service-meta">Dockerfile: <code>Dockerfile</code> · container port: <code>8080</code>. Public ports, privileged mode, host namespaces, devices and host mounts are rejected.</p>
+    </div>
 
     <div id="php-runtime-block" {% if selected_type != 'php' %}style="display:none;"{% endif %}>
       <label for="php_runtime">{% if current_language == 'en' %}PHP runtime{% else %}PHP runtime{% endif %}</label>
@@ -61,13 +79,13 @@
       {% endfor %}
     </select>
 
-    <button type="submit" class="btn btn-primary">{% if current_language == 'en' %}Create{% else %}Створити{% endif %}</button>
+    <button type="submit" class="btn btn-primary" id="create-site-submit">{% if current_language == 'en' %}Create{% else %}Створити{% endif %}</button>
   </form>
 </section>
 
 <script nonce="{{ csp_nonce }}">
   (function () {
-    var typeSelect = document.getElementById('site_type');
+    var typeInputs = Array.prototype.slice.call(document.querySelectorAll('input[name="site_type"]'));
     var runtimeBlock = document.getElementById('php-runtime-block');
     var runtimeSelect = document.getElementById('php_runtime');
     var runtimeButton = document.getElementById('php-runtime-check');
@@ -75,15 +93,34 @@
     var commandBlock = document.getElementById('process-command-block');
     var commandShell = document.getElementById('process-command-shell');
     var csrfInput = document.querySelector('input[name="_csrf_token"]');
-    if (!typeSelect || !runtimeBlock) return;
+    var createForm = document.getElementById('create-site-form');
+    var createButton = document.getElementById('create-site-submit');
+    var staticBlock = document.getElementById('static-settings-block');
+    var dockerBlock = document.getElementById('docker-settings-block');
+    if (!typeInputs.length || !runtimeBlock) return;
 
-    function syncPhpRuntimeVisibility() {
-      runtimeBlock.style.display = typeSelect.value === 'php' ? '' : 'none';
-      commandShell.style.display = ['node', 'python'].indexOf(typeSelect.value) >= 0 ? '' : 'none';
+    function selectedType() {
+      var selected = typeInputs.find(function (input) { return input.checked; });
+      return selected ? selected.value : '';
     }
 
-    typeSelect.addEventListener('change', syncPhpRuntimeVisibility);
+    function syncPhpRuntimeVisibility() {
+      var value = selectedType();
+      runtimeBlock.style.display = value === 'php' ? '' : 'none';
+      commandShell.style.display = ['node', 'python'].indexOf(value) >= 0 ? '' : 'none';
+      staticBlock.style.display = value === 'static' ? '' : 'none';
+      dockerBlock.style.display = value === 'docker' ? '' : 'none';
+    }
+
+    typeInputs.forEach(function (input) { input.addEventListener('change', syncPhpRuntimeVisibility); });
     syncPhpRuntimeVisibility();
+
+    if (createForm && createButton) {
+      createForm.addEventListener('submit', function () {
+        createButton.disabled = true;
+        createButton.textContent = {{ ('Creating…' if current_language == 'en' else 'Створення…')|tojson }};
+      });
+    }
 
     if (runtimeButton && runtimeSelect && runtimeResult && csrfInput) {
       runtimeButton.addEventListener('click', function () {

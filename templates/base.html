@@ -349,6 +349,7 @@
                     <span class="user-pill">{{ current_user.username }}</span>
                     <form method="POST" action="{{ url_for('logout') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button class="danger-btn topbar-signout" type="submit">{% if current_language == 'en' %}Sign out{% else %}Вийти{% endif %}</button></form>
                 {% else %}
+                    <a class="ghost-btn" href="{{ url_for('supported_technologies') }}">{% if current_language == 'en' %}Technologies{% else %}Технології{% endif %}</a>
                     <a class="ghost-btn" href="{{ url_for('login') }}">{% if current_language == 'en' %}Sign in{% else %}Увійти{% endif %}</a>
                 {% endif %}
             </div>
