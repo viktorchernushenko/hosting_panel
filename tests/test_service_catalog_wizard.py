@@ -175,6 +175,13 @@ class ServiceCatalogWizardTests(unittest.TestCase):
         site.deployment_status = 'failed'
         panel_app.db.session.commit()
         access = panel_app.ensure_application_access(site)
+        os.makedirs(access.file_root, exist_ok=True)
+        with open(os.path.join(access.file_root, 'package.json'), 'w', encoding='utf-8') as handle:
+            json.dump({
+                'scripts': {'build': 'vite build', 'start': 'node server/node-runtime.js'},
+            }, handle)
+        with open(os.path.join(access.file_root, 'package-lock.json'), 'w', encoding='utf-8') as handle:
+            handle.write('{}')
 
         def prepare(stack_root, _site_path, _runtime_type, _version, port, **_kwargs):
             os.makedirs(stack_root, exist_ok=True)
@@ -196,6 +203,9 @@ class ServiceCatalogWizardTests(unittest.TestCase):
         self.assertEqual(site.runtime_status, 'running')
         self.assertEqual(site.deployment_status, 'success')
         self.assertTrue(os.path.isfile(os.path.join(access.deployment_root, 'runtime.json')))
+        self.assertEqual(site.install_command, 'npm ci')
+        self.assertEqual(site.build_command, 'npm run build')
+        self.assertEqual(site.start_command, 'npm start')
         mocked_prepare.assert_called_once()
 
     def test_prepare_runtime_tolerates_sftp_owned_source_directory(self):
