@@ -12,6 +12,7 @@
       <a class="tiny-btn" href="https://{{ site.custom_domain or site.name ~ '.myh.guru' }}/" target="_blank" rel="noopener">{% if current_language == 'en' %}Open site ↗{% else %}Відкрити сайт ↗{% endif %}</a>
       <a class="ghost-btn" href="{{ url_for('developer_deploy', site_id=site.id) }}">Deploy</a>
       <a class="ghost-btn" href="{{ url_for('user_sites_index') }}">{% if current_language == 'en' %}All sites{% else %}Усі сайти{% endif %}</a>
+      <form action="{{ url_for('delete_site', site_id=site.id) }}" method="POST" data-confirm="{% if current_language == 'en' %}Permanently delete {{ site.name }}, including its databases and backups?{% else %}Назавжди видалити {{ site.name }} разом із базами даних і резервними копіями?{% endif %}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button class="danger-btn" type="submit">{% if current_language == 'en' %}Delete site{% else %}Видалити сайт{% endif %}</button></form>
     </div>
   </header>
 

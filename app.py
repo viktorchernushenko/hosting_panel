@@ -5516,6 +5516,8 @@ def delete_site(site_id):
     require_application_permission(user, site, 'site.manage')
 
     access = ensure_application_access(site)
+    deployment_root = access.deployment_root
+    backup_root = access.backup_root
     # Detach the application from every SFTP chroot before removing its source.
     for account in SftpAccount.query.all():
         assigned = parse_json_list(account.assigned_applications_json)
@@ -5536,10 +5538,6 @@ def delete_site(site_id):
             pass
     site_path = application_root(access, bucket='file')
     if os.path.exists(site_path):
-        try:
-            create_backup_archive(site, access=access)
-        except ValueError:
-            pass
         try:
             remove_tree(site_path)
         except PermissionError:
@@ -5562,12 +5560,14 @@ def delete_site(site_id):
         db.session.delete(access)
     db.session.delete(site)
     db.session.commit()
-    if access.deployment_root and os.path.isdir(access.deployment_root):
-        remove_tree(access.deployment_root)
+    if deployment_root and os.path.isdir(deployment_root):
+        remove_tree(deployment_root)
+    if backup_root and os.path.isdir(backup_root):
+        remove_tree(backup_root)
     secret_root = os.path.join(app.instance_path, 'application_secrets', str(site_id))
     if os.path.isdir(secret_root):
         remove_tree(secret_root)
-    log_action('site.delete', f'{site_name}; backup retained')
+    log_action('site.delete', f'{site_name}; files, databases, secrets and backups removed')
     
     return redirect(url_for('dashboard'))
 
