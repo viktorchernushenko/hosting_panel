@@ -3,10 +3,21 @@ set -euo pipefail
 
 PANEL_SERVICE="${PANEL_SERVICE:-myh-guru}"
 PANEL_HEALTH_URL="${PANEL_HEALTH_URL:-http://127.0.0.1:5000/healthz}"
+ALERT_COMMAND=(/usr/bin/python3 /usr/local/lib/myh-ops/send_alert.py)
 
 log() {
   logger -t myh-watchdog "$1"
   echo "$1"
+}
+
+alert() {
+  local key="$1" level="$2" message="$3"
+  "${ALERT_COMMAND[@]}" --key "$key" --level "$level" "$message" >/dev/null || true
+}
+
+resolved() {
+  local key="$1" message="$2"
+  "${ALERT_COMMAND[@]}" --key "$key" --resolved "$message" >/dev/null || true
 }
 
 unit_exists() {
@@ -37,7 +48,10 @@ check_panel_health() {
       log "panel health recovered after restart"
     else
       log "panel still unhealthy after restart"
+      alert panel-health danger "MyH remains unavailable after an automatic restart."
     fi
+  else
+    resolved panel-health "MyH health check recovered."
   fi
 }
 
@@ -55,4 +69,35 @@ fi
 failed_units="$(systemctl --no-pager --plain --type=service --state=failed --no-legend | awk '{print $1}' | tr '\n' ' ' || true)"
 if [[ -n "${failed_units// /}" ]]; then
   log "failed services detected: $failed_units"
+  alert failed-services danger "MyH detected failed system services."
+else
+  resolved failed-services "System services recovered."
+fi
+
+if [[ -r /var/lib/myh-backup/status.json ]]; then
+  backup_state="$(/usr/bin/python3 - <<'PY'
+import json, time
+p=json.load(open('/var/lib/myh-backup/status.json'))
+age=int(time.time())-int(__import__('datetime').datetime.fromisoformat(p['timestamp']).timestamp())
+print(p.get('remote_status','unknown'), age)
+PY
+)"
+  read -r remote_status backup_age <<<"$backup_state"
+  if [[ "$remote_status" != verified ]]; then
+    log "off-server backup not verified: $remote_status"
+    alert offserver-backup danger "Off-server backup is not verified. Current status: $remote_status."
+  elif (( backup_age > 129600 )); then
+    log "off-server backup is stale"
+    alert offserver-backup danger "Last verified off-server backup is older than 36 hours."
+  else
+    resolved offserver-backup "Off-server backup verification recovered."
+  fi
+fi
+
+tls_days="$(timeout 12 openssl s_client -connect myh.guru:443 -servername myh.guru </dev/null 2>/dev/null | openssl x509 -noout -checkend $((30*86400)) >/dev/null 2>&1; echo $?)"
+if [[ "$tls_days" != 0 ]]; then
+  log "Cloudflare edge certificate expires within 30 days or validation failed"
+  alert edge-tls warning "Cloudflare edge certificate expires within 30 days or could not be validated."
+else
+  resolved edge-tls "Cloudflare edge TLS has more than 30 days remaining."
 fi

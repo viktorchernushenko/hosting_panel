@@ -1,25 +1,13 @@
 {% extends 'base.html' %}
+{% block page_context %}{% if current_language == 'en' %}Notifications{% else %}Сповіщення{% endif %}{% endblock %}
 {% block content %}
-<div class="stack">
-  <div class="card">
-    <div class="card-header">
-      <h2>{% if current_language == 'en' %}Notifications & Webhooks{% else %}Сповіщення та вебхуки{% endif %}</h2>
-      <p>{% if current_language == 'en' %}Send alerts to Telegram or email and trigger notifications from external systems.{% else %}Надсилайте сповіщення в Telegram або email і запускайте повідомлення з зовнішніх систем.{% endif %}</p>
-    </div>
-    <form method="post" class="stack">
-      <label>{% if current_language == 'en' %}Message{% else %}Повідомлення{% endif %}
-        <textarea name="message" rows="4" placeholder="{% if current_language == 'en' %}Deployment finished successfully{% else %}Розгортання успішно завершено{% endif %}"></textarea>
-      </label>
-      <button class="btn" type="submit">{% if current_language == 'en' %}Send alert{% else %}Надіслати сповіщення{% endif %}</button>
-    </form>
-  </div>
-
-  <div class="card">
-    <div class="card-header">
-      <h3>{% if current_language == 'en' %}Webhook endpoint{% else %}Webhook endpoint{% endif %}</h3>
-      <p>{% if current_language == 'en' %}Send a POST request with a JSON payload to trigger the same notification.{% else %}Надішліть POST-запит із JSON-пayload, щоб відправити те саме сповіщення.{% endif %}</p>
-    </div>
-    <code>POST /api/webhook/notify<br>{"message":"Deployment completed"}</code>
-  </div>
+<div class="dashboard-shell">
+  <header class="hero-card"><div><p class="eyebrow">Administration</p><h2>{% if current_language == 'en' %}Notifications{% else %}Сповіщення{% endif %}</h2><p class="subtitle">{% if current_language == 'en' %}External delivery providers for operational alerts.{% else %}Зовнішні канали доставки операційних сповіщень.{% endif %}</p></div></header>
+  <section class="panel-grid">
+    {% for provider in provider_statuses %}
+    <article class="panel-card"><div class="panel-head"><h3>{{ 'Telegram' if provider.provider == 'telegram' else 'Email / SMTP' }}</h3><span class="status-badge {{ 'success' if provider.configured else 'warning' }}">{{ 'Configured' if provider.configured else 'Not configured' }}</span></div><p class="subtitle">{% if provider.configured %}{% if current_language == 'en' %}Credentials are stored server-side and never returned to the browser.{% else %}Credentials зберігаються лише на сервері й не повертаються у браузер.{% endif %}{% else %}{% if current_language == 'en' %}Requires administrator secret configuration in /etc/hosting-panel.env.{% else %}Потрібне налаштування секретів адміністратором у /etc/hosting-panel.env.{% endif %}{% endif %}</p></article>
+    {% endfor %}
+  </section>
+  <section class="panel-card"><div class="panel-head"><h3>{% if current_language == 'en' %}Send test notification{% else %}Надіслати тестове сповіщення{% endif %}</h3></div><form method="post" class="stack-form"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><label for="notification-message">{% if current_language == 'en' %}Message{% else %}Повідомлення{% endif %}</label><textarea id="notification-message" name="message" maxlength="500" required>MyH notification delivery test</textarea><button type="submit">{% if current_language == 'en' %}Send real test{% else %}Надіслати реальний тест{% endif %}</button></form><p class="field-help">{% if current_language == 'en' %}The result reflects the provider response; no optimistic success is shown.{% else %}Результат відповідає фактичній відповіді provider; optimistic success не використовується.{% endif %}</p></section>
 </div>
 {% endblock %}

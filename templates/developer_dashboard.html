@@ -17,6 +17,17 @@
     </div>
   </header>
 
+  <section class="panel-card full-width">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}Needs attention{% else %}Потребує уваги{% endif %}</h3><a class="ghost-btn" href="{{ url_for('developer_backup_center') }}">{% if current_language == 'en' %}Open backup center{% else %}Відкрити backup center{% endif %}</a></div>
+    <div class="service-list">
+      <div class="attention-row"><div><strong>P0 · Off-server backup</strong><p>{{ 'Verified outside this server' if admin_posture.backup.remote_status == 'verified' else 'Not configured: local backup is not disaster recovery' }}</p></div><span class="status-badge {{ 'success' if admin_posture.backup.remote_status == 'verified' else 'danger' }}">{{ admin_posture.backup.remote_status|replace('_',' ')|title }}</span></div>
+      <div class="attention-row"><div><strong>P1 · Notifications</strong><p>{{ admin_posture.notifications|selectattr('configured')|list|length }} / {{ admin_posture.notifications|length }} providers configured</p></div><a class="ghost-btn" href="{{ url_for('developer_notifications') }}">Configure</a></div>
+      <div class="attention-row"><div><strong>P1 · SFTP review</strong><p>{{ admin_posture.sftp_review }} system accounts require classification review; no automatic deletion authorized.</p></div><a class="ghost-btn" href="{{ url_for('developer_sftp_users') }}">Review</a></div>
+      <div class="attention-row"><div><strong>Info · SSL</strong><p>Edge TLS {{ admin_posture.tls.status }} · renewal managed by Cloudflare · {{ admin_posture.tls.days_remaining if admin_posture.tls.days_remaining is not none else '—' }} days remaining</p></div><a class="ghost-btn" href="{{ url_for('developer_dns_ssl') }}">Details</a></div>
+      <div class="attention-row"><div><strong>Info · Application database</strong><p>SQLite · {{ admin_posture.sqlite.status }} · integrity {{ admin_posture.sqlite.integrity }}. Customer MySQL is independent.</p></div><span class="status-badge {{ 'success' if admin_posture.sqlite.status == 'healthy' else 'danger' }}">{{ admin_posture.sqlite.status|title }}</span></div>
+    </div>
+  </section>
+
   <section class="metrics-grid">
     <article class="card-widget" id="cpu-card">
       <div class="widget-title">CPU</div>
@@ -90,6 +101,7 @@
         <div class="version-item"><strong>v1.8</strong><div>{% if current_language == 'en' %}Unified hosting UX: grouped responsive navigation, design tokens and consistent components, compact dashboards, clearer site and SFTP workflows, accessible dialogs, copy feedback and mobile layout improvements.{% else %}Єдиний UX hosting-панелі: згрупована responsive-навігація, design tokens і послідовні компоненти, компактні dashboard, зрозуміліші Site та SFTP workflow, доступні dialogs, feedback копіювання й покращений mobile layout.{% endif %}</div></div>
         <div class="version-item"><strong>v1.9</strong><div>{% if current_language == 'en' %}Product-centered information architecture with dedicated Sites, Domains, Databases, Backups, Logs and Profile pages; health and attention dashboard, collapsible navigation, advanced settings disclosure and CGNAT-safe SFTP guidance.{% else %}Продуктова інформаційна архітектура з окремими сторінками Sites, Domains, Databases, Backups, Logs і Profile; dashboard стану та проблем, collapsible navigation, progressive disclosure і SFTP flow для мережі з CGNAT.{% endif %}</div></div>
         <div class="version-item"><strong>v2.0.0</strong><div>{% if current_language == 'en' %}Introduced a site-centered information architecture, clearer resource workflows, responsive site tables and consistent destructive confirmations.{% else %}Впроваджено site-centric інформаційну архітектуру, зрозумілі resource workflows, адаптивні таблиці сайтів і єдині підтвердження небезпечних дій.{% endif %}</div></div>
+        <div class="version-item"><strong>v2.1.0</strong><div>{% if current_language == 'en' %}Added verified two-stage backups, provider-based deduplicated alerts, SFTP inventory, Cloudflare edge TLS monitoring and SQLite health reporting.{% else %}Додано перевірені двоетапні backup, provider-based alerts із deduplication, SFTP inventory, Cloudflare edge TLS monitoring та SQLite health reporting.{% endif %}</div></div>
       </div>
     </div>
   </div>

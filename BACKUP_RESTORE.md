@@ -1,5 +1,28 @@
 # Backup and restore
 
-Platform audit snapshots are stored under `/srv/backups/platform-audit/<timestamp>` as root-only files with SHA-256 manifests. Verify with `sha256sum -c SHA256SUMS` from inside a snapshot. MySQL logical backups are under `/srv/backups/mysql`; site archives are managed per application by the panel.
+MyH has two deliberately separate stages:
 
-Restore into a staging location first. Stop only the affected service, verify the archive and available disk space, restore configuration/data, validate ownership and secrets permissions, then start and health-check the service. For MySQL use the socket-authenticated root account and import the selected SQL dump. For Docker volumes, create the target volume and extract its archive into a temporary helper container. Never overwrite a live volume before preserving its current state.
+1. A consistent local backup under `/srv/backups/myh/<UTC backup id>`.
+2. An encrypted copy to a configured off-server target, followed by a remote SHA-256 comparison.
+
+`LOCAL_BACKUP=verified` never implies `REMOTE_BACKUP=verified`. State is stored root-only in `/var/lib/myh-backup/status.json` and displayed in Admin → Backup Center.
+
+## Configuration
+
+Copy `systemd/myh-backup.conf.example` to `/etc/myh-backup.conf` as `root:root` mode `0600`. Supported targets are `local_mount` and key-authenticated `sftp`. A `local_mount` target must pass `findmnt --mountpoint`, preventing a missing disk from silently writing onto production storage.
+
+Every remote target requires `BACKUP_GPG_RECIPIENT`. Only its public encryption identity is needed on production; escrow the private recovery key away from this server. SFTP uses a dedicated identity and strict host-key checking. Never commit private keys or passwords.
+
+Local retention uses `BACKUP_RETENTION_DAYS` (default 14). Remote retention remains the independent storage policy until a target and its capacity are selected.
+
+## Contents and verification
+
+The job uses the SQLite Backup API, runs `PRAGMA integrity_check`, records key table counts, and excludes live SQLite files from the general archive. It includes site/application data, customer DB backups, SFTP paths, and non-secret SSH/Cloudflare/systemd metadata. Volatile caches, logs and Docker layers are excluded.
+
+Disposable local restore test:
+
+```bash
+sudo /home/myserver/hosting_panel/venv/bin/python /home/myserver/hosting_panel/scripts/myh_backup.py --restore-test
+```
+
+This verifies SHA-256, opens a copied SQLite DB, checks integrity and compares row counts. A remote restore test remains `WAITING FOR STORAGE` until a real target exists.

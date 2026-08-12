@@ -18,6 +18,17 @@
   {% endif %}
 
   <section class="panel-card full-width">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}Browser-facing certificate{% else %}Сертифікат для браузера{% endif %}</h3><span class="status-badge {{ 'success' if edge_certificate.status == 'valid' else ('warning' if edge_certificate.status == 'expiring' else 'danger') }}">{{ edge_certificate.status|capitalize }}</span></div>
+    <div class="metrics-grid">
+      <div class="metric-tile"><div class="metric-label">Provider</div><div class="metric-value">{{ edge_certificate.provider }}</div><div class="metric-caption">Edge TLS</div></div>
+      <div class="metric-tile"><div class="metric-label">{% if current_language == 'en' %}Expires{% else %}Дійсний до{% endif %}</div><div class="metric-value">{{ edge_certificate.days_remaining if edge_certificate.days_remaining is not none else '—' }} days</div><div class="metric-caption">{{ edge_certificate.expires or 'Not verified' }}</div></div>
+      <div class="metric-tile"><div class="metric-label">Renewal</div><div class="metric-value">Cloudflare</div><div class="metric-caption">{{ edge_certificate.management }}</div></div>
+      <div class="metric-tile"><div class="metric-label">Origin</div><div class="metric-value">Tunnel</div><div class="metric-caption">{{ edge_certificate.origin_transport }}</div></div>
+    </div>
+    <p class="field-help">{% if current_language == 'en' %}The edge certificate is not renewed by local certbot. Expiry is monitored; certificate lifecycle is controlled by Cloudflare.{% else %}Edge-сертифікат не оновлюється локальним certbot. Термін дії контролюється, а lifecycle сертифіката керується Cloudflare.{% endif %}</p>
+  </section>
+
+  <section class="panel-card full-width">
     <div class="panel-head">
       <h3>{% if current_language == 'en' %}Cloudflare credentials{% else %}Cloudflare credentials{% endif %}</h3>
       <span class="status-pill online">{{ cloudflare_config.token_source }}</span>

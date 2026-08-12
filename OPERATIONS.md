@@ -27,9 +27,11 @@ Check `/healthz`, `myh-guru`, `cloudflared`, `mysql`, `docker`, failed systemd u
 
 ## Backups
 
-`myh-backup.timer` targets the external filesystem mounted at `/mnt/myh-backup`. Current inventory found that filesystem absent, so off-server backup is **WARNING / unavailable**; local platform audit backups are not a substitute for an off-server copy. Mount and monitor an approved external/NAS/object-storage target before claiming off-server protection.
+`/mnt/myh-backup` has no backing device or network-mount configuration. The daily job now creates and verifies a local backup independently, then records remote status as `not_configured`; it never reports a local copy as off-server success. Configure `/etc/myh-backup.conf`, a GPG recipient and independent storage before claiming disaster recovery.
 
 Database backups are logical `mysqldump` files with SHA-256 sidecars verified before restore. Run restore drills only against disposable resources or with explicit confirmation.
+
+External alerts use Telegram/SMTP provider abstractions. Until server-side credentials are installed, Admin → Notifications reports Not configured and the watchdog records problems locally with deduplication state.
 
 ## Docker logging
 

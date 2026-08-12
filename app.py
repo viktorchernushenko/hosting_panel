@@ -17,12 +17,14 @@ import hashlib
 import hmac
 import time
 import argparse
+import grp
+import pwd
 import socket
+import sqlite3
 import ssl
 import urllib.request
 import urllib.error
 import urllib.parse
-import smtplib
 import string
 import threading
 import traceback
@@ -30,6 +32,7 @@ import shutil
 import tempfile
 import pymysql
 from ai_provider import AIProviderError, build_provider
+from notification_service import NotificationService
 from runtime_engine import RUNTIME_VERSIONS, SUPPORTED_RUNTIMES, compose_action, detect_file_names, detect_stack, healthcheck, infer_runtime_commands, prepare_custom_docker, prepare_runtime, prepare_wordpress_runtime, recommend_runtime, validate_runtime_commands
 from runtime_registry import public_runtime, runtime_catalog
 from collections import defaultdict, deque
@@ -70,7 +73,7 @@ CLOUDFLARE_ZONE_NAME = os.environ.get('CLOUDFLARE_ZONE_NAME', 'myh.guru')
 CLOUDFLARE_TOKEN_FILE = os.environ.get('CLOUDFLARE_TOKEN_FILE', '/tmp/.cf_token')
 CLOUDFLARE_LOCAL_TOKEN_FILE = os.path.join(app.instance_path, 'cloudflare_api_token')
 CLOUDFLARE_LOCAL_ZONE_FILE = os.path.join(app.instance_path, 'cloudflare_zone_name')
-APP_VERSION = os.environ.get('HOSTING_PANEL_VERSION', '2.0.0')
+APP_VERSION = os.environ.get('HOSTING_PANEL_VERSION', '2.1.0')
 STATUS_MODEL = {
     'site': ['provisioning', 'running', 'unhealthy', 'stopped', 'failed', 'deleting'],
     'deployment': ['queued', 'building', 'deploying', 'running', 'failed'],
@@ -2923,6 +2926,35 @@ def dashboard_overview():
     }
 
 
+def sqlite_application_health():
+    database_path = os.path.join(app.instance_path, 'hosting.db')
+    result = {'engine': 'SQLite', 'status': 'failed', 'size_bytes': 0, 'journal_mode': None,
+              'busy_timeout_ms': None, 'foreign_keys': None, 'integrity': 'not checked'}
+    try:
+        connection = sqlite3.connect(database_path, timeout=30)
+        result.update(
+            status='healthy', size_bytes=os.path.getsize(database_path),
+            integrity=connection.execute('PRAGMA integrity_check').fetchone()[0],
+            journal_mode=connection.execute('PRAGMA journal_mode').fetchone()[0],
+            busy_timeout_ms=connection.execute('PRAGMA busy_timeout').fetchone()[0],
+            foreign_keys=bool(connection.execute('PRAGMA foreign_keys').fetchone()[0]),
+        )
+        connection.close()
+        if result['integrity'] != 'ok':
+            result['status'] = 'failed'
+    except (OSError, sqlite3.Error):
+        pass
+    return result
+
+
+def platform_backup_status():
+    try:
+        with open('/var/lib/myh-backup/status.json', encoding='utf-8') as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return {'local_status': 'unknown', 'remote_status': 'not_configured', 'last_restore_test': None}
+
+
 def read_text_command(command, timeout=10, max_lines=None):
     code, output = run_command(command, timeout=timeout)
     lines = [line.rstrip() for line in (output or '').splitlines() if line.strip()]
@@ -3149,28 +3181,14 @@ def list_failed_services():
     return [line.split()[0] for line in output.splitlines() if line.strip()]
 
 
-def send_notification(message, level='info'):
-    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '').strip()
-    chat_id = os.environ.get('TELEGRAM_CHAT_ID', '').strip()
-    if bot_token and chat_id:
-        try:
-            payload = urllib.parse.urlencode({'chat_id': chat_id, 'text': message}).encode('utf-8')
-            request_object = urllib.request.Request(f'https://api.telegram.org/bot{bot_token}/sendMessage', data=payload, method='POST')
-            urllib.request.urlopen(request_object, timeout=10)
-        except Exception:
-            pass
-    smtp_host = os.environ.get('SMTP_HOST', '').strip()
-    smtp_user = os.environ.get('SMTP_USER', '').strip()
-    smtp_password = os.environ.get('SMTP_PASSWORD', '').strip()
-    smtp_to = os.environ.get('SMTP_TO', '').strip()
-    if smtp_host and smtp_user and smtp_password and smtp_to:
-        try:
-            with smtplib.SMTP(smtp_host, 587, timeout=10) as smtp:
-                smtp.starttls()
-                smtp.login(smtp_user, smtp_password)
-                smtp.sendmail(smtp_user, [smtp_to], f'Subject: [{level.upper()}] Hosting panel alert\n\n{message}')
-        except Exception:
-            pass
+def send_notification(message, level='info', alert_key=None, resolved=False):
+    service = NotificationService.from_env(os.path.join(app.instance_path, 'notification_state.json'))
+    return service.send(message, level=level, alert_key=alert_key, resolved=resolved)
+
+
+def notification_statuses():
+    service = NotificationService.from_env(os.path.join(app.instance_path, 'notification_state.json'))
+    return service.statuses()
 
 
 def collect_health_alerts():
@@ -3182,7 +3200,9 @@ def collect_health_alerts():
     if restarting:
         alerts.append({'level': 'warning', 'title': 'Restarting containers', 'detail': ', '.join(restarting[:6])})
     if alerts:
-        send_notification('Hosting panel detected: ' + '; '.join(item['title'] for item in alerts), level='warning')
+        send_notification('Hosting panel detected: ' + '; '.join(item['title'] for item in alerts), level='warning', alert_key='platform-health')
+    else:
+        send_notification('Platform health checks recovered.', level='info', alert_key='platform-health', resolved=True)
     return alerts
 
 
@@ -4197,7 +4217,14 @@ def dashboard():
         usage = {item.id: user_usage_bytes(item) for item in users}
         recent_logs = AuditLog.query.order_by(AuditLog.id.desc()).limit(15).all()
         overview = dashboard_overview()
-        return render_template('developer_dashboard.html', user=user, sites=all_sites, users=users, usage=usage, recent_logs=recent_logs, metrics=metrics, services=service_statuses, overview=overview, is_platform_admin=bool(user_role(user) == 'admin' or user.is_admin), can_create_site=user_has_role_permission(user, 'site.create'))
+        admin_posture = {
+            'backup': platform_backup_status(),
+            'notifications': notification_statuses(),
+            'sqlite': sqlite_application_health(),
+            'tls': edge_tls_certificate_status(CLOUDFLARE_ZONE_NAME),
+            'sftp_review': sum(1 for item in system_sftp_inventory(SftpAccount.query.all()) if item['classification'] != 'PRODUCTION'),
+        }
+        return render_template('developer_dashboard.html', user=user, sites=all_sites, users=users, usage=usage, recent_logs=recent_logs, metrics=metrics, services=service_statuses, overview=overview, admin_posture=admin_posture, is_platform_admin=bool(user_role(user) == 'admin' or user.is_admin), can_create_site=user_has_role_permission(user, 'site.create'))
 
     user_sites = Site.query.filter_by(user_id=session['user_id']).all()
     actual_statuses = actual_site_runtime_statuses(user_sites)
@@ -4448,6 +4475,42 @@ def current_user_sites(user):
     return Site.query.filter(Site.id.in_(site_ids)).order_by(Site.created_at.desc()).all() if site_ids else []
 
 
+def system_sftp_inventory(panel_accounts):
+    try:
+        group = grp.getgrnam('myh_sftp')
+    except KeyError:
+        return []
+    panel_by_name = {account.username: account for account in panel_accounts}
+    rows = []
+    for entry in pwd.getpwall():
+        if entry.pw_gid != group.gr_gid:
+            continue
+        root = f'/srv/apps/{entry.pw_name}'
+        upload = os.path.join(root, 'upload')
+        key_file = f'/etc/ssh/myh-sftp-authorized-keys/{entry.pw_name}'
+        panel_account = panel_by_name.get(entry.pw_name)
+        site_directories = []
+        sites_root = os.path.join(upload, 'sites')
+        if os.path.isdir(sites_root):
+            site_directories = sorted(os.listdir(sites_root))[:20]
+        activity_times = [os.path.getmtime(path) for path in (root, upload, key_file) if os.path.exists(path)]
+        last_activity = max(activity_times) if activity_times else None
+        if panel_account:
+            classification, removable = 'PRODUCTION', False
+        elif site_directories:
+            classification, removable = 'UNKNOWN', False
+        else:
+            classification, removable = 'UNKNOWN', False
+        rows.append({
+            'username': entry.pw_name, 'uid': entry.pw_uid, 'group': group.gr_name, 'home': entry.pw_dir,
+            'chroot': root, 'sites': site_directories, 'panel_owner': panel_account.assigned_user.username if panel_account and panel_account.assigned_user else None,
+            'last_activity': datetime.fromtimestamp(last_activity) if last_activity else None,
+            'classification': classification, 'safe_to_remove': removable,
+            'authorized_keys': 1 if os.path.isfile(key_file) and os.path.getsize(key_file) else 0,
+        })
+    return sorted(rows, key=lambda item: item['username'])
+
+
 def probe_domain_status(domain):
     """Resolve DNS and complete a hostname-verified TLS handshake."""
     result = {'dns': 'pending', 'ssl': 'pending', 'detail': '', 'valid_until': None}
@@ -4469,6 +4532,26 @@ def probe_domain_status(domain):
         result['ssl'] = 'expiring' if remaining < 30 * 86400 else 'secure'
     except (OSError, ssl.SSLError, ValueError) as exc:
         result.update(ssl='failed', detail=f'TLS verification failed: {exc}')
+    return result
+
+
+def edge_tls_certificate_status(domain='myh.guru'):
+    result = {'provider': 'Cloudflare', 'management': 'Managed by Cloudflare', 'status': 'failed',
+              'expires': None, 'days_remaining': None, 'issuer': None, 'origin_transport': 'Cloudflare Tunnel over loopback HTTP'}
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((domain, 443), timeout=5) as raw_socket:
+            with context.wrap_socket(raw_socket, server_hostname=domain) as tls_socket:
+                certificate = tls_socket.getpeercert()
+        expiry = certificate.get('notAfter')
+        remaining = int((ssl.cert_time_to_seconds(expiry) - time.time()) / 86400) if expiry else None
+        issuer = dict(item[0] for item in certificate.get('issuer', ()))
+        result.update(status='valid' if remaining is not None and remaining >= 0 else 'failed', expires=expiry,
+                      days_remaining=remaining, issuer=issuer.get('organizationName') or issuer.get('commonName'))
+        if remaining is not None and remaining < 30:
+            result['status'] = 'expiring'
+    except (OSError, ssl.SSLError, ValueError):
+        result['detail'] = 'Edge TLS validation failed'
     return result
 
 
@@ -4783,7 +4866,7 @@ def developer_sftp_users():
     accounts = SftpAccount.query.order_by(SftpAccount.username.asc()).all()
     audit_rows = SftpAuditEvent.query.order_by(SftpAuditEvent.id.desc()).limit(200).all()
     account_assignments = {account.id: set(parse_json_list(account.assigned_applications_json, int)) for account in accounts}
-    return render_template('developer_sftp_users.html', users=users, sites=sites, accounts=accounts, audit_rows=audit_rows, account_assignments=account_assignments)
+    return render_template('developer_sftp_users.html', users=users, sites=sites, accounts=accounts, audit_rows=audit_rows, account_assignments=account_assignments, system_accounts=system_sftp_inventory(accounts))
 
 
 @app.route('/developer/sftp-users/create', methods=['POST'])
@@ -6073,12 +6156,19 @@ def developer_notifications():
     if request.method == 'POST':
         message = (request.form.get('message') or '').strip()
         if message:
-            send_notification(message, level='info')
-            flash('Notification sent.', 'success')
+            result = NotificationService.from_env(os.path.join(app.instance_path, 'notification_state.json')).send(
+                message, level='test', alert_key='manual-test', force=True
+            )
+            if result['delivered']:
+                flash('Test notification delivered.', 'success')
+            elif any(item['configured'] for item in result['results']):
+                flash('Test notification failed. Review provider configuration.', 'error')
+            else:
+                flash('Notification providers are not configured.', 'error')
         else:
             flash('Message is required.', 'error')
         return redirect(url_for('developer_notifications'))
-    return render_template('developer_notifications.html')
+    return render_template('developer_notifications.html', provider_statuses=notification_statuses())
 
 
 @app.route('/api/webhook/notify', methods=['POST'])
@@ -6466,11 +6556,17 @@ def developer_backup_center():
         'pending_jobs': JobTask.query.filter_by(status='pending').count(),
     }
     recent_jobs = JobTask.query.filter(JobTask.job_type.in_(['site.backup', 'site.restore', 'site.delete'])).order_by(JobTask.id.desc()).limit(20).all()
+    try:
+        with open('/var/lib/myh-backup/status.json', encoding='utf-8') as handle:
+            platform_backup = json.load(handle)
+    except (OSError, ValueError):
+        platform_backup = {'local_status': 'unknown', 'remote_status': 'not_configured', 'remote_type': 'none', 'timestamp': None, 'last_restore_test': None}
     return render_template(
         'developer_backup_center.html',
         summary=summary,
         backup_rows=backup_rows,
         recent_jobs=recent_jobs,
+        platform_backup=platform_backup,
     )
 
 
@@ -6568,6 +6664,7 @@ def developer_dns_ssl():
         zone_payload=zone_payload,
         error_message=error_message,
         cloudflare_config=config,
+        edge_certificate=edge_tls_certificate_status(zone_name),
     )
 
 

@@ -50,6 +50,14 @@
   </section>
 
   <section class="panel-card full-width">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}System account inventory{% else %}Інвентар системних акаунтів{% endif %}</h3><span class="status-badge warning">{% if current_language == 'en' %}Review required{% else %}Потрібна перевірка{% endif %}</span></div>
+    <p class="subtitle">{% if current_language == 'en' %}Panel-linked accounts are production. Unlinked system accounts remain Unknown until a privileged dependency review proves otherwise. Names alone never authorize deletion.{% else %}Пов’язані з панеллю акаунти є production. Інші системні акаунти залишаються Unknown, доки privileged dependency review не доведе інше. Саме ім’я ніколи не є підставою для видалення.{% endif %}</p>
+    <div class="data-table-wrap"><table class="data-table responsive-table"><thead><tr><th>User / UID</th><th>Group</th><th>Chroot</th><th>Sites</th><th>Panel owner</th><th>Last activity</th><th>Classification</th><th>Safe to remove?</th></tr></thead><tbody>
+      {% for row in system_accounts %}<tr><td data-label="User / UID"><strong>{{ row.username }}</strong><div class="service-meta">UID {{ row.uid }} · keys {{ row.authorized_keys }}</div></td><td data-label="Group">{{ row.group }}</td><td data-label="Chroot"><code>{{ row.chroot }}</code></td><td data-label="Sites">{{ row.sites|join(', ') or '—' }}</td><td data-label="Panel owner">{{ row.panel_owner or '—' }}</td><td data-label="Last activity">{{ row.last_activity.strftime('%Y-%m-%d %H:%M') if row.last_activity else 'Unknown' }}</td><td data-label="Classification"><span class="status-badge {{ 'success' if row.classification == 'PRODUCTION' else 'warning' }}">{{ row.classification }}</span></td><td data-label="Safe to remove?">{{ 'YES' if row.safe_to_remove else 'NO' }}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  <section class="panel-card full-width">
     <div class="panel-head"><h3>{% if current_language == 'en' %}SFTP accounts{% else %}SFTP акаунти{% endif %}</h3><span class="status-pill">{{ accounts|length }}</span></div>
     <div class="table-wrap">
       <table class="data-table">
