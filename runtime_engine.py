@@ -415,9 +415,10 @@ def compose_action(stack_root: str, action: str, timeout: int = 180) -> tuple[in
 def healthcheck(metadata: dict, timeout: int = 8) -> dict:
     deadline = time.monotonic() + timeout
     last_error = ''
+    health_path = '/health' if metadata.get('runtime') == 'node' else '/'
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{int(metadata['port'])}/", timeout=min(2, timeout)) as response:
+            with urllib.request.urlopen(f"http://127.0.0.1:{int(metadata['port'])}{health_path}", timeout=min(2, timeout)) as response:
                 return {'ok': 200 <= response.status < 400, 'status': response.status}
         except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
             last_error = str(exc)[:160]
