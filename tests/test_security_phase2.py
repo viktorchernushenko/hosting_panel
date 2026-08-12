@@ -70,7 +70,7 @@ class SecurityPhase2Tests(unittest.TestCase):
 
         # No CSRF header -> blocked
         denied = client.post('/api/console', json={'command': 'uptime'})
-        self.assertEqual(denied.status_code, 400)
+        self.assertEqual(denied.status_code, 403)
         self.assertIn('CSRF', denied.get_data(as_text=True))
 
         # CSRF header present -> route executes and returns JSON payload
@@ -362,15 +362,14 @@ class SecurityPhase2Tests(unittest.TestCase):
         response = client.post('/api/webhook/notify', json={'message': 'ping'})
         self.assertEqual(response.status_code, 503)
 
-    def test_notify_webhook_allows_compatibility_mode(self):
+    def test_notify_webhook_requires_secret_and_valid_schema(self):
         client = self.app.test_client()
-        old_value = panel_app.ALLOW_INSECURE_NOTIFY_WEBHOOK
-        panel_app.ALLOW_INSECURE_NOTIFY_WEBHOOK = True
-        try:
-            response = client.post('/api/webhook/notify', json={'message': 'ping'})
+        with mock.patch.object(panel_app, 'NOTIFY_WEBHOOK_SECRET', 'notify-secret'):
+            self.assertEqual(client.post('/api/webhook/notify', json={'message': 'ping'}).status_code, 403)
+            response = client.post('/api/webhook/notify', json={'message': 'ping'}, headers={'X-Webhook-Secret': 'notify-secret'})
             self.assertEqual(response.status_code, 200)
-        finally:
-            panel_app.ALLOW_INSECURE_NOTIFY_WEBHOOK = old_value
+            invalid = client.post('/api/webhook/notify', json={'message': {'bad': True}}, headers={'X-Webhook-Secret': 'notify-secret'})
+            self.assertEqual(invalid.status_code, 400)
 
     def test_header_has_single_compact_language_switch(self):
         client = self.app.test_client()

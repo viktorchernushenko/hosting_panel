@@ -29,6 +29,7 @@ import traceback
 import shutil
 import tempfile
 import pymysql
+from ai_provider import AIProviderError, build_provider
 from runtime_engine import RUNTIME_VERSIONS, SUPPORTED_RUNTIMES, compose_action, detect_file_names, detect_stack, healthcheck, infer_runtime_commands, prepare_custom_docker, prepare_runtime, prepare_wordpress_runtime, recommend_runtime, validate_runtime_commands
 from runtime_registry import public_runtime, runtime_catalog
 from collections import defaultdict, deque
@@ -58,6 +59,7 @@ db = SQLAlchemy(app)
 APPLICATION_PORT_LOCK = threading.Lock()
 login_attempts = defaultdict(deque)
 ai_attempts = defaultdict(deque)
+webhook_attempts = defaultdict(deque)
 LOGIN_WINDOW_SECONDS = 300
 LOGIN_MAX_IP_ATTEMPTS = 10
 LOGIN_MAX_ACCOUNT_ATTEMPTS = 6
@@ -85,6 +87,7 @@ MYSQL_SSL_CA = os.environ.get('MYSQL_SSL_CA', '/etc/mysql/myh-ca.pem')
 MYH_AI_URL = os.environ.get('MYH_AI_URL', '').strip()
 MYH_AI_KEY_FILE = os.environ.get('MYH_AI_KEY_FILE', '/etc/myh-ai.key')
 MYH_AI_MODEL = os.environ.get('MYH_AI_MODEL', 'qwen2.5-0.5b-instruct-q4_k_m')
+MYH_AI_PROVIDER = os.environ.get('MYH_AI_PROVIDER', 'local-openai-compatible').strip()
 MYSQL_HEALTH_CACHE = {'checked_at': 0.0, 'ok': False}
 APP_STACKS_ROOT = os.path.join(app.instance_path, 'app_stacks')
 RUNTIME_CONFIG_FILE = os.path.join(app.instance_path, 'runtime_config.json')
@@ -197,8 +200,8 @@ API_CSRF_EXEMPT_PATHS = {
     '/api/github/webhook',
 }
 NOTIFY_WEBHOOK_SECRET = os.environ.get('HOSTING_PANEL_NOTIFY_WEBHOOK_SECRET', '').strip()
-ALLOW_INSECURE_NOTIFY_WEBHOOK = os.environ.get('HOSTING_PANEL_ALLOW_INSECURE_NOTIFY_WEBHOOK', '0').strip() == '1'
-ALLOW_UNSIGNED_GITHUB_WEBHOOK = os.environ.get('HOSTING_PANEL_ALLOW_UNSIGNED_GITHUB_WEBHOOK', '0').strip() == '1'
+WEBHOOK_RATE_WINDOW_SECONDS = 300
+WEBHOOK_RATE_MAX_REQUESTS = 60
 ARCHIVE_MAX_ENTRIES = int(os.environ.get('ARCHIVE_MAX_ENTRIES', '5000'))
 ARCHIVE_MAX_UNCOMPRESSED_BYTES = int(os.environ.get('ARCHIVE_MAX_UNCOMPRESSED_BYTES', str(1024 * 1024 * 1024)))
 ARCHIVE_MAX_COMPRESSION_RATIO = int(os.environ.get('ARCHIVE_MAX_COMPRESSION_RATIO', '200'))
@@ -1043,6 +1046,19 @@ def github_signature_valid(request_obj, expected_secret):
     return bool(signature and secrets.compare_digest(signature, expected))
 
 
+def external_webhook_rate_allowed(kind):
+    client = request.headers.get('CF-Connecting-IP') or request.remote_addr or 'unknown'
+    key = f'{kind}:{client}'
+    now = time.monotonic()
+    attempts = webhook_attempts[key]
+    while attempts and now - attempts[0] > WEBHOOK_RATE_WINDOW_SECONDS:
+        attempts.popleft()
+    if len(attempts) >= WEBHOOK_RATE_MAX_REQUESTS:
+        return False
+    attempts.append(now)
+    return True
+
+
 with app.app_context():
     ensure_default_admin_user()
     ensure_application_access_registry()
@@ -1098,7 +1114,7 @@ def validate_csrf():
         supplied = request.form.get('_csrf_token') or request.headers.get('X-CSRF-Token')
         expected = session.get('_csrf_token')
         if not expected or not supplied or not secrets.compare_digest(expected, supplied):
-            abort(400, 'Недійсний CSRF-токен')
+            abort(403, 'Недійсний CSRF-токен')
 
 
 @app.after_request
@@ -1361,7 +1377,9 @@ def user_capabilities(user):
         'canUseAi': 'health.view',
     }
     capabilities = {name: user_has_role_permission(user, permission) for name, permission in checks.items()}
-    capabilities['canUseAi'] = capabilities['canUseAi'] and bool(MYH_AI_URL and os.path.isfile(MYH_AI_KEY_FILE))
+    capabilities['canUseAi'] = capabilities['canUseAi'] and bool(
+        MYH_AI_PROVIDER == 'local-openai-compatible' and MYH_AI_URL and os.path.isfile(MYH_AI_KEY_FILE)
+    )
     return capabilities
 
 
@@ -2240,25 +2258,10 @@ def site_logs_for_ai(site, limit=5):
 
 
 def call_local_ai(messages, max_tokens=64):
-    with open(MYH_AI_KEY_FILE, encoding='utf-8') as handle:
-        api_key = handle.read().strip()
-    payload = json.dumps({
-        'model': MYH_AI_MODEL, 'messages': messages, 'max_tokens': max_tokens,
-        'temperature': 0.15, 'stream': False,
-    }).encode('utf-8')
-    ai_request = urllib.request.Request(
-        MYH_AI_URL, data=payload, method='POST',
-        headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'},
-    )
-    with urllib.request.urlopen(ai_request, timeout=120) as response:
-        result = json.loads(response.read().decode('utf-8'))
-    answer = str(result['choices'][0]['message']['content']).strip()[:2000]
-    usage = result.get('usage') or {}
-    return answer, {
-        'prompt_tokens': int(usage.get('prompt_tokens') or 0),
-        'completion_tokens': int(usage.get('completion_tokens') or 0),
-        'total_tokens': int(usage.get('total_tokens') or 0),
-    }
+    provider = build_provider(MYH_AI_PROVIDER, MYH_AI_URL, MYH_AI_MODEL, MYH_AI_KEY_FILE)
+    if not provider:
+        raise AIProviderError('AI provider is not configured')
+    return provider.complete(messages, max_tokens=max_tokens)
 
 
 def scaffold_site_content(site_path, subdomain):
@@ -2758,6 +2761,14 @@ def create_database_backup(resource):
             os.unlink(destination)
             raise RuntimeError('Database backup failed.')
         os.chmod(destination, 0o600)
+        digest = hashlib.sha256()
+        with open(destination, 'rb') as backup_file:
+            for chunk in iter(lambda: backup_file.read(1024 * 1024), b''):
+                digest.update(chunk)
+        checksum_path = destination + '.sha256'
+        with open(checksum_path, 'w', encoding='ascii') as checksum_file:
+            checksum_file.write(digest.hexdigest() + '\n')
+        os.chmod(checksum_path, 0o600)
         return destination
     finally:
         os.unlink(defaults)
@@ -2769,6 +2780,17 @@ def restore_database_backup(resource, backup_name):
     source = os.path.realpath(os.path.join(database_backup_directory(resource), backup_name))
     if os.path.dirname(source) != os.path.realpath(database_backup_directory(resource)) or not os.path.isfile(source):
         abort(404)
+    checksum_path = source + '.sha256'
+    if not os.path.isfile(checksum_path):
+        raise RuntimeError('Database backup checksum is missing.')
+    with open(checksum_path, encoding='ascii') as checksum_file:
+        expected_digest = checksum_file.read().strip()
+    actual_digest = hashlib.sha256()
+    with open(source, 'rb') as backup_file:
+        for chunk in iter(lambda: backup_file.read(1024 * 1024), b''):
+            actual_digest.update(chunk)
+    if not expected_digest or not secrets.compare_digest(expected_digest, actual_digest.hexdigest()):
+        raise RuntimeError('Database backup checksum verification failed.')
     defaults = database_client_defaults(resource)
     try:
         with open(source, 'rb') as input_file:
@@ -4543,7 +4565,12 @@ def database_backup_delete(resource_id, backup_name):
     if not re.fullmatch(r'\d{8}-\d{6}\.sql', backup_name): abort(404)
     path = os.path.realpath(os.path.join(database_backup_directory(resource), backup_name))
     if os.path.dirname(path) != os.path.realpath(database_backup_directory(resource)) or not os.path.isfile(path): abort(404)
-    os.unlink(path); log_action('database.backup.delete', f'{resource.database_name}:{backup_name}')
+    os.unlink(path)
+    try:
+        os.unlink(path + '.sha256')
+    except FileNotFoundError:
+        pass
+    log_action('database.backup.delete', f'{resource.database_name}:{backup_name}')
     flash('Database backup deleted.', 'success'); return redirect(url_for('user_databases_index'))
 
 
@@ -5563,7 +5590,7 @@ def api_ai_diagnose(site_id):
     user = db.session.get(User, session.get('user_id')) if session.get('user_id') else None
     site = db.session.get(Site, site_id)
     require_application_permission(user, site, 'health.view')
-    if not MYH_AI_URL or not os.path.isfile(MYH_AI_KEY_FILE):
+    if MYH_AI_PROVIDER != 'local-openai-compatible' or not MYH_AI_URL or not os.path.isfile(MYH_AI_KEY_FILE):
         return jsonify({'error': {'code': 'AI_UNAVAILABLE', 'message': 'Local AI is not configured.', 'requestId': g.request_id}}), 503
     now = time.monotonic()
     attempts = ai_attempts[user.id]
@@ -5599,7 +5626,7 @@ def api_ai_diagnose(site_id):
             {'role': 'system', 'content': system_prompt},
             {'role': 'user', 'content': user_prompt},
         ])
-    except (OSError, ValueError, KeyError, json.JSONDecodeError, urllib.error.URLError) as exc:
+    except (AIProviderError, OSError, ValueError, KeyError, json.JSONDecodeError, urllib.error.URLError) as exc:
         log_action('ai.diagnose.failed', f'site={site.id}; error={mask_sensitive_text(str(exc))[:180]}')
         return jsonify({'error': {'code': 'AI_INFERENCE_FAILED', 'message': 'AI diagnostics are temporarily unavailable.', 'requestId': g.request_id}}), 503
     latency_ms = round((time.monotonic() - started) * 1000)
@@ -6043,23 +6070,33 @@ def developer_notifications():
 
 @app.route('/api/webhook/notify', methods=['POST'])
 def api_webhook_notify():
-    if NOTIFY_WEBHOOK_SECRET:
-        if not is_signed_webhook_secret_valid(request, NOTIFY_WEBHOOK_SECRET):
-            return jsonify({'success': False, 'error': 'forbidden'}), 403
-    elif not ALLOW_INSECURE_NOTIFY_WEBHOOK:
+    if not external_webhook_rate_allowed('notify'):
+        return jsonify({'success': False, 'error': 'rate limit exceeded'}), 429
+    if not NOTIFY_WEBHOOK_SECRET:
         return jsonify({'success': False, 'error': 'webhook disabled'}), 503
+    if not is_signed_webhook_secret_valid(request, NOTIFY_WEBHOOK_SECRET):
+        return jsonify({'success': False, 'error': 'forbidden'}), 403
+    if (request.content_length or 0) > 16 * 1024:
+        return jsonify({'success': False, 'error': 'payload too large'}), 413
 
     payload = request.get_json(silent=True) or {}
     if not isinstance(payload, dict):
         return jsonify({'success': False, 'error': 'invalid payload'}), 400
-    message = payload.get('message') or payload.get('event') or 'Webhook notification'
-    safe_message = str(message)[:500]
+    message = payload.get('message') or payload.get('event')
+    if not isinstance(message, str) or not message.strip() or len(message) > 500:
+        return jsonify({'success': False, 'error': 'invalid message'}), 400
+    safe_message = message.strip()
     send_notification(safe_message, level='info')
+    log_action('webhook.notify', 'accepted external notification')
     return jsonify({'success': True, 'message': safe_message})
 
 
 @app.route('/api/github/webhook', methods=['POST'])
 def api_github_webhook():
+    if not external_webhook_rate_allowed('github'):
+        return jsonify({'success': False, 'error': 'rate limit exceeded'}), 429
+    if (request.content_length or 0) > 1024 * 1024:
+        return jsonify({'success': False, 'error': 'payload too large'}), 413
     payload = request.get_json(silent=True) or {}
     if not isinstance(payload, dict):
         return jsonify({'success': False, 'error': 'invalid payload'}), 400
@@ -6068,11 +6105,10 @@ def api_github_webhook():
     site_name = payload.get('site_name') or 'default'
     site = Site.query.filter_by(name=site_name).first() if site_name != 'default' else None
     expected_secret = site.webhook_secret if site and site.webhook_secret else os.environ.get('GITHUB_WEBHOOK_SECRET', '').strip()
-    if expected_secret:
-        if not github_signature_valid(request, expected_secret):
-            return jsonify({'success': False, 'error': 'invalid signature'}), 401
-    elif not ALLOW_UNSIGNED_GITHUB_WEBHOOK:
+    if not expected_secret:
         return jsonify({'success': False, 'error': 'webhook secret not configured'}), 503
+    if not github_signature_valid(request, expected_secret):
+        return jsonify({'success': False, 'error': 'invalid signature'}), 401
     if site and site.webhook_branch:
         branch_name = ref.split('/')[-1]
         if branch_name != site.webhook_branch:

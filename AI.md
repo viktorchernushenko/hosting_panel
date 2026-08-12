@@ -5,3 +5,5 @@ The inference service is `myh-ai.service`: llama.cpp `b10373` with the official 
 The panel is the only client. It constructs a small, server-derived diagnostic context after checking authentication, tenant assignment, and `health.view`. Logs are sanitized and truncated before inference. The model receives no credentials, raw files, database access, Docker socket, shell, network tool, or mutation capability. Model output is advice, never authorization or an executable action.
 
 The panel limits prompt length, output tokens, request duration, per-user request rate, and daily usage. Every request records the user, site, request type, status, latency, and token counters without storing the full prompt or answer.
+
+Business logic uses the provider boundary in `ai_provider.py`. Production selects `local-openai-compatible` through server-side configuration; an unsupported/missing provider disables AI gracefully. Provider credentials remain in a root/group-readable key file and are never returned to the browser or committed.

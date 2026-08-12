@@ -2,13 +2,21 @@
 """Verify an isolated PHP runtime can use a provisioned MyH MySQL database."""
 from __future__ import annotations
 
+import hashlib
 import secrets
 import shutil
+import subprocess
+import sys
 import tempfile
 import urllib.request
 from pathlib import Path
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+
 import app as panel
+import pymysql
 from runtime_engine import compose_action, healthcheck, prepare_runtime
 
 
@@ -43,7 +51,43 @@ def main() -> int:
             body = response.read().decode("utf-8", errors="replace")
         if body != "PHP PDO MYSQL E2E OK":
             raise RuntimeError("unexpected PHP/MySQL response")
-        print("PHP PDO MYSQL E2E: PASS")
+        marker = secrets.token_hex(16)
+        connection = pymysql.connect(host=panel.MYSQL_HOST, port=panel.MYSQL_PORT, user=database_user, password=database_password, database=database_name, ssl={'check_hostname': False})
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute('CREATE TABLE IF NOT EXISTS backup_probe (value VARCHAR(64))')
+                cursor.execute('INSERT INTO backup_probe(value) VALUES (%s)', (marker,))
+            connection.commit()
+        defaults = base / 'client.cnf'
+        defaults.write_text(f'[client]\nhost={panel.MYSQL_HOST}\nport={panel.MYSQL_PORT}\nuser={database_user}\npassword={database_password}\nssl-mode=REQUIRED\n', encoding='utf-8')
+        defaults.chmod(0o600)
+        dump = base / 'database.sql'
+        with dump.open('wb') as output:
+            result = subprocess.run(['mysqldump', f'--defaults-extra-file={defaults}', '--single-transaction', '--triggers', '--no-tablespaces', database_name], stdout=output, stderr=subprocess.PIPE, timeout=120, check=False)
+        if result.returncode:
+            raise RuntimeError('logical dump failed')
+        expected_checksum = hashlib.sha256(dump.read_bytes()).hexdigest()
+        if not expected_checksum:
+            raise RuntimeError('backup checksum missing')
+        connection = pymysql.connect(host=panel.MYSQL_HOST, port=panel.MYSQL_PORT, user=database_user, password=database_password, database=database_name, ssl={'check_hostname': False})
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute('DROP TABLE backup_probe')
+            connection.commit()
+        if not secrets.compare_digest(expected_checksum, hashlib.sha256(dump.read_bytes()).hexdigest()):
+            raise RuntimeError('backup checksum mismatch')
+        with dump.open('rb') as input_file:
+            result = subprocess.run(['mysql', f'--defaults-extra-file={defaults}', database_name], stdin=input_file, stderr=subprocess.PIPE, timeout=120, check=False)
+        if result.returncode:
+            raise RuntimeError('logical restore failed')
+        connection = pymysql.connect(host=panel.MYSQL_HOST, port=panel.MYSQL_PORT, user=database_user, password=database_password, database=database_name, ssl={'check_hostname': False})
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT COUNT(*) FROM backup_probe WHERE value=%s', (marker,))
+                restored = cursor.fetchone()[0] == 1
+        if not restored:
+            raise RuntimeError('restore marker missing')
+        print("PHP PDO MYSQL E2E: PASS; LOGICAL BACKUP/RESTORE: PASS")
         return 0
     finally:
         try:

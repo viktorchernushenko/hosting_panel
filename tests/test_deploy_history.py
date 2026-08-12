@@ -1,6 +1,10 @@
+import hashlib
+import hmac
+import json
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 os.environ.setdefault('HOSTING_PANEL_SECRET', 'test-secret-key-1234567890abcdef')
@@ -46,15 +50,16 @@ class DeployHistoryTests(unittest.TestCase):
         response = client.post('/api/github/webhook', json={'repository': {'name': 'demo-repo'}, 'site_name': 'demo', 'ref': 'refs/heads/main'})
         self.assertEqual(response.status_code, 503)
 
-    def test_github_webhook_route_allows_unsigned_when_compatibility_enabled(self):
+    def test_github_webhook_hmac_rejects_bad_and_accepts_valid_signature(self):
         client = self.app.test_client()
-        old_value = panel_app.ALLOW_UNSIGNED_GITHUB_WEBHOOK
-        panel_app.ALLOW_UNSIGNED_GITHUB_WEBHOOK = True
-        try:
-            response = client.post('/api/github/webhook', json={'repository': {'name': 'demo-repo'}, 'site_name': 'demo', 'ref': 'refs/heads/main'})
-            self.assertEqual(response.status_code, 200)
-        finally:
-            panel_app.ALLOW_UNSIGNED_GITHUB_WEBHOOK = old_value
+        payload = {'repository': {'name': 'demo-repo'}, 'site_name': 'default', 'ref': 'refs/heads/main'}
+        body = json.dumps(payload, separators=(',', ':')).encode()
+        with mock.patch.dict(panel_app.os.environ, {'GITHUB_WEBHOOK_SECRET': 'webhook-secret'}):
+            bad = client.post('/api/github/webhook', data=body, content_type='application/json', headers={'X-Hub-Signature-256': 'sha256=bad'})
+            self.assertEqual(bad.status_code, 401)
+            signature = 'sha256=' + hmac.new(b'webhook-secret', body, hashlib.sha256).hexdigest()
+            valid = client.post('/api/github/webhook', data=body, content_type='application/json', headers={'X-Hub-Signature-256': signature})
+            self.assertEqual(valid.status_code, 200)
 
     def test_ensure_default_admin_user_creates_admin(self):
         panel_app.ensure_default_admin_user()
