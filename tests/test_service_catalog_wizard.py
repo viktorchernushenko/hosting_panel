@@ -207,6 +207,7 @@ class ServiceCatalogWizardTests(unittest.TestCase):
         self.assertEqual(site.build_command, 'npm run build')
         self.assertEqual(site.start_command, 'npm start')
         mocked_prepare.assert_called_once()
+        _mocked_health.assert_called_once_with(mock.ANY, timeout=90)
 
     def test_prepare_runtime_tolerates_sftp_owned_source_directory(self):
         with tempfile.TemporaryDirectory() as temp_root:
