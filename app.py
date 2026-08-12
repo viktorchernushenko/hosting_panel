@@ -5637,7 +5637,8 @@ def site_runtime_action(site_id, action):
     else:
         with open(os.path.join(access.deployment_root, 'runtime.json'), encoding='utf-8') as handle:
             metadata = json.load(handle)
-        check = healthcheck(metadata, timeout=12)
+        health_timeout = 90 if site.runtime_type in {'node', 'python'} else 30
+        check = healthcheck(metadata, timeout=health_timeout)
         site.runtime_status = 'running' if check.get('ok') else 'error'
         site.deployment_status = 'success' if check.get('ok') else 'failed'
         site.last_restart_at = datetime.now()
