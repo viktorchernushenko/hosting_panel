@@ -98,6 +98,12 @@ MYSQL_HEALTH_CACHE = {'checked_at': 0.0, 'ok': False}
 APP_STACKS_ROOT = os.path.join(app.instance_path, 'app_stacks')
 RUNTIME_CONFIG_FILE = os.path.join(app.instance_path, 'runtime_config.json')
 RUNTIME_HEALTH_FILE = os.path.join(app.instance_path, 'runtime_health.json')
+
+
+def scoped_site_backup_root(site):
+    """Keep retained backups isolated when SQLite reuses a deleted site id."""
+    safe_folder = re.sub(r'[^a-zA-Z0-9_.-]+', '-', site.folder_name or site.name or 'site').strip('-')
+    return os.path.join(app.instance_path, 'site_backups', f'{site.id}-{safe_folder}')
 REQUIRED_CORE_TABLES = {
     'user',
     'site',
@@ -981,7 +987,7 @@ def ensure_application_access_registry():
         if access:
             continue
         default_root = os.path.join(app.config['UPLOAD_FOLDER'], site.folder_name)
-        default_backup_root = os.path.join(app.instance_path, 'site_backups', str(site.id))
+        default_backup_root = scoped_site_backup_root(site)
         db.session.add(ApplicationAccess(
             site_id=site.id,
             owner_user_id=site.user_id,
@@ -1453,7 +1459,7 @@ def ensure_application_access(site):
     if access:
         changed = False
         default_file_root = os.path.join(app.config['UPLOAD_FOLDER'], site.folder_name)
-        default_backup_root = os.path.join(app.instance_path, 'site_backups', str(site.id))
+        default_backup_root = scoped_site_backup_root(site)
         if not access.file_root:
             access.file_root = default_file_root
             changed = True
@@ -1476,7 +1482,7 @@ def ensure_application_access(site):
             db.session.commit()
         return access
     default_root = os.path.join(app.config['UPLOAD_FOLDER'], site.folder_name)
-    default_backup_root = os.path.join(app.instance_path, 'site_backups', str(site.id))
+    default_backup_root = scoped_site_backup_root(site)
     access = ApplicationAccess(
         site_id=site.id,
         owner_user_id=site.user_id,
@@ -2432,7 +2438,7 @@ def remove_tree(path):
 
 def backup_directory(site, access=None):
     access = access or ensure_application_access(site)
-    path = application_root(access, bucket='backup') if access.backup_root else os.path.join(app.instance_path, 'site_backups', str(site.id))
+    path = application_root(access, bucket='backup') if access.backup_root else scoped_site_backup_root(site)
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -3164,14 +3170,17 @@ def build_application_registry():
         applications.append({
             'id': site.id,
             'name': site.name,
-            'type': 'Static',
+            'type': {
+                'node': 'Node.js', 'python': 'Python', 'php': 'PHP',
+                'wordpress': 'WordPress', 'docker': 'Docker', 'static': 'Static',
+            }.get(site.runtime_type, (site.runtime_type or 'Unknown').title()),
             'owner': site.owner.username if site.owner else '—',
             'domain': domain,
             'path': access.file_root,
             'upload_root': access.upload_root,
             'deployment_root': access.deployment_root,
             'backup_root': access.backup_root,
-            'stack': 'site-files',
+            'stack': site.runtime_type or 'unknown',
             'status': status,
             'health_latency_ms': latency_ms,
             'health_error': health_error,
@@ -5563,6 +5572,33 @@ def delete_site(site_id):
     return redirect(url_for('dashboard'))
 
 
+def repair_missing_runtime_configuration(site, access):
+    """Recreate a failed dynamic runtime without touching files, databases or secrets."""
+    if site.runtime_type not in {'node', 'python', 'php', 'wordpress', 'docker'}:
+        return False, 'Static and unknown sites do not have a managed runtime.'
+    site_path = application_root(access, bucket='file')
+    stack_root = os.path.join(APP_STACKS_ROOT, site.folder_name)
+    port = site.internal_port or allocate_application_port()
+    try:
+        if site.runtime_type == 'wordpress':
+            metadata = prepare_wordpress_runtime(stack_root, site_path, port)
+        else:
+            metadata = prepare_runtime(
+                stack_root, site_path, site.runtime_type, site.runtime_version, port,
+                install_command=site.install_command, build_command=site.build_command,
+                start_command=site.start_command, spa_enabled=site.spa_enabled,
+            )
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+        return False, mask_sensitive_text(str(exc))[:300]
+    access.deployment_root = stack_root
+    site.internal_port = metadata['port']
+    site.runtime_status = 'configured'
+    db.session.commit()
+    sync_runtime_environment(site)
+    log_action('site.runtime.configuration.repaired', f'{site.name}:{site.runtime_type}:{metadata["port"]}')
+    return True, 'repaired'
+
+
 @app.route('/site/<int:site_id>/runtime/<action>', methods=['POST'])
 def site_runtime_action(site_id, action):
     if 'user_id' not in session:
@@ -5574,8 +5610,14 @@ def site_runtime_action(site_id, action):
         abort(404)
     access = ensure_application_access(site)
     if not os.path.isfile(os.path.join(access.deployment_root, 'runtime.json')):
-        flash('Runtime configuration is not available for this legacy site.', 'error')
-        return redirect(url_for('manage_site', folder_name=site.folder_name))
+        repaired, detail = repair_missing_runtime_configuration(site, access)
+        if not repaired:
+            site.runtime_status = 'error'
+            site.deployment_status = 'failed'
+            db.session.commit()
+            log_action('site.runtime.configuration.repair.failed', f'{site.name}:{detail}')
+            flash('Runtime configuration could not be repaired. Check application logs.', 'error')
+            return redirect(url_for('manage_site', folder_name=site.folder_name))
     code, output = compose_action(access.deployment_root, action)
     if code != 0:
         site.runtime_status = 'error'
@@ -5586,7 +5628,8 @@ def site_runtime_action(site_id, action):
     if action == 'stop':
         site.runtime_status = 'stopped'
     else:
-        metadata = json.loads(open(os.path.join(access.deployment_root, 'runtime.json'), encoding='utf-8').read())
+        with open(os.path.join(access.deployment_root, 'runtime.json'), encoding='utf-8') as handle:
+            metadata = json.load(handle)
         check = healthcheck(metadata, timeout=12)
         site.runtime_status = 'running' if check.get('ok') else 'error'
         site.deployment_status = 'success' if check.get('ok') else 'failed'
