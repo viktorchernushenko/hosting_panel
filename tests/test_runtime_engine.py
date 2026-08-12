@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from runtime_engine import detect_file_names, prepare_custom_docker, prepare_runtime, validate_custom_compose
+from runtime_engine import detect_file_names, healthcheck, prepare_custom_docker, prepare_runtime, validate_custom_compose
 from runtime_registry import runtime_catalog
 
 
@@ -53,6 +53,13 @@ class RuntimeEngineTests(unittest.TestCase):
         server = detect_file_names(['package.json'], {'dependencies': {'express': '^5'}, 'scripts': {'start': 'node server.js'}})
         self.assertEqual(frontend['recommended'], 'static')
         self.assertEqual(server['recommended'], 'node')
+
+    @mock.patch('runtime_engine.urllib.request.urlopen')
+    def test_node_healthcheck_uses_health_endpoint(self, mocked_urlopen):
+        mocked_urlopen.return_value.__enter__.return_value.status = 200
+        result = healthcheck({'runtime': 'node', 'port': 20000}, timeout=1)
+        self.assertTrue(result['ok'])
+        self.assertEqual(mocked_urlopen.call_args.args[0], 'http://127.0.0.1:20000/health')
 
     @mock.patch('runtime_registry._installed', return_value=(True, 'ok'))
     def test_registry_requires_successful_e2e(self, _installed):
