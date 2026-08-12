@@ -5,6 +5,7 @@ import io
 import zipfile
 import unittest
 import tempfile
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -197,20 +198,27 @@ class ServiceCatalogWizardTests(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(access.deployment_root, 'runtime.json')))
         mocked_prepare.assert_called_once()
 
-    @mock.patch('runtime_engine.Path.chmod', side_effect=PermissionError(1, 'Operation not permitted'))
-    def test_prepare_runtime_tolerates_sftp_owned_source_directory(self, _mocked_chmod):
+    def test_prepare_runtime_tolerates_sftp_owned_source_directory(self):
         with tempfile.TemporaryDirectory() as temp_root:
             stack_root = os.path.join(temp_root, 'stack')
             source_root = os.path.join(temp_root, 'source')
             os.makedirs(source_root)
-            metadata = panel_app.prepare_runtime(
-                stack_root,
-                source_root,
-                'node',
-                '22',
-                18080,
-                start_command='npm start',
-            )
+            original_chmod = Path.chmod
+
+            def guarded_chmod(path, mode):
+                if path.resolve() == Path(source_root).resolve():
+                    raise PermissionError(1, 'Operation not permitted')
+                return original_chmod(path, mode)
+
+            with mock.patch('runtime_engine.Path.chmod', autospec=True, side_effect=guarded_chmod):
+                metadata = panel_app.prepare_runtime(
+                    stack_root,
+                    source_root,
+                    'node',
+                    '22',
+                    18080,
+                    start_command='npm start',
+                )
             self.assertEqual(metadata['runtime'], 'node')
             self.assertTrue(os.path.isfile(os.path.join(stack_root, 'runtime.json')))
 
