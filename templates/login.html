@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="auth-shell">
-  <img class="auth-logo" src="{{ url_for('static', filename='logo.svg') }}" alt="MyH">
+  <img class="auth-logo" src="{{ url_for('static', filename='favicon.ico') }}?v={{ app_version }}" alt="MyH">
   <h2>{% if current_language == 'en' %}Sign in to MyH{% else %}Увійти в MyH{% endif %}</h2>
   <p class="subtitle">{% if current_language == 'en' %}Manage your sites, domains and backups.{% else %}Керуйте сайтами, доменами та резервними копіями.{% endif %}</p>
   {% if error %}<div class="error">{{ error }}</div>{% endif %}
