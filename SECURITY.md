@@ -1,39 +1,37 @@
-# Security
+# MyH production security
 
-## Current Posture
+## Network and service boundary
 
-- SSH is LAN-only.
-- UFW already allows SSH, Samba, and CUPS only from `192.168.1.0/24`.
-- Nginx Proxy Manager is loopback-bound on the host.
-- Panel sessions use secure cookie flags in code.
-- CSRF protection is implemented for normal form submissions.
+- Public web traffic enters through Cloudflare Tunnel; Gunicorn, customer HTTP runtimes and local AI bind only to loopback.
+- MySQL 8.4 binds only to the private `myh-db0` Docker bridge. Docker has no public TCP daemon and customer containers receive no Docker socket.
+- UFW is active. Samba and CUPS are retained for an active dependency and restricted to the trusted LAN.
+- SSH denies root login and Fail2ban is active. Administrator password SSH remains enabled until a tested administrator key prevents lockout.
+- SFTP accounts use OpenSSH `internal-sftp`, per-user chroots, no shell and no forwarding.
 
-## Known Concerns
+## Application controls
 
-- MariaDB and Nextcloud are in restart loops.
-- SMART warnings on `/dev/sda` need attention.
-- RBAC is coarse and still needs permissions beyond admin / user.
-- Docker access strategy still needs least-privilege review.
-- Public proxy exposure should not be expanded until router / WAN / CGNAT are confirmed.
+- Secure, HTTP-only, SameSite session cookies and short session lifetime.
+- CSRF validation on state-changing form and API requests, with a narrow allowlist for authenticated machine webhooks.
+- Role permissions plus per-application tenant authorization on sites, files, databases, backups, logs and AI diagnostics.
+- GitHub webhook HMAC-SHA256 verification using `X-Hub-Signature-256` and constant-time comparison.
+- Notification webhook denied by default unless a server-side secret or explicit insecure-development override is configured.
+- ZIP extraction rejects traversal, absolute paths, symlinks, special files, excessive entry count, expanded size and compression ratios.
+- Runtime commands are constrained to application containers. Dockerfile deployments reject privileged mode, host namespaces, devices, public port control and host mounts; managed containers have resource/PID limits, dropped capabilities and bounded logs.
+- Secrets remain in root-controlled files, are masked in UI/logs and are not returned through the AI status API/UI.
 
-## Current Security Rules
+## AI boundary
 
-- Do not expose database ports to WAN.
-- Do not expose SSH to WAN directly.
-- Do not add arbitrary shell execution APIs.
-- Do not store secrets in frontend state or logs.
-- Do not weaken file ownership or permissions broadly.
+MyH AI is read-only and loopback-only. The panel supplies sanitized, truncated context after authentication and tenant checks. Prompt/output sizes, request rates and daily usage are bounded and audited. The provider has no root shell, Docker socket, arbitrary SQL, SSH or mutation interface.
 
-## Next Security Work
+## Operational requirements
 
-- Granular permissions
-- Audit log expansion
-- 2FA readiness for developer/admin users
-- Safer Docker integration
-- Shared proxy network review
-- Backup restore confirmation flow
-# Production security baseline
+- Keep `/etc/hosting-panel.env`, MySQL provisioner configuration, AI key and private SSH/GPG material outside Git with restrictive permissions.
+- Review failed services, unhealthy/restarting/OOM-killed containers, disk/RAM/swap, TLS expiry, backup checksums and restore tests.
+- Off-server backup and external notification credentials are configuration requirements, not currently completed controls.
+- Do not expose database, Docker, runtime or AI ports to WAN.
 
-UFW is active. Public web traffic enters through Cloudflare Tunnel; application ports and Nextcloud are loopback-only. MySQL is private to `myh-db0`. SSH denies root login, Fail2ban is active, and SFTP users are chrooted with forwarding disabled. Samba and CUPS remain enabled because they are actively used and are restricted to the trusted LAN.
+## Planned hardening
 
-Administrator password SSH remains enabled until a verified administrator key is installed; disabling it earlier risks lockout. Secrets must remain outside Git with mode 0600. Review failed services, unhealthy containers, disk/RAM/swap thresholds, TLS expiry, backup checksums, and restore tests regularly.
+- Administrator 2FA readiness.
+- Key-only administrator SSH after a verified recovery path exists.
+- Independently configured and restore-tested off-server backup storage.

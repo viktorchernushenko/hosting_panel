@@ -22,7 +22,7 @@ The verification creates isolated temporary projects under `/tmp`, exercises cre
 | Python | 3.12 Alpine + Gunicorn 23 | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | AVAILABLE |
 | Docker | validated Dockerfile | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | AVAILABLE |
 
-Latest verification on this host: `2026-08-12T16:01:54+0300`. The live admin page and API read the machine-local report rather than this documentation.
+Latest recorded registry verification on this host: `2026-08-12T16:01:54+0300`; the same full lifecycle matrix was rerun successfully during the 2.2.0 release audit at 17:05 local time. The live admin page and API read the machine-local report rather than this documentation.
 
 PHP 8.2 includes the production baseline: PDO/MySQL, mysqli, mbstring, curl, OpenSSL, fileinfo, JSON, XML, ZIP, GD and intl. PHP 8.3/8.4 remain usable only by already pinned applications; new sites use the verified 8.2 release until separate version-specific E2E is recorded.
 

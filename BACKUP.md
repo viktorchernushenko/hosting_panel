@@ -1,36 +1,10 @@
-# Backup
+# Backup overview
 
-## What Needs Backing Up Before Changes
+MyH separates site/customer-database restore points from platform disaster-recovery backups.
 
-- Panel source code
-- Panel templates and static assets
-- `instance/hosting.db`
-- `/etc/hosting-panel.env`
-- `web-lab/docker-compose.yml`
-- `nextcloud-docker/docker-compose.yml`
-- Docker compose environment files for live stacks
-- Systemd unit overrides and service files
+- Site archives are scoped to one application and support checksum-aware download, restore and deletion.
+- Customer MySQL backups use logical `mysqldump`, SHA-256 sidecars and fail-closed restore verification.
+- Platform backup creates a consistent local set containing SQLite via its Backup API, application data, customer DB backups and non-secret configuration metadata.
+- An off-server stage requires an independently mounted target or key-authenticated SFTP plus GPG encryption. It is currently **not configured** and local success is never presented as remote success.
 
-## Current Backup Notes
-
-- The panel already creates site-level archives under its own instance backup structure.
-- That is not a full disaster-recovery strategy for the host or Docker volumes.
-- A centralized backup registry still needs to be designed.
-
-## Important Caveat
-
-- A copy on the same disk is not full disaster recovery.
-- Before touching live database or Nextcloud state, confirm a recoverable backup path.
-
-## Suggested Backup Layers
-
-- Application config backups
-- Database dumps
-- Docker volume snapshots where safe
-- User file archives
-- Panel database and config backups
-
-## Rollback Principle
-
-- Keep the previous config intact until the new path is validated.
-- Prefer additive changes over destructive replacements.
+See [BACKUP_RESTORE.md](BACKUP_RESTORE.md) for configuration, retention and restore-test commands. A copy on the same host is not disaster recovery.

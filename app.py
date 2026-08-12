@@ -73,7 +73,10 @@ CLOUDFLARE_ZONE_NAME = os.environ.get('CLOUDFLARE_ZONE_NAME', 'myh.guru')
 CLOUDFLARE_TOKEN_FILE = os.environ.get('CLOUDFLARE_TOKEN_FILE', '/tmp/.cf_token')
 CLOUDFLARE_LOCAL_TOKEN_FILE = os.path.join(app.instance_path, 'cloudflare_api_token')
 CLOUDFLARE_LOCAL_ZONE_FILE = os.path.join(app.instance_path, 'cloudflare_zone_name')
-APP_VERSION = os.environ.get('HOSTING_PANEL_VERSION', '2.1.0')
+with open(os.path.join(app.root_path, 'VERSION'), encoding='ascii') as version_file:
+    APP_VERSION = version_file.read().strip()
+if not re.fullmatch(r'\d+\.\d+\.\d+', APP_VERSION):
+    raise RuntimeError('VERSION must contain a semantic version (MAJOR.MINOR.PATCH)')
 STATUS_MODEL = {
     'site': ['provisioning', 'running', 'unhealthy', 'stopped', 'failed', 'deleting'],
     'deployment': ['queued', 'building', 'deploying', 'running', 'failed'],

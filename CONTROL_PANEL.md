@@ -1,61 +1,26 @@
-# Control Panel
+# MyH control panel
 
-## Location
+## Production identity
 
-- Source: `/home/myserver/hosting_panel`
-- Main app: [`app.py`](app.py)
-- Templates: [`templates/`](templates)
-- Deployment: systemd service managed by `myh-guru.service`
-- Repo: `git@github.com:viktorchernushenko/hosting_panel.git`
-- Current branch: `main`
-- Current HEAD: `fdeec22` (`admin + health-aware watchdog`)
+- Release: `2.2.0`, sourced from [`VERSION`](VERSION).
+- Repository and service working directory: `/home/myserver/hosting_panel`.
+- Release branch: `platform/universal-hosting-upgrade`.
+- Service: `myh-guru.service`, Gunicorn on loopback ports 5000/5001.
+- Ingress: Cloudflare Tunnel; host nginx is not a second ingress.
 
-## Runtime Stack
+## Roles and product areas
 
-- Flask 3.0.3
-- Flask-SQLAlchemy 3.1.1
-- psutil 6.0.0
-- gunicorn 23.0.0
-- SQLite database stored in `instance/hosting.db`
+Authenticated users receive a shared responsive AppShell with Dashboard, Sites, Domains, Databases, File access, Deployments, Backups, Logs, MyH AI and Account settings. A site workspace connects overview, runtime/deployment, files, domain/SSL, databases, logs, backups and site settings.
 
-## Current Roles
+Administrators additionally receive users, applications, infrastructure, containers, runtimes, backup, notifications, SFTP, SSL/domains, security/audit, AI status and platform modules. Authorization remains enforced in backend routes; hidden navigation is not the security boundary.
 
-- `user`
-- `developer` / `admin` flag via `is_admin`
+## Verified control paths
 
-## Existing Capabilities
+- Runtime-aware site creation and five-runtime lifecycle management.
+- Tenant-scoped file, backup, log, database and SFTP workflows.
+- Upload/ZIP and Git deployments with history and signed GitHub webhook support.
+- Cloudflare DNS and edge TLS status.
+- SQLite internal metadata health and isolated MySQL customer resources.
+- Read-only local AI diagnostics and runtime guidance.
 
-- Login / logout
-- User and site management
-- Static site management
-- File manager for assigned sites
-- Site backups and restores
-- Custom domains
-- Git and ZIP deployment flows
-- Deployment history
-- Cloudflare DNS / SSL actions
-- Platform metrics and health endpoints
-- Docker container control
-- System/service diagnostics
-- Notifications
-- Plugin marketplace / module registry
-
-## Newly Added Audit Surface
-
-- `GET /developer/system-audit`
-- Read-only host / Docker / service readiness view
-- Quick access from the developer dashboard
-
-## Known Gaps
-
-- RBAC is still coarse; permissions are not granular yet.
-- There is no centralized application registry yet.
-- There is no shared proxy network orchestration yet.
-- Backup registry and restore safety workflow need normalization.
-- Docker socket access strategy still needs review against least privilege.
-
-## Design Constraint
-
-- Keep the current design system and extend it in place.
-- Do not replace the panel with another product.
-- Do not duplicate existing sections if the function already exists.
+See [PRODUCT_AUDIT.md](PRODUCT_AUDIT.md) for the evidence map and explicit verification limits.

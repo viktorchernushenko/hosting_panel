@@ -117,7 +117,6 @@ if [[ ! -f "$ENV_FILE" ]]; then
   umask 077
   cat > "$ENV_FILE" <<ENV
 HOSTING_PANEL_SECRET=$(openssl rand -hex 48)
-HOSTING_PANEL_VERSION=2.1.0
 ENV
 fi
 chmod 600 "$ENV_FILE"

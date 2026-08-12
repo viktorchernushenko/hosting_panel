@@ -13,8 +13,8 @@ Authenticated pages use `AppShell > Sidebar + Main(Topbar + Content)`. Content u
 - Overview: Dashboard.
 - Hosting: Sites, Domains, Databases, File access.
 - Operations: Deployments, Backups, Logs.
-- Account: Settings.
-- Administration (admin only): Overview, Users, Sites, Infrastructure/Server, Runtimes, Containers, Security/Audit.
+- Account: Account settings.
+- Administration (admin only): Overview, Users, Sites, Infrastructure/Server, Runtimes, Containers, Backup, Notifications, SFTP, SSL/Domains, Security/Audit, AI status and Platform modules.
 
 ## Layout and density
 

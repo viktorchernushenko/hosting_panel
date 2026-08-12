@@ -1,5 +1,7 @@
 # MyH operations
 
+Current application release: `2.2.0`. The repository-root `VERSION` file is canonical; `/api/public-status` and the UI receive the value from the running backend.
+
 ## Canonical production
 
 - Repository and working directory: `/home/myserver/hosting_panel`.

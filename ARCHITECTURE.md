@@ -1,5 +1,7 @@
 # MyH production architecture
 
+Application release metadata has one source of truth: the repository-root `VERSION` file. The backend reads it at startup and supplies the same value to the public status API, templates and static asset cache keys.
+
 Canonical flow: **Internet → Cloudflare edge → Cloudflare Tunnel → Gunicorn `127.0.0.1:5000` → MyH/site proxy → loopback customer runtime**. Host nginx is inactive and is not a second ingress. The canonical repository and service working directory are `/home/myserver/hosting_panel`; no `/opt/hosting-panel` deployment is active.
 
 The panel controls per-site Docker Compose projects whose HTTP ports bind only to loopback. Each project has a private bridge; database-capable runtimes also join the external `hosting-databases` network (`172.23.0.0/16`, bridge `myh-db0`, ICC disabled).

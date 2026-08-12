@@ -1,21 +1,29 @@
-# Hosting Panel
+# MyH
 
-Production-oriented Flask hosting panel with developer controls, deployment workflows, and one-command server installation.
+MyH is a production-oriented, multi-user Flask hosting platform. Current release: **2.2.0**. The canonical version is stored in [`VERSION`](VERSION).
 
-## Features
+## Verified capabilities
 
-- User and site management (developer and user roles)
-- Deploy workflows (archive and Git)
-- Deployment history and webhook trigger support
-- DNS and SSL management integrations
-- Service diagnostics, logs, and platform overview
-- Public homepage visibility controls managed from developer panel
-- Hardened systemd unit templates and backup/watchdog scripts
-- Secure-by-default webhook controls (signed GitHub webhook, protected notify webhook)
-- Approved service templates under /srv/templates for WordPress, static, Node, Python, and PHP
-- Verified runtime registry for Static, PHP, Node.js, Python, and validated Docker; see `RUNTIMES.md`
+- Authentication, RBAC/tenant authorization, CSRF protection and audit logging.
+- Site-centred management for files, deployments, domains/SSL, customer databases, backups, logs and settings.
+- Backend-driven runtime registry and lifecycle-tested Static, PHP 8.2, Node.js 22, Python 3.12 and validated Dockerfile hosting.
+- ZIP/upload and Git deployment workflows, signed GitHub webhooks and deployment history.
+- File upload/download/edit/create/rename/move/delete with traversal, symlink and tenant-isolation protections.
+- Chrooted `internal-sftp` accounts without shell or forwarding.
+- MySQL 8.4 customer databases with per-application credentials, logical backup/checksum/restore; SQLite retained for internal MyH metadata.
+- Cloudflare Tunnel ingress, DNS/SSL status and Cloudflare-managed edge certificate renewal.
+- Verified local backups, optional encrypted off-server copy, provider-based alerts and operations monitoring.
+- Read-only local MyH AI for runtime guidance and sanitized site diagnostics.
 
-## Quick Install (Any Server)
+See [RUNTIMES.md](RUNTIMES.md), [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), [DATABASES.md](DATABASES.md), [SFTP.md](SFTP.md), [BACKUP_RESTORE.md](BACKUP_RESTORE.md), [AI.md](AI.md) and [OPERATIONS.md](OPERATIONS.md).
+
+## Architecture
+
+Production uses Cloudflare edge and Tunnel in front of Gunicorn. Customer HTTP runtimes bind only to loopback; MySQL binds only to the private Docker database bridge. The application metadata database is SQLite. Secrets live outside Git in root-controlled configuration files.
+
+## Install
+
+Requirements: a supported Linux host with Python, systemd, Docker/Compose, OpenSSH and access to the required DNS/Cloudflare configuration.
 
 ```bash
 git clone https://github.com/viktorchernushenko/hosting_panel.git
@@ -23,61 +31,26 @@ cd hosting_panel
 sudo bash install/install-hosting-panel.sh --domain your-domain.com
 ```
 
-Default install:
-- App dir: `/opt/hosting-panel`
-- Service: `hosting-panel.service`
-- Bind: `127.0.0.1:5000`
+Default generic-install paths are `/opt/hosting-panel`, `hosting-panel.service` and `127.0.0.1:5000`. The current myh.guru production deployment intentionally runs from `/home/myserver/hosting_panel` as documented in [OPERATIONS.md](OPERATIONS.md).
 
-## Create or Reset Admin
-
-The installer provides global helper command:
-
-```bash
-sudo admin developer ChangeMe123456
-```
-
-Direct CLI alternative:
-
-```bash
-cd /opt/hosting-panel
-sudo -u hostingpanel ./venv/bin/python app.py --create-admin --username developer --password "ChangeMe123456" --force
-```
-
-## Runbook
-
-- Generic installation guide: [INSTALL_ANY_SERVER.md](INSTALL_ANY_SERVER.md)
-- Ops runbook: [README_SERVER.md](README_SERVER.md)
-- Server architecture: [SERVER_ARCHITECTURE.md](SERVER_ARCHITECTURE.md)
-- Control panel inventory: [CONTROL_PANEL.md](CONTROL_PANEL.md)
-- Deployment notes: [DEPLOYMENT.md](DEPLOYMENT.md)
-- Backup notes: [BACKUP.md](BACKUP.md)
-- Security notes: [SECURITY.md](SECURITY.md)
-
-## Local Development
+## Development and verification
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
-python3 app.py
+python -m unittest discover -s tests -p 'test_*.py'
+PYTHONPATH=. python scripts/runtime_smoke.py
 ```
 
-## CI
+GitHub Actions performs Python compilation, unit tests and installer shell syntax checks.
 
-GitHub Actions validates:
+## Known limitations
 
-- Python compile step
-- Unit tests
-- Installer shell syntax
+- Off-server backup requires an independently mounted or SFTP target plus a GPG recipient.
+- Telegram/SMTP alerts require server-side credentials.
+- AI inference is advisory and can be slow on CPU.
+- Customer Docker Compose is disabled; validated Dockerfile projects are supported.
+- WordPress provisioning exists but is not claimed as lifecycle-verified in the current release.
 
-See workflow: [.github/workflows/ci.yml](.github/workflows/ci.yml)
-
-## Security Note
-
-Do not commit production secrets. Keep `/etc/hosting-panel.env` private on target servers.
-
-Recommended webhook settings in environment:
-
-- `HOSTING_PANEL_NOTIFY_WEBHOOK_SECRET`
-- `HOSTING_PANEL_ALLOW_INSECURE_NOTIFY_WEBHOOK=0`
-- `HOSTING_PANEL_ALLOW_UNSIGNED_GITHUB_WEBHOOK=0`
+Never commit `.env` files, credentials, private keys, production databases, user uploads or backup archives.
