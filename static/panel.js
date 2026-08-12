@@ -29,18 +29,21 @@
     });
   });
   const search = document.querySelector('[data-list-search]');
-  const filter = document.querySelector('[data-list-filter]');
+  const filters = Array.from(document.querySelectorAll('[data-list-filter]'));
   function applyListFilters() {
     const query = search ? search.value.trim().toLowerCase() : '';
-    const value = filter ? filter.value : '';
     document.querySelectorAll('[data-list-item]').forEach((item) => {
       const matchesSearch = !query || (item.dataset.search || '').toLowerCase().includes(query);
-      const matchesFilter = !value || item.dataset.filter === value;
-      item.hidden = !(matchesSearch && matchesFilter);
+      const matchesFilters = filters.every((filter) => {
+        const value = filter.value;
+        const key = filter.dataset.listFilter || 'filter';
+        return !value || item.dataset[key] === value;
+      });
+      item.hidden = !(matchesSearch && matchesFilters);
     });
   }
   if (search) search.addEventListener('input', applyListFilters);
-  if (filter) filter.addEventListener('change', applyListFilters);
+  filters.forEach((filter) => filter.addEventListener('change', applyListFilters));
   const logSearch = document.querySelector('[data-log-search]');
   if (logSearch) logSearch.addEventListener('input', () => { const query=logSearch.value.toLowerCase(); document.querySelectorAll('.log-line').forEach(line => line.hidden = !line.textContent.toLowerCase().includes(query)); });
   const copyLog = document.querySelector('[data-copy-log]');
@@ -49,6 +52,13 @@
   const confirmText = document.getElementById('confirm-dialog-text');
   const confirmAccept = document.getElementById('confirm-dialog-accept');
   let pendingForm = null;
+  let pendingAction = null;
+  window.myhConfirm = (message, action) => {
+    if (!confirmDialog || typeof action !== 'function') return;
+    pendingForm = null; pendingAction = action;
+    if (confirmText) confirmText.textContent = message;
+    confirmDialog.showModal();
+  };
   document.querySelectorAll('form[data-confirm]').forEach((form) => {
     form.addEventListener('submit', (event) => {
       if (form.dataset.confirmed === 'true' || !confirmDialog) return;
@@ -58,11 +68,14 @@
     });
   });
   if (confirmAccept) confirmAccept.addEventListener('click', () => {
-    if (!pendingForm) return;
-    pendingForm.dataset.confirmed = 'true'; confirmDialog.close(); pendingForm.requestSubmit();
+    if (pendingForm) {
+      pendingForm.dataset.confirmed = 'true'; confirmDialog.close(); pendingForm.requestSubmit();
+    } else if (pendingAction) {
+      const action = pendingAction; confirmDialog.close(); action();
+    }
   });
   document.querySelectorAll('[data-confirm-cancel]').forEach((button) => button.addEventListener('click', () => confirmDialog && confirmDialog.close()));
-  if (confirmDialog) confirmDialog.addEventListener('close', () => { pendingForm = null; });
+  if (confirmDialog) confirmDialog.addEventListener('close', () => { pendingForm = null; pendingAction = null; });
   document.querySelectorAll('form').forEach((form) => form.addEventListener('submit', () => {
     if (form.dataset.confirm && form.dataset.confirmed !== 'true') return;
     const button = form.querySelector('button[type="submit"]');

@@ -293,22 +293,23 @@
           </section>
           <section class="nav-group">
             <div class="nav-label">{% if current_language == 'en' %}Operations{% else %}Операції{% endif %}</div>
-            <a class="nav-link {{ 'active' if request.endpoint == 'developer_deploy' else '' }}" href="{{ url_for('developer_deploy') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#upload"/></svg><span>Deployments</span></a>
-            <a class="nav-link {{ 'active' if request.endpoint == 'developer_deploy_history' else '' }}" href="{{ url_for('developer_deploy_history') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#history"/></svg><span>{% if current_language == 'en' %}Activity{% else %}Активність{% endif %}</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint in ['developer_deploy','developer_deploy_history'] else '' }}" href="{{ url_for('developer_deploy') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#upload"/></svg><span>Deployments</span></a>
             <a class="nav-link {{ 'active' if request.endpoint == 'user_backups_index' else '' }}" href="{{ url_for('user_backups_index') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#history"/></svg><span>Backups</span></a>
             <a class="nav-link {{ 'active' if request.endpoint == 'user_logs_index' else '' }}" href="{{ url_for('user_logs_index') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#file"/></svg><span>{% if current_language == 'en' %}Logs{% else %}Логи{% endif %}</span></a>
           </section>
-          <section class="nav-group"><div class="nav-label">Account</div><a class="nav-link {{ 'active' if request.endpoint == 'user_profile' else '' }}" href="{{ url_for('user_profile') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#settings"/></svg><span>{% if current_language == 'en' %}Profile &amp; settings{% else %}Профіль і налаштування{% endif %}</span></a></section>
+          <section class="nav-group"><div class="nav-label">Account</div><a class="nav-link {{ 'active' if request.endpoint == 'user_profile' else '' }}" href="{{ url_for('user_profile') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#settings"/></svg><span>{% if current_language == 'en' %}Settings{% else %}Налаштування{% endif %}</span></a></section>
           {% if is_admin_user %}
           <section class="nav-group">
-            <div class="nav-label">Admin</div>
+            <div class="nav-label">Administration</div>
             <a class="nav-link {{ 'active' if request.endpoint == 'developer_dashboard' else '' }}" href="{{ url_for('developer_dashboard') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#grid"/></svg><span>{% if current_language == 'en' %}Admin overview{% else %}Огляд адміністратора{% endif %}</span></a>
             <a class="nav-link {{ 'active' if request.endpoint == 'developer_users' else '' }}" href="{{ url_for('developer_users') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#users"/></svg><span>{% if current_language == 'en' %}Users{% else %}Користувачі{% endif %}</span></a>
-            <a class="nav-link {{ 'active' if request.endpoint == 'developer_applications' else '' }}" href="{{ url_for('developer_applications') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#globe"/></svg><span>{% if current_language == 'en' %}Hosting resources{% else %}Ресурси хостингу{% endif %}</span></a>
-            <a class="nav-link {{ 'active' if request.endpoint == 'developer_infrastructure' else '' }}" href="{{ url_for('developer_infrastructure') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#server"/></svg><span>Infrastructure</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'developer_applications' else '' }}" href="{{ url_for('developer_applications') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#globe"/></svg><span>{% if current_language == 'en' %}Sites{% else %}Сайти{% endif %}</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'developer_infrastructure' else '' }}" href="{{ url_for('developer_infrastructure') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#server"/></svg><span>{% if current_language == 'en' %}Server &amp; infrastructure{% else %}Сервер та інфраструктура{% endif %}</span></a>
             <a class="nav-link {{ 'active' if request.endpoint == 'developer_docker' else '' }}" href="{{ url_for('developer_docker') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#box"/></svg><span>Containers</span></a>
             <a class="nav-link {{ 'active' if request.endpoint == 'developer_runtimes' else '' }}" href="{{ url_for('developer_runtimes') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#code"/></svg><span>Runtimes</span></a>
-            <a class="nav-link {{ 'active' if request.endpoint in ['developer_logs','developer_system_audit'] else '' }}" href="{{ url_for('developer_logs') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#shield"/></svg><span>{% if current_language == 'en' %}Logs &amp; security{% else %}Логи й безпека{% endif %}</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'developer_logs' else '' }}" href="{{ url_for('developer_logs') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#shield"/></svg><span>{% if current_language == 'en' %}Security{% else %}Безпека{% endif %}</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'developer_system_audit' else '' }}" href="{{ url_for('developer_system_audit') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#history"/></svg><span>{% if current_language == 'en' %}Audit logs{% else %}Журнал аудиту{% endif %}</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint in ['developer_marketplace','developer_notifications'] else '' }}" href="{{ url_for('developer_marketplace') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#settings"/></svg><span>{% if current_language == 'en' %}Settings{% else %}Налаштування{% endif %}</span></a>
           </section>
           {% endif %}
         </nav>
@@ -330,6 +331,7 @@
         <div class="app-content">
     {% endif %}
     <div class="card">
+        {% if not current_user %}
         <div class="global-header">
             <div class="global-header-left">
                 <a class="brand-chip" href="{{ url_for('dashboard') if current_user else url_for('index') }}"><img src="{{ url_for('static', filename='favicon.ico') }}?v=3" alt="myh logo">myh.guru</a>
@@ -349,11 +351,15 @@
                     <span class="user-pill">{{ current_user.username }}</span>
                     <form method="POST" action="{{ url_for('logout') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button class="danger-btn topbar-signout" type="submit">{% if current_language == 'en' %}Sign out{% else %}Вийти{% endif %}</button></form>
                 {% else %}
+                    <a class="ghost-btn" href="{{ url_for('index') }}#features">{% if current_language == 'en' %}Features{% else %}Можливості{% endif %}</a>
                     <a class="ghost-btn" href="{{ url_for('supported_technologies') }}">{% if current_language == 'en' %}Technologies{% else %}Технології{% endif %}</a>
+                    <a class="ghost-btn" href="{{ url_for('index') }}#security">{% if current_language == 'en' %}Security{% else %}Безпека{% endif %}</a>
                     <a class="ghost-btn" href="{{ url_for('login') }}">{% if current_language == 'en' %}Sign in{% else %}Увійти{% endif %}</a>
+                    <a class="tiny-btn" href="{{ url_for('login') }}">{% if current_language == 'en' %}Get started{% else %}Почати{% endif %}</a>
                 {% endif %}
             </div>
         </div>
+        {% endif %}
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}
         {% endwith %}

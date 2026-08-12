@@ -70,7 +70,7 @@ CLOUDFLARE_ZONE_NAME = os.environ.get('CLOUDFLARE_ZONE_NAME', 'myh.guru')
 CLOUDFLARE_TOKEN_FILE = os.environ.get('CLOUDFLARE_TOKEN_FILE', '/tmp/.cf_token')
 CLOUDFLARE_LOCAL_TOKEN_FILE = os.path.join(app.instance_path, 'cloudflare_api_token')
 CLOUDFLARE_LOCAL_ZONE_FILE = os.path.join(app.instance_path, 'cloudflare_zone_name')
-APP_VERSION = os.environ.get('HOSTING_PANEL_VERSION', '1.9.1')
+APP_VERSION = os.environ.get('HOSTING_PANEL_VERSION', '2.0.0')
 STATUS_MODEL = {
     'site': ['provisioning', 'running', 'unhealthy', 'stopped', 'failed', 'deleting'],
     'deployment': ['queued', 'building', 'deploying', 'running', 'failed'],
@@ -3957,7 +3957,7 @@ def create_site_wizard():
     runtime_options = current_runtime_catalog()
     allowed_types = [item['id'] for item in runtime_options if item['available']]
     allowed_php_versions = ['8.2']
-    source_modes = ['upload', 'sftp', 'git', 'existing']
+    source_modes = ['upload', 'git', 'sftp']
     selected_type = request.values.get('site_type', 'static')
     selected_source = request.values.get('source_mode', 'upload')
     selected_php_version = request.values.get('php_runtime', '8.2')
@@ -4211,9 +4211,13 @@ def dashboard():
         'running': sum(1 for site in user_sites if actual_statuses.get(site.id) == 'running'),
         'attention': sum(1 for site in user_sites if actual_statuses.get(site.id) in {'error', 'stopped'} or site.deployment_status == 'failed'),
     }
-    metrics = get_server_metrics()
+    attention_sites = [
+        {'site': site, 'runtime_status': actual_statuses.get(site.id, 'unknown'), 'deployment_failed': site.deployment_status == 'failed'}
+        for site in user_sites
+        if actual_statuses.get(site.id) in {'error', 'stopped'} or site.deployment_status == 'failed'
+    ]
     recent_activity = AuditLog.query.filter_by(user_id=user.id).order_by(AuditLog.created_at.desc()).limit(6).all()
-    return render_template('dashboard.html', user=user, sites=user_sites, usage_bytes=usage_bytes_value, summary=summary, metrics=metrics, recent_activity=recent_activity, can_create_site=user_has_role_permission(user, 'site.create'), can_sftp_access=True)
+    return render_template('dashboard.html', user=user, sites=user_sites, usage_bytes=usage_bytes_value, summary=summary, attention_sites=attention_sites, recent_activity=recent_activity, can_create_site=user_has_role_permission(user, 'site.create'), can_sftp_access=True)
 
 
 @app.route('/developer/dashboard')
@@ -4474,7 +4478,10 @@ def user_sites_index():
     user = db.session.get(User, session['user_id'])
     if not user or user.is_banned: abort(403)
     sites = current_user_sites(user)
-    return render_template('sites.html', user=user, sites=sites, actual_statuses=actual_site_runtime_statuses(sites), can_create_site=user_has_role_permission(user, 'site.create'))
+    latest_deployments = {}
+    for event in DeploymentEvent.query.filter(DeploymentEvent.site_name.in_([site.name for site in sites])).order_by(DeploymentEvent.created_at.desc()).all() if sites else []:
+        latest_deployments.setdefault(event.site_name, event)
+    return render_template('sites.html', user=user, sites=sites, actual_statuses=actual_site_runtime_statuses(sites), latest_deployments=latest_deployments, can_create_site=user_has_role_permission(user, 'site.create'))
 
 
 @app.route('/domains')
@@ -5218,6 +5225,9 @@ def manage_site(folder_name):
                 flash('Цей файл не є текстовим.', 'error')
 
     permissions = user_permissions_for_application(user, access)
+    public_domain = site.custom_domain or f'{site.name}.myh.guru'
+    domain_state = probe_domain_status(public_domain)
+    latest_deployment = DeploymentEvent.query.filter_by(site_name=site.name).order_by(DeploymentEvent.created_at.desc()).first()
     return render_template(
         'manage_site.html',
         site=site,
@@ -5233,6 +5243,9 @@ def manage_site(folder_name):
         quota=quota_snapshot(access),
         permissions=permissions,
         runtime_metrics=application_runtime_metrics(access),
+        actual_status=actual_site_runtime_status(site),
+        domain_state=domain_state,
+        latest_deployment=latest_deployment,
     )
 
 

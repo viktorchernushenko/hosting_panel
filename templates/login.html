@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="auth-shell">
-  <h2>{% if current_language == 'en' %}🔐 Access to the control panel{% else %}🔐 Вхід у панель{% endif %}</h2>
-  <p class="subtitle">{% if current_language == 'en' %}A single secure sign-in form for users and developers.{% else %}Єдина захищена форма входу для користувачів і розробника.{% endif %}</p>
+  <img class="auth-logo" src="{{ url_for('static', filename='logo.svg') }}" alt="MyH">
+  <h2>{% if current_language == 'en' %}Sign in to MyH{% else %}Увійти в MyH{% endif %}</h2>
+  <p class="subtitle">{% if current_language == 'en' %}Manage your sites, domains and backups.{% else %}Керуйте сайтами, доменами та резервними копіями.{% endif %}</p>
   {% if error %}<div class="error">{{ error }}</div>{% endif %}
   <form method="POST" class="stack-form">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">

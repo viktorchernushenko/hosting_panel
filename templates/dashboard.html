@@ -1,17 +1,15 @@
 {% extends "base.html" %}
+{% block page_context %}Dashboard{% endblock %}
 {% block content %}
 <div class="dashboard-shell">
   <header class="hero-card">
     <div>
-      <p class="eyebrow">myh.guru hosting panel</p>
-      <h2>{% if current_language == 'en' %}Welcome, {{ user.first_name }} {{ user.last_name }}{% else %}Вітаємо, {{ user.first_name }} {{ user.last_name }}{% endif %}</h2>
-      <p class="subtitle">{% if current_language == 'en' %}Your isolated workspace for managing your sites and files.{% else %}Ваш ізольований простір для керування власними сайтами та файлами.{% endif %}</p>
+      <p class="eyebrow">Overview</p>
+      <h2>Dashboard</h2>
+      <p class="subtitle">{% if current_language == 'en' %}An overview of your sites and resources.{% else %}Огляд ваших сайтів і ресурсів.{% endif %}</p>
     </div>
     <div class="hero-actions">
-      {% if user.is_admin %}
-        <a class="ghost-btn" href="{{ url_for('developer_dashboard') }}">{% if current_language == 'en' %}Admin overview{% else %}Огляд адміністратора{% endif %}</a>
-      {% endif %}
-      <form method="POST" action="{{ url_for('logout') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button class="danger-btn" type="submit">{% if current_language == 'en' %}Sign out{% else %}Вийти{% endif %}</button></form>
+      {% if can_create_site %}<a class="tiny-btn" href="{{ url_for('create_site_wizard') }}">{% if current_language == 'en' %}Create site{% else %}Створити сайт{% endif %}</a>{% endif %}
     </div>
   </header>
 
@@ -43,7 +41,7 @@
 
   <section class="panel-grid">
     <article class="panel-card"><div class="panel-head"><h3>{% if current_language == 'en' %}Hosting health{% else %}Стан хостингу{% endif %}</h3><span class="status-badge {{ 'success' if summary.attention == 0 else 'warning' }}">{{ summary.running }} / {{ summary.sites }} {% if current_language == 'en' %}available{% else %}доступні{% endif %}</span></div><div class="service-list"><div class="service-row"><span><strong>{% if current_language == 'en' %}Applications{% else %}Застосунки{% endif %}</strong><small>{{ summary.running }} {% if current_language == 'en' %}running or configured{% else %}працюють або налаштовані{% endif %}</small></span></div><div class="service-row"><span><strong>Backups</strong><small>{{ summary.backups }} {% if current_language == 'en' %}available restore points{% else %}доступних точок відновлення{% endif %}</small></span></div></div></article>
-    <article class="panel-card"><div class="panel-head"><h3>{% if current_language == 'en' %}Needs attention{% else %}Потребує уваги{% endif %}</h3><span class="status-badge {{ 'success' if summary.attention == 0 else 'danger' }}">{{ summary.attention }}</span></div>{% if summary.attention %}<p class="subtitle">{% if current_language == 'en' %}One or more sites are stopped, unhealthy, or have a failed deployment.{% else %}Один або кілька сайтів зупинені, недоступні або мають невдалий deployment.{% endif %}</p><a class="ghost-btn utility-gap-top" href="{{ url_for('user_sites_index') }}">{% if current_language == 'en' %}Review sites{% else %}Переглянути сайти{% endif %}</a>{% else %}<div class="empty-state"><strong>{% if current_language == 'en' %}Everything looks good{% else %}Усе працює нормально{% endif %}</strong><p>{% if current_language == 'en' %}No known hosting issues require action.{% else %}Немає відомих проблем, які потребують дії.{% endif %}</p></div>{% endif %}</article>
+    <article class="panel-card"><div class="panel-head"><h3>{% if current_language == 'en' %}Needs attention{% else %}Потребує уваги{% endif %}</h3><span class="status-badge {{ 'success' if summary.attention == 0 else 'danger' }}">{{ summary.attention }}</span></div>{% if attention_sites %}<div class="service-list">{% for item in attention_sites %}<div class="attention-row"><div><strong>{{ item.site.name }}</strong><p>{% if item.deployment_failed %}{% if current_language == 'en' %}The latest deployment did not complete.{% else %}Останнє розгортання не завершилося успішно.{% endif %}{% else %}{% if current_language == 'en' %}The site is not currently running.{% else %}Сайт зараз не працює.{% endif %}{% endif %}</p>{% if is_admin_user %}<small class="technical-detail">runtime={{ item.runtime_status }} · deployment={{ item.site.deployment_status }}</small>{% endif %}</div><a class="ghost-btn" href="{{ url_for('manage_site', folder_name=item.site.folder_name) }}">{% if current_language == 'en' %}Review{% else %}Переглянути{% endif %}</a></div>{% endfor %}</div>{% else %}<div class="empty-state"><strong>{% if current_language == 'en' %}Everything looks good{% else %}Усе працює нормально{% endif %}</strong><p>{% if current_language == 'en' %}No known hosting issues require action.{% else %}Немає відомих проблем, які потребують дії.{% endif %}</p></div>{% endif %}</article>
   </section>
   {% endif %}
 
@@ -58,10 +56,6 @@
         <div class="action-meta">{% if current_language == 'en' %}Open wizard for Static, WordPress, Node, PHP, Python{% else %}Відкрити wizard для Static, WordPress, Node, PHP, Python{% endif %}</div>
       </a>
       {% endif %}
-      <a class="action-card" href="{{ url_for('user_sites_index') }}">
-        <div class="action-title">{% if current_language == 'en' %}Manage sites{% else %}Керувати сайтами{% endif %}</div>
-        <div class="action-meta">{% if current_language == 'en' %}Open files, domains, and backups{% else %}Відкрити файли, домени й резервні копії{% endif %}</div>
-      </a>
       <a class="action-card" href="{{ url_for('user_domains_index') }}">
         <div class="action-title">{% if current_language == 'en' %}Add domain{% else %}Додати домен{% endif %}</div>
         <div class="action-meta">{% if current_language == 'en' %}Connect a custom hostname and SSL{% else %}Підключити власний hostname та SSL{% endif %}</div>

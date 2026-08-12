@@ -3,8 +3,9 @@
 {% block content %}
 <section class="page-shell">
   <header class="page-header">
-    <h1>{% if current_language == 'en' %}Create Site Wizard{% else %}Майстер створення сайту{% endif %}</h1>
-    <p>{% if current_language == 'en' %}Create an application from approved templates only.{% else %}Створення застосунку лише із затверджених шаблонів.{% endif %}</p>
+    <p class="eyebrow">Hosting / Sites</p>
+    <h1>{% if current_language == 'en' %}Create site{% else %}Створити сайт{% endif %}</h1>
+    <p>{% if current_language == 'en' %}Choose the technology and how you want to add your project.{% else %}Оберіть технологію та спосіб додавання проєкту.{% endif %}</p>
   </header>
 
   <form method="post" class="card form-card" id="create-site-form">
@@ -19,14 +20,12 @@
       </select>
     {% endif %}
 
-    <label for="site_name">{% if current_language == 'en' %}Subdomain{% else %}Субдомен{% endif %}</label>
+    <h2 class="form-step-title"><span>1</span>{% if current_language == 'en' %}Name{% else %}Назва{% endif %}</h2>
+    <label for="site_name">{% if current_language == 'en' %}Site name{% else %}Назва сайту{% endif %}</label>
     <input id="site_name" name="site_name" type="text" required placeholder="example-site">
 
-    <label for="domain">{% if current_language == 'en' %}Custom domain (optional){% else %}Кастомний домен (необов'язково){% endif %}</label>
-    <input id="domain" name="domain" type="text" placeholder="example.com">
-
     <fieldset class="runtime-fieldset">
-      <legend>{% if current_language == 'en' %}Execution environment{% else %}Середовище виконання{% endif %}</legend>
+      <legend class="form-step-title"><span>2</span>{% if current_language == 'en' %}Execution environment{% else %}Середовище виконання{% endif %}</legend>
       <p class="service-meta">{% if current_language == 'en' %}Choose the technology your site uses.{% else %}Оберіть технологію, на якій працює ваш сайт.{% endif %}</p>
       <div class="runtime-card-grid">
         {% for runtime in runtime_options %}
@@ -72,14 +71,26 @@
       <p id="php-runtime-result" class="service-meta"></p>
     </div>
 
-    <label for="source_mode">{% if current_language == 'en' %}Source mode{% else %}Джерело коду{% endif %}</label>
+    <h2 class="form-step-title"><span>3</span>{% if current_language == 'en' %}Project source{% else %}Джерело проєкту{% endif %}</h2>
+    <label for="source_mode">{% if current_language == 'en' %}How will you add files?{% else %}Як ви додасте файли?{% endif %}</label>
     <select id="source_mode" name="source_mode" required>
       {% for source in source_modes %}
-        <option value="{{ source }}" {% if selected_source == source %}selected{% endif %}>{{ source|upper }}</option>
+        <option value="{{ source }}" {% if selected_source == source %}selected{% endif %}>{% if source == 'upload' %}{% if current_language == 'en' %}Upload files after creation{% else %}Завантажити файли після створення{% endif %}{% elif source == 'git' %}Git repository{% else %}{% if current_language == 'en' %}SFTP / add later{% else %}SFTP / додати пізніше{% endif %}{% endif %}</option>
       {% endfor %}
     </select>
 
-    <button type="submit" class="btn btn-primary" id="create-site-submit">{% if current_language == 'en' %}Create{% else %}Створити{% endif %}</button>
+    <h2 class="form-step-title"><span>4</span>Domain</h2>
+    <label for="domain">{% if current_language == 'en' %}Custom domain (optional){% else %}Власний домен (необов'язково){% endif %}</label>
+    <input id="domain" name="domain" type="text" placeholder="example.com">
+    <p class="field-help">{% if current_language == 'en' %}You can add this later. MyH will guide you through DNS and HTTPS.{% else %}Це можна додати пізніше. MyH допоможе налаштувати DNS і HTTPS.{% endif %}</p>
+    <h2 class="form-step-title"><span>5</span>{% if current_language == 'en' %}Review{% else %}Перевірка{% endif %}</h2>
+    <dl class="review-list" aria-live="polite">
+      <div><dt>{% if current_language == 'en' %}Name{% else %}Назва{% endif %}</dt><dd data-review-name>—</dd></div>
+      <div><dt>Runtime</dt><dd data-review-runtime>—</dd></div>
+      <div><dt>{% if current_language == 'en' %}Source{% else %}Джерело{% endif %}</dt><dd data-review-source>—</dd></div>
+      <div><dt>Domain</dt><dd data-review-domain>{% if current_language == 'en' %}Add later{% else %}Додати пізніше{% endif %}</dd></div>
+    </dl>
+    <button type="submit" class="btn btn-primary" id="create-site-submit">{% if current_language == 'en' %}Create site{% else %}Створити сайт{% endif %}</button>
   </form>
 </section>
 
@@ -97,6 +108,9 @@
     var createButton = document.getElementById('create-site-submit');
     var staticBlock = document.getElementById('static-settings-block');
     var dockerBlock = document.getElementById('docker-settings-block');
+    var siteNameInput = document.getElementById('site_name');
+    var sourceSelect = document.getElementById('source_mode');
+    var domainInput = document.getElementById('domain');
     if (!typeInputs.length || !runtimeBlock) return;
 
     function selectedType() {
@@ -110,9 +124,20 @@
       commandShell.style.display = ['node', 'python'].indexOf(value) >= 0 ? '' : 'none';
       staticBlock.style.display = value === 'static' ? '' : 'none';
       dockerBlock.style.display = value === 'docker' ? '' : 'none';
+      syncReview();
+    }
+
+    function syncReview() {
+      var runtime = selectedType();
+      document.querySelector('[data-review-name]').textContent = siteNameInput.value.trim() || '—';
+      document.querySelector('[data-review-runtime]').textContent = runtime ? runtime.toUpperCase() : '—';
+      document.querySelector('[data-review-source]').textContent = sourceSelect.options[sourceSelect.selectedIndex].text;
+      document.querySelector('[data-review-domain]').textContent = domainInput.value.trim() || {{ ('Add later' if current_language == 'en' else 'Додати пізніше')|tojson }};
     }
 
     typeInputs.forEach(function (input) { input.addEventListener('change', syncPhpRuntimeVisibility); });
+    [siteNameInput, domainInput].forEach(function (input) { input.addEventListener('input', syncReview); });
+    sourceSelect.addEventListener('change', syncReview);
     syncPhpRuntimeVisibility();
 
     if (createForm && createButton) {

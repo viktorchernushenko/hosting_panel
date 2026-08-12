@@ -4,8 +4,8 @@
   <header class="hero-card">
     <div>
       <p class="eyebrow">myh.guru</p>
-      <h2>{% if current_language == 'en' %}Hosting control center{% else %}Центр керування хостингом{% endif %}</h2>
-      <p class="subtitle">{% if current_language == 'en' %}Create a website, upload files, connect a domain and keep backups without managing a server manually.{% else %}Створюйте сайти, завантажуйте файли, підключайте домени й зберігайте резервні копії без ручного адміністрування сервера.{% endif %}</p>
+      <h2>{% if current_language == 'en' %}Hosting for your web projects{% else %}Хостинг для ваших вебпроєктів{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}Deploy sites and applications, and manage domains, files, databases and backups from one panel.{% else %}Розміщуйте сайти та застосунки, керуйте доменами, файлами, базами даних і резервними копіями з однієї панелі.{% endif %}</p>
     </div>
     <div class="hero-actions">
       <a class="ghost-btn" href="https://t.me/viktor_chernushenko" target="_blank" rel="noopener">{% if current_language == 'en' %}Message in Telegram{% else %}Написати в Telegram{% endif %}</a>
@@ -13,7 +13,7 @@
     </div>
   </header>
 
-  <section class="panel-grid">
+  <section class="panel-grid" id="features">
     <article class="panel-card">
       <div class="panel-head">
         <h3>{% if current_language == 'en' %}Platform status{% else %}Стан платформи{% endif %}</h3>
@@ -35,6 +35,11 @@
         <div class="service-row"><strong>{% if current_language == 'en' %}Connect domains and HTTPS{% else %}Підключати домени та HTTPS{% endif %}</strong><span class="chip">{% if current_language == 'en' %}Domains{% else %}Домени{% endif %}</span></div>
       </div>
     </article>
+  </section>
+
+  <section class="panel-card full-width" id="security">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}Security by default{% else %}Безпека за замовчуванням{% endif %}</h3></div>
+    <p class="subtitle">{% if current_language == 'en' %}Projects are isolated, credentials are write-only, HTTPS is verified, and sensitive operations require authorization and confirmation.{% else %}Проєкти ізольовані, секрети не відображаються повторно, HTTPS перевіряється, а чутливі операції потребують авторизації та підтвердження.{% endif %}</p>
   </section>
 
   {% if runtimes %}

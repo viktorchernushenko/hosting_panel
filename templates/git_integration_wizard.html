@@ -125,7 +125,7 @@
   auth.addEventListener('change', syncAuth); form.addEventListener('input', function(){ if (testedSignature !== signature()) saveButton.disabled = true; });
   testButton.addEventListener('click', function(){ if (form.reportValidity()) requestAction('test'); });
   form.addEventListener('submit', function(event){ event.preventDefault(); if (testedSignature === signature()) requestAction('save'); });
-  document.querySelectorAll('.git-disconnect').forEach(function(button){ button.addEventListener('click', function(){ if (confirm('{% if current_language == "en" %}Disconnect this repository?{% else %}Відключити цей репозиторій?{% endif %}')) requestAction('disconnect', button.dataset.applicationId); }); });
+  document.querySelectorAll('.git-disconnect').forEach(function(button){ button.addEventListener('click', function(){ window.myhConfirm('{% if current_language == "en" %}Disconnect this repository?{% else %}Відключити цей репозиторій?{% endif %}', function(){ requestAction('disconnect', button.dataset.applicationId); }); }); });
   syncAuth();
 })();
 </script>

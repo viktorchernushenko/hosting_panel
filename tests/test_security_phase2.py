@@ -412,6 +412,36 @@ class SecurityPhase2Tests(unittest.TestCase):
         self.assertNotIn('value="wordpress"', html)
         self.assertIn('name="spa_enabled"', html)
 
+    def test_sites_index_has_real_filters_and_deployment_state(self):
+        owner = self._create_user('sites-ui-owner')
+        site = self._create_site(owner, name='sites-ui')
+        panel_app.db.session.add(panel_app.DeploymentEvent(site_name=site.name, status='success', detail='verified'))
+        panel_app.db.session.commit()
+        client = self.app.test_client()
+        self._auth_session(client, owner.id)
+        with mock.patch.object(panel_app, 'actual_site_runtime_statuses', return_value={site.id: 'running'}):
+            html = client.get('/sites').get_data(as_text=True)
+        self.assertIn('data-list-filter="status"', html)
+        self.assertIn('data-list-filter="runtime"', html)
+        self.assertIn('data-status="running"', html)
+        self.assertIn('data-runtime="static"', html)
+        self.assertIn('Success', html)
+
+    def test_site_workspace_uses_semantic_sections_and_shared_confirm(self):
+        owner = self._create_user('workspace-ui-owner')
+        site = self._create_site(owner, name='workspace-ui')
+        client = self.app.test_client()
+        self._auth_session(client, owner.id)
+        domain_state = {'dns': 'verified', 'ssl': 'secure', 'detail': '', 'valid_until': None}
+        with mock.patch.object(panel_app, 'probe_domain_status', return_value=domain_state), \
+             mock.patch.object(panel_app, 'actual_site_runtime_status', return_value='running'), \
+             mock.patch.object(panel_app, 'application_runtime_metrics', return_value={'containers': [], 'limits': {}}):
+            html = client.get(f'/site/{site.folder_name}').get_data(as_text=True)
+        self.assertIn('id="domain-ssl"', html)
+        self.assertIn('id="backups"', html)
+        self.assertEqual(html.count('id="files"'), 1)
+        self.assertNotIn('onsubmit="return confirm(', html)
+
 
 if __name__ == '__main__':
     unittest.main()

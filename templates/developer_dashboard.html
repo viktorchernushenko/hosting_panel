@@ -89,7 +89,7 @@
         <div class="version-item"><strong>v1.7</strong><div>{% if current_language == 'en' %}Multi-runtime hosting for Static, PHP, Node.js, Python, WordPress and Docker; stack detection, transactional deploy with rollback, per-app databases and secrets, resource limits, runtime administration, domains and SSL.{% else %}Multi-runtime hosting для Static, PHP, Node.js, Python, WordPress і Docker; визначення stack, транзакційний deploy із rollback, окремі БД та секрети застосунків, resource limits, керування runtime, домени й SSL.{% endif %}</div></div>
         <div class="version-item"><strong>v1.8</strong><div>{% if current_language == 'en' %}Unified hosting UX: grouped responsive navigation, design tokens and consistent components, compact dashboards, clearer site and SFTP workflows, accessible dialogs, copy feedback and mobile layout improvements.{% else %}Єдиний UX hosting-панелі: згрупована responsive-навігація, design tokens і послідовні компоненти, компактні dashboard, зрозуміліші Site та SFTP workflow, доступні dialogs, feedback копіювання й покращений mobile layout.{% endif %}</div></div>
         <div class="version-item"><strong>v1.9</strong><div>{% if current_language == 'en' %}Product-centered information architecture with dedicated Sites, Domains, Databases, Backups, Logs and Profile pages; health and attention dashboard, collapsible navigation, advanced settings disclosure and CGNAT-safe SFTP guidance.{% else %}Продуктова інформаційна архітектура з окремими сторінками Sites, Domains, Databases, Backups, Logs і Profile; dashboard стану та проблем, collapsible navigation, progressive disclosure і SFTP flow для мережі з CGNAT.{% endif %}</div></div>
-        <div class="version-item"><strong>v1.9.1</strong><div>{% if current_language == 'en' %}Restored a clearly labeled Home entry in the main navigation and aligned the patch-version metadata across the application and installer.{% else %}Відновлено чітко позначений пункт «Головна» в основній навігації та синхронізовано номер патч-версії в застосунку й інсталяторі.{% endif %}</div></div>
+        <div class="version-item"><strong>v2.0.0</strong><div>{% if current_language == 'en' %}Introduced a site-centered information architecture, clearer resource workflows, responsive site tables and consistent destructive confirmations.{% else %}Впроваджено site-centric інформаційну архітектуру, зрозумілі resource workflows, адаптивні таблиці сайтів і єдині підтвердження небезпечних дій.{% endif %}</div></div>
       </div>
     </div>
   </div>
@@ -281,7 +281,7 @@
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                   <button class="tiny-btn" type="submit">{% if current_language == 'en' %}Backup{% else %}Backup{% endif %}</button>
                 </form>
-                <form action="/delete-site/{{ site.id }}" method="POST" onsubmit="return confirm('{% if current_language == 'en' %}Delete this site?{% else %}Видалити сайт?{% endif %}');">
+                <form action="/delete-site/{{ site.id }}" method="POST" data-confirm="{% if current_language == 'en' %}Permanently delete this site?{% else %}Назавжди видалити сайт?{% endif %}">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                   <button class="danger-link" type="submit">{% if current_language == 'en' %}Delete{% else %}Видалити{% endif %}</button>
                 </form>

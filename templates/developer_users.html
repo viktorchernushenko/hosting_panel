@@ -89,11 +89,11 @@
                   </select>
                   <button class="tiny-btn" type="submit">{% if current_language == 'en' %}Update{% else %}Оновити{% endif %}</button>
                 </form>
-                <form action="{{ url_for('developer_reset_password', user_id=user.id) }}" method="POST" onsubmit="return confirm('{% if current_language == 'en' %}Reset the password for this user?{% else %}Скинути пароль цьому користувачу?{% endif %}');">
+                <form action="{{ url_for('developer_reset_password', user_id=user.id) }}" method="POST" data-confirm="{% if current_language == 'en' %}Reset the password for this user?{% else %}Скинути пароль цьому користувачу?{% endif %}">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                   <button class="ghost-btn" type="submit">{% if current_language == 'en' %}Reset password{% else %}Скинути пароль{% endif %}</button>
                 </form>
-                <form action="{{ url_for('developer_toggle_admin', user_id=user.id) }}" method="POST" onsubmit="return confirm('{% if current_language == 'en' %}Change this user\'s role?{% else %}Змінити роль користувача?{% endif %}');">
+                <form action="{{ url_for('developer_toggle_admin', user_id=user.id) }}" method="POST" data-confirm="{% if current_language == 'en' %}Change this user's role?{% else %}Змінити роль користувача?{% endif %}">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                   <button class="tiny-btn" type="submit">{{ 'Remove admin' if user.is_admin else 'Make admin' if current_language == 'en' else 'Зняти admin' if user.is_admin else 'Зробити admin' }}</button>
                 </form>
@@ -102,7 +102,7 @@
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                   <button class="{{ 'tiny-btn' if user.is_banned else 'danger-btn' }}" type="submit">{{ 'Unblock' if user.is_banned else 'Block' if current_language == 'en' else 'Розблокувати' if user.is_banned else 'Заблокувати' }}</button>
                 </form>
-                <form action="{{ url_for('delete_user', user_id=user.id) }}" method="POST" onsubmit="return confirm('{% if current_language == 'en' %}Delete this user and all their sites?{% else %}Видалити користувача та всі його сайти?{% endif %}');">
+                <form action="{{ url_for('delete_user', user_id=user.id) }}" method="POST" data-confirm="{% if current_language == 'en' %}Delete this user and all their sites?{% else %}Видалити користувача та всі його сайти?{% endif %}">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                   <button class="danger-btn" type="submit">{% if current_language == 'en' %}Delete{% else %}Видалити{% endif %}</button>
                 </form>
@@ -121,7 +121,7 @@
       <h3>{% if current_language == 'en' %}Bulk site operations{% else %}Bulk-операції по сайтах{% endif %}</h3>
       <span class="status-pill">{{ sites|length }} {% if current_language == 'en' %}sites{% else %}сайтів{% endif %}</span>
     </div>
-    <form action="{{ url_for('developer_bulk_sites') }}" method="POST" class="stack-form" onsubmit="return confirm('{% if current_language == 'en' %}Run a bulk operation for the selected sites?{% else %}Виконати bulk-операцію для вибраних сайтів?{% endif %}');">
+    <form action="{{ url_for('developer_bulk_sites') }}" method="POST" class="stack-form" data-confirm="{% if current_language == 'en' %}Run a bulk operation for the selected sites?{% else %}Виконати bulk-операцію для вибраних сайтів?{% endif %}">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
       <div class="action-group">
         <select name="action" required>

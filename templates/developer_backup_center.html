@@ -52,7 +52,7 @@
                   <button class="tiny-btn" type="submit">Queue backup</button>
                 </form>
                 {% if row.latest %}
-                <form action="{{ url_for('queue_restore_site_backup', site_id=row.site.id, backup_name=row.latest.name) }}" method="POST" onsubmit="return confirm('Queue restore останньої копії?');">
+                <form action="{{ url_for('queue_restore_site_backup', site_id=row.site.id, backup_name=row.latest.name) }}" method="POST" data-confirm="Поставити відновлення останньої копії в чергу?">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                   <button class="ghost-btn" type="submit">Queue restore latest</button>
                 </form>

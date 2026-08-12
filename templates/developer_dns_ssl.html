@@ -141,7 +141,7 @@
             <td>{{ 'proxied' if record.proxied else 'dns-only' }}</td>
             <td>{{ record.ttl }}</td>
             <td>
-              <form action="{{ url_for('developer_delete_dns_record', record_id=record.id) }}" method="POST" onsubmit="return confirm('Видалити DNS-запис?');">
+              <form action="{{ url_for('developer_delete_dns_record', record_id=record.id) }}" method="POST" data-confirm="Видалити DNS-запис?">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                 <button type="submit" class="danger-link">{% if current_language == 'en' %}Delete{% else %}Видалити{% endif %}</button>
               </form>

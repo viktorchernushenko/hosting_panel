@@ -64,7 +64,7 @@
                   <button type="submit" class="tiny-btn">{{ 'Disable' if module.enabled else 'Enable' }}</button>
                 </form>
                 {% if not module.built_in %}
-                <form action="{{ url_for('delete_module', module_id=module.id) }}" method="POST" onsubmit="return confirm('Видалити модуль?');">
+                <form action="{{ url_for('delete_module', module_id=module.id) }}" method="POST" data-confirm="Видалити модуль?">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                   <button type="submit" class="danger-link">Delete</button>
                 </form>

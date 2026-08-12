@@ -129,6 +129,14 @@ button:disabled, .ui-button:disabled { opacity:.45; cursor:not-allowed; }
 .onboarding-steps { display:grid; grid-template-columns:1fr 1fr; gap:var(--space-2); padding-left:22px; color:var(--muted); }
 .form-card { max-width:760px; padding:var(--space-6); border:1px solid var(--line); border-radius:var(--radius-lg); background:var(--panel); }
 .form-card > label { margin-top:var(--space-4); }
+.form-step-title { display:flex; align-items:center; gap:var(--space-2); margin:var(--space-8) 0 var(--space-3); font-size:1.05rem; }
+.form-step-title:first-of-type { margin-top:var(--space-3); }
+.form-step-title > span { display:inline-grid; place-items:center; width:26px; height:26px; border-radius:50%; color:#06101b; background:var(--accent); font-size:.78rem; }
+.auth-logo { width:112px; height:auto; margin:0 auto var(--space-3); }
+.review-list { display:grid; grid-template-columns:1fr 1fr; gap:var(--space-2); margin-bottom:var(--space-5); }
+.review-list > div { padding:var(--space-3); border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel-2); }
+.review-list dt { color:var(--muted); font-size:.75rem; }
+.review-list dd { margin-top:var(--space-1); font-weight:650; overflow-wrap:anywhere; }
 .advanced-settings { margin:var(--space-4) 0; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel-2); }
 .advanced-settings summary { padding:var(--space-3) var(--space-4); cursor:pointer; font-weight:650; }
 .advanced-settings-body { padding:0 var(--space-4) var(--space-4); }
@@ -137,6 +145,8 @@ button:disabled, .ui-button:disabled { opacity:.45; cursor:not-allowed; }
 .detail-tabs a { flex:0 0 auto; padding:8px 11px; border-radius:var(--radius-sm); color:var(--muted); text-decoration:none; font-size:.84rem; font-weight:650; }
 .detail-tabs a:hover, .detail-tabs a:focus { color:var(--text); background:var(--panel-2); }
 .technical-detail { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }
+.attention-row { display:flex; align-items:center; justify-content:space-between; gap:var(--space-4); padding:var(--space-3) var(--space-4); border:1px solid rgba(245,187,87,.22); border-radius:var(--radius-md); background:rgba(245,187,87,.06); }
+.attention-row p { color:var(--muted); font-size:.86rem; margin-top:var(--space-1); }
 @media (max-width: 900px) {
   .app-shell { grid-template-columns:1fr; }
   .app-sidebar { position:fixed; left:0; top:0; width:min(280px,82vw); transform:translateX(-105%); transition:transform 180ms ease; box-shadow:var(--shadow); }
@@ -160,6 +170,13 @@ button:disabled, .ui-button:disabled { opacity:.45; cursor:not-allowed; }
   .copy-label { grid-column:1 / -1; }
   .flash { left:var(--space-3); right:var(--space-3); top:70px; }
   .modal-card { max-height:calc(100vh - 24px); }
+  .responsive-table thead { display:none; }
+  .responsive-table, .responsive-table tbody, .responsive-table tr, .responsive-table td { display:block; width:100%; }
+  .responsive-table tr { padding:var(--space-3); border-bottom:1px solid var(--line); }
+  .responsive-table td { display:grid; grid-template-columns:minmax(90px,35%) minmax(0,1fr); gap:var(--space-2); padding:6px 0; border:0; text-align:left!important; white-space:normal; }
+  .responsive-table td::before { content:attr(data-label); color:var(--muted); font-size:.75rem; font-weight:650; }
+  .responsive-table .actions-cell > * { margin:0 var(--space-1) var(--space-1) 0; }
+  .attention-row { align-items:flex-start; flex-direction:column; }
 }
 @media (max-width: 390px) {
   .metric-strip, .metrics-grid, .quick-actions { grid-template-columns:1fr; }
@@ -183,3 +200,4 @@ button:disabled, .ui-button:disabled { opacity:.45; cursor:not-allowed; }
 .runtime-toggle input { width: auto; }
 @media (max-width: 900px) { .runtime-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .runtime-card-grid { grid-template-columns: 1fr; } .runtime-choice { min-height: auto; } }
+@media (max-width: 520px) { .review-list { grid-template-columns:1fr; } }
