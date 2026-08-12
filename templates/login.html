@@ -6,12 +6,17 @@
   {% if error %}<div class="error">{{ error }}</div>{% endif %}
   <form method="POST" class="stack-form">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-      <input type="text" name="username" placeholder="{% if current_language == 'en' %}Username{% else %}Логін{% endif %}" required>
-      <input type="password" name="password" placeholder="{% if current_language == 'en' %}Password{% else %}Пароль{% endif %}" required>
-      <button type="submit">{% if current_language == 'en' %}Sign in{% else %}Увійти{% endif %}</button>
+      <label for="login-username">{% if current_language == 'en' %}Username or email{% else %}Логін або email{% endif %}</label>
+      <input id="login-username" type="text" name="username" autocomplete="username" required autofocus>
+      <label for="login-password">{% if current_language == 'en' %}Password{% else %}Пароль{% endif %}</label>
+      <input id="login-password" type="password" name="password" autocomplete="current-password" required>
+      <label class="service-meta"><input type="checkbox" data-password-toggle style="width:auto"> {% if current_language == 'en' %}Show password{% else %}Показати пароль{% endif %}</label>
+      <button type="submit" data-loading-text="{% if current_language == 'en' %}Signing in…{% else %}Вхід…{% endif %}">{% if current_language == 'en' %}Sign in{% else %}Увійти{% endif %}</button>
   </form>
+  <p class="service-meta">{% if current_language == 'en' %}Registration is available by invitation. Contact your hosting administrator for access.{% else %}Реєстрація доступна за запрошенням. Для отримання доступу зверніться до адміністратора хостингу.{% endif %}</p>
   <div class="auth-actions">
       <a class="ghost-btn" href="/">{% if current_language == 'en' %}← Back home{% else %}← На головну{% endif %}</a>
   </div>
 </div>
+<script nonce="{{ csp_nonce }}">document.querySelector('[data-password-toggle]')?.addEventListener('change', (event) => { document.getElementById('login-password').type = event.target.checked ? 'text' : 'password'; });</script>
 {% endblock %}

@@ -173,6 +173,8 @@
         .stack-form { display: flex; flex-direction: column; gap: 12px; }
         input, select { width: 100%; padding: 12px; background: rgba(6,8,22,0.7); border: 1px solid var(--line); border-radius: 12px; color: #fff; font-size: 0.95rem; }
         input:focus, select:focus { outline: none; border-color: var(--accent); }
+        a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 3px solid rgba(59,183,255,.85); outline-offset: 3px; }
+        button, .ghost-btn, .danger-btn, .tiny-btn, .link-btn { min-height: 44px; }
         button[type="submit"] { width: 100%; background: linear-gradient(135deg, var(--accent-2), #1f9d76); color: white; }
         .service-list, .site-list { display: flex; flex-direction: column; gap: 12px; }
         .service-row, .site-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 14px; }
@@ -358,7 +360,7 @@
     </div>
     {% if current_user %}</div></main></div>{% endif %}
 
-        <div class="modal-backdrop" id="global-version-modal" aria-hidden="true">
+        <div class="modal-backdrop" id="global-version-modal" aria-hidden="true" inert>
             <div class="modal-card">
                 <div class="modal-head">
                     <h3>{% if current_language == 'en' %}Current version{% else %}Поточна версія{% endif %}</h3>
@@ -372,7 +374,7 @@
                 </div>
             </div>
         </div>
-        <div class="modal-backdrop" id="global-privacy-modal" aria-hidden="true">
+        <div class="modal-backdrop" id="global-privacy-modal" aria-hidden="true" inert>
           <div class="modal-card"><div class="modal-head"><h3>{% if current_language == 'en' %}Privacy and security{% else %}Приватність і безпека{% endif %}</h3><button class="modal-close" type="button" data-close-modal>{% if current_language == 'en' %}Close{% else %}Закрити{% endif %}</button></div><p class="subtitle">{% if current_language == 'en' %}Application secrets and passwords are masked by default. Administrative metrics are available only to authorized roles.{% else %}Секрети застосунків і паролі замасковані за замовчуванням. Адміністративні метрики доступні лише авторизованим ролям.{% endif %}</p></div>
         </div>
 
@@ -396,9 +398,11 @@
                     document.querySelectorAll('.modal-backdrop.open').forEach((item) => {
                         item.classList.remove('open');
                         item.setAttribute('aria-hidden', 'true');
+                        item.inert = true;
                     });
                     modal.classList.add('open');
                     modal.setAttribute('aria-hidden', 'false');
+                    modal.inert = false;
                     return true;
                 }
 
@@ -406,6 +410,7 @@
                     document.querySelectorAll('.modal-backdrop.open').forEach((item) => {
                         item.classList.remove('open');
                         item.setAttribute('aria-hidden', 'true');
+                        item.inert = true;
                     });
                 }
 

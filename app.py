@@ -2,6 +2,7 @@ from flask import Flask, Response, render_template, request, redirect, url_for, 
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
+from werkzeug.exceptions import HTTPException
 from functools import wraps
 from sqlalchemy import inspect, text, func
 from sqlalchemy.exc import OperationalError
@@ -17,6 +18,7 @@ import hmac
 import time
 import argparse
 import socket
+import ssl
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -62,18 +64,20 @@ CLOUDFLARE_TOKEN_FILE = os.environ.get('CLOUDFLARE_TOKEN_FILE', '/tmp/.cf_token'
 CLOUDFLARE_LOCAL_TOKEN_FILE = os.path.join(app.instance_path, 'cloudflare_api_token')
 CLOUDFLARE_LOCAL_ZONE_FILE = os.path.join(app.instance_path, 'cloudflare_zone_name')
 APP_VERSION = os.environ.get('HOSTING_PANEL_VERSION', '1.9.1')
+STATUS_MODEL = {
+    'site': ['provisioning', 'running', 'unhealthy', 'stopped', 'failed', 'deleting'],
+    'deployment': ['queued', 'building', 'deploying', 'running', 'failed'],
+    'domain': ['pending', 'dns_error', 'verified', 'active'],
+    'ssl': ['pending', 'secure', 'expiring', 'failed'],
+    'backup': ['creating', 'ready', 'failed', 'restoring'],
+    'database': ['provisioning', 'active', 'failed', 'deleting'],
+}
 MYSQL_HOST = os.environ.get('MYSQL_HOST', '172.23.0.1').strip()
 MYSQL_PORT = int(os.environ.get('MYSQL_PORT', '3306'))
 MYSQL_PROVISION_CNF = os.environ.get('MYSQL_PROVISION_CNF', '/etc/mysql/myh-provisioner.cnf')
 MYSQL_BACKUP_ROOT = os.environ.get('MYSQL_BACKUP_ROOT', '/srv/backups/mysql')
 MYSQL_SSL_CA = os.environ.get('MYSQL_SSL_CA', '/etc/mysql/myh-ca.pem')
 MYSQL_HEALTH_CACHE = {'checked_at': 0.0, 'ok': False}
-PUBLIC_HOME_PREFS_FILE = os.path.join(app.instance_path, 'public_home_prefs.json')
-DEFAULT_PUBLIC_HOME_PREFS = {
-    'show_cpu': True,
-    'show_ram': True,
-    'private_mode': False,
-}
 APP_STACKS_ROOT = os.path.join(app.instance_path, 'app_stacks')
 RUNTIME_CONFIG_FILE = os.path.join(app.instance_path, 'runtime_config.json')
 REQUIRED_CORE_TABLES = {
@@ -980,7 +984,7 @@ def create_or_reset_admin_user(username='developer', password=None, email=None, 
     if email is None:
         email = f'{username}@localhost'
     with app.app_context():
-        user = User.query.filter_by(username=username).first()
+        user = User.query.filter((User.username == username) | (func.lower(User.email) == username)).first()
         if user is None:
             user = User(username=username, first_name='Developer', last_name='Admin', phone='0000000000', email=email, password=generate_password_hash(password), is_admin=True, must_change_password=True)
             db.session.add(user)
@@ -1053,6 +1057,7 @@ def inject_user():
         'current_language': get_current_language(),
         'supported_languages': SUPPORTED_LANGUAGES,
         'app_version': APP_VERSION,
+        'capabilities': user_capabilities(user),
     }
 
 
@@ -1093,6 +1098,7 @@ def security_headers(response):
     response.headers['Cross-Origin-Opener-Policy'] = 'same-origin'
     response.headers['Cross-Origin-Resource-Policy'] = 'same-origin'
     response.headers['Origin-Agent-Cluster'] = '?1'
+    response.headers['X-Request-ID'] = getattr(g, 'request_id', '')
     if request.endpoint == 'view_site':
         response.headers['Content-Security-Policy'] = "sandbox; default-src 'self' data: blob:; img-src 'self' data: blob:"
     else:
@@ -1106,6 +1112,19 @@ def security_headers(response):
             "form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
         )
     return response
+
+
+@app.errorhandler(HTTPException)
+def structured_http_error(error):
+    if not request.path.startswith('/api/'):
+        return error
+    code = error.name.upper().replace(' ', '_')
+    return jsonify({'error': {
+        'code': code,
+        'message': error.description,
+        'details': None,
+        'requestId': getattr(g, 'request_id', ''),
+    }}), error.code
 
 
 def get_server_metrics():
@@ -1161,31 +1180,6 @@ def get_service_status(service_name):
             continue
 
     return {'name': service_name, 'active': False, 'detail': 'Unavailable'}
-
-
-def normalize_public_home_prefs(raw):
-    data = raw if isinstance(raw, dict) else {}
-    return {
-        'show_cpu': bool(data.get('show_cpu', True)),
-        'show_ram': bool(data.get('show_ram', True)),
-        'private_mode': bool(data.get('private_mode', False)),
-    }
-
-
-def load_public_home_prefs():
-    try:
-        with open(PUBLIC_HOME_PREFS_FILE, 'r', encoding='utf-8') as file_obj:
-            return normalize_public_home_prefs(json.load(file_obj))
-    except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError):
-        return DEFAULT_PUBLIC_HOME_PREFS.copy()
-
-
-def save_public_home_prefs(raw):
-    prefs = normalize_public_home_prefs(raw)
-    os.makedirs(app.instance_path, exist_ok=True)
-    with open(PUBLIC_HOME_PREFS_FILE, 'w', encoding='utf-8') as file_obj:
-        json.dump(prefs, file_obj, ensure_ascii=False, indent=2)
-    return prefs
 
 
 def run_command(command, timeout=10):
@@ -1335,6 +1329,23 @@ def user_has_role_permission(user, permission):
     if user.is_admin or user_role(user) == 'admin':
         return True
     return permission in role_permission_set(user_role(user))
+
+
+def user_capabilities(user):
+    """Stable product capabilities derived from backend authorization policy."""
+    checks = {
+        'canCreateSite': 'site.create',
+        'canRestartSite': 'site.manage',
+        'canCreateDatabase': 'database.create',
+        'canUseSftp': 'sftp.access',
+        'canCreateBackup': 'backup.create',
+        'canRestoreBackup': 'backup.restore',
+        'canManageDomain': 'domain.manage',
+        'canDeployGit': 'git.connect',
+        'canDeployGithub': 'git.connect',
+        'canViewLogs': 'logs.view',
+    }
+    return {name: user_has_role_permission(user, permission) for name, permission in checks.items()}
 
 
 def require_role_permission(user, permission):
@@ -3407,7 +3418,8 @@ def resolve_site_request_path(site, site_path, requested_path):
     if os.path.exists(default_php_index):
         return 'index.php'
     try:
-        has_existing_content = any(True for _ in os.scandir(site_path))
+        with os.scandir(site_path) as entries:
+            has_existing_content = next(entries, None) is not None
     except OSError:
         has_existing_content = False
     if not has_existing_content:
@@ -3567,7 +3579,7 @@ def login():
         if len(ip_attempts) >= LOGIN_MAX_IP_ATTEMPTS or len(account_attempts) >= LOGIN_MAX_ACCOUNT_ATTEMPTS:
             return render_template('login.html', error='Забагато спроб. Спробуйте через 5 хвилин.'), 429
         password = request.form['password']
-        user = User.query.filter_by(username=username).first()
+        user = User.query.filter((User.username == username) | (func.lower(User.email) == username)).first()
         
         if user and check_password_hash(user.password, password):
             # Перевірка на блокування аккаунта
@@ -4315,6 +4327,30 @@ def current_user_sites(user):
     return Site.query.filter(Site.id.in_(site_ids)).order_by(Site.created_at.desc()).all() if site_ids else []
 
 
+def probe_domain_status(domain):
+    """Resolve DNS and complete a hostname-verified TLS handshake."""
+    result = {'dns': 'pending', 'ssl': 'pending', 'detail': '', 'valid_until': None}
+    try:
+        addresses = sorted({item[4][0] for item in socket.getaddrinfo(domain, 443, type=socket.SOCK_STREAM)})
+        result['dns'] = 'verified' if addresses else 'dns_error'
+        result['addresses'] = addresses[:4]
+    except socket.gaierror as exc:
+        result.update(dns='dns_error', ssl='failed', detail=f'DNS lookup failed: {exc}')
+        return result
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((domain, 443), timeout=4) as raw_socket:
+            with context.wrap_socket(raw_socket, server_hostname=domain) as tls_socket:
+                certificate = tls_socket.getpeercert()
+        valid_until = certificate.get('notAfter')
+        result['valid_until'] = valid_until
+        remaining = ssl.cert_time_to_seconds(valid_until) - time.time() if valid_until else 0
+        result['ssl'] = 'expiring' if remaining < 30 * 86400 else 'secure'
+    except (OSError, ssl.SSLError, ValueError) as exc:
+        result.update(ssl='failed', detail=f'TLS verification failed: {exc}')
+    return result
+
+
 @app.route('/sites')
 def user_sites_index():
     if 'user_id' not in session: return redirect(url_for('login'))
@@ -4329,7 +4365,9 @@ def user_domains_index():
     if 'user_id' not in session: return redirect(url_for('login'))
     user = db.session.get(User, session['user_id'])
     if not user or user.is_banned: abort(403)
-    return render_template('domains.html', user=user, sites=current_user_sites(user))
+    sites = current_user_sites(user)
+    domain_statuses = {site.id: probe_domain_status(site.custom_domain or f'{site.name}.myh.guru') for site in sites}
+    return render_template('domains.html', user=user, sites=sites, domain_statuses=domain_statuses)
 
 
 @app.route('/databases')
@@ -4919,6 +4957,26 @@ def manage_site(folder_name):
                 log_action('file.rename', f'{site.name}/{relative} → {new_name}')
                 record_upload_history(site, user, relative, 0, source='panel', status='success', deployment='', detail=f'rename:{new_name}')
                 flash('Перейменовано.', 'success')
+        elif action in {'move', 'copy'}:
+            permission = 'files.rename' if action == 'move' else 'files.create'
+            require_application_permission(user, site, permission)
+            relative = normalized_relative_path(request.form.get('file_path', ''))
+            destination_relative = normalized_relative_path(request.form.get('destination', ''))
+            source = safe_resource_path(access, relative, bucket='file')
+            destination = safe_resource_path(access, destination_relative, bucket='file')
+            enforce_wordpress_path_permission(user, access, site_path, relative)
+            enforce_wordpress_path_permission(user, access, site_path, destination_relative)
+            if not relative or not destination_relative or not os.path.isfile(source) or os.path.exists(destination):
+                abort(400)
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            if action == 'copy':
+                enforce_application_quota(access, application_usage_bytes_for_access(access) + os.path.getsize(source))
+                shutil.copy2(source, destination)
+            else:
+                shutil.move(source, destination)
+            log_action(f'file.{action}', f'{site.name}/{relative} → {destination_relative}')
+            record_upload_history(site, user, relative, os.path.getsize(destination), source='panel', status='success', deployment='', detail=f'{action}:{destination_relative}')
+            flash('Файл скопійовано.' if action == 'copy' else 'Файл переміщено.', 'success')
         else:
             require_application_permission(user, site, 'files.upload')
             target_dir_relative = normalized_relative_path(request.form.get('target_dir', current_dir_form))
@@ -5055,6 +5113,20 @@ def manage_site(folder_name):
         runtime_metrics=application_runtime_metrics(access),
     )
 
+
+@app.route('/site/<int:site_id>/files/download')
+def download_site_file(site_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id'])
+    site = db.session.get(Site, site_id)
+    access = require_application_permission(user, site, 'files.download')
+    relative = normalized_relative_path(request.args.get('path', ''))
+    target = safe_resource_path(access, relative, bucket='file')
+    if not relative or not os.path.isfile(target):
+        abort(404)
+    return send_file(target, as_attachment=True, download_name=os.path.basename(target))
+
 @app.route('/view-site/<folder_name>/', defaults={'subpath': 'index.html'})
 @app.route('/view-site/<folder_name>/<path:subpath>')
 def view_site(folder_name, subpath):
@@ -5072,7 +5144,8 @@ def view_site(folder_name, subpath):
                 subpath = 'index.php'
             else:
                 try:
-                    has_existing_content = any(True for _ in os.scandir(site_path))
+                    with os.scandir(site_path) as entries:
+                        has_existing_content = next(entries, None) is not None
                 except OSError:
                     has_existing_content = False
                 if not has_existing_content:
@@ -5360,17 +5433,34 @@ def site_runtime_logs(site_id):
         return redirect(url_for('login'))
     user = db.session.get(User, session['user_id'])
     site = db.session.get(Site, site_id)
-    require_application_permission(user, site, 'site.manage')
+    require_application_permission(user, site, 'logs.view')
     access = ensure_application_access(site)
     metadata_path = os.path.join(access.deployment_root, 'runtime.json')
     if not os.path.isfile(metadata_path):
         abort(404)
-    metadata = json.loads(open(metadata_path, encoding='utf-8').read())
+    with open(metadata_path, encoding='utf-8') as handle:
+        metadata = json.load(handle)
     process = subprocess.run(
         ['docker', 'compose', '-p', metadata['project'], '-f', os.path.join(access.deployment_root, 'compose.yml'), 'logs', '--tail', '300', '--no-color'],
         capture_output=True, text=True, timeout=20, check=False,
     )
-    return (process.stdout + process.stderr, 200, {'Content-Type': 'text/plain; charset=utf-8'})
+    return (mask_sensitive_text(process.stdout + process.stderr), 200, {'Content-Type': 'text/plain; charset=utf-8'})
+
+
+@app.route('/api/capabilities')
+def api_capabilities():
+    user = db.session.get(User, session.get('user_id')) if session.get('user_id') else None
+    if not user or user.is_banned:
+        return jsonify({'error': {'code': 'AUTH_REQUIRED', 'message': 'Authentication required.', 'requestId': g.request_id}}), 401
+    return jsonify({'capabilities': user_capabilities(user), 'requestId': g.request_id})
+
+
+@app.route('/api/status-model')
+def api_status_model():
+    user = db.session.get(User, session.get('user_id')) if session.get('user_id') else None
+    if not user or user.is_banned:
+        abort(401)
+    return jsonify({'statuses': STATUS_MODEL, 'requestId': g.request_id})
 
 
 @app.route('/api/metrics')
@@ -5415,41 +5505,10 @@ def api_health():
 
 @app.route('/api/public-status')
 def api_public_status():
-    metrics = get_server_metrics()
-    prefs = load_public_home_prefs()
-    cpu_value = metrics.get('cpu')
-    ram_value = metrics.get('ram_percent')
-    if prefs['private_mode']:
-        cpu_value = None
-        ram_value = None
-    if not prefs['show_cpu']:
-        cpu_value = None
-    if not prefs['show_ram']:
-        ram_value = None
     return jsonify({
         'online': True,
-        'timestamp': metrics.get('timestamp'),
-        'cpu': cpu_value,
-        'ram_percent': ram_value,
-        'disk_percent': metrics.get('disk_percent'),
-        'prefs': prefs,
+        'version': APP_VERSION,
     })
-
-
-@app.route('/api/public-status/preferences', methods=['POST'])
-def api_public_status_preferences():
-    if 'user_id' not in session:
-        return jsonify({'error': translate('api_unauthorized')}), 401
-    user = db.session.get(User, session['user_id'])
-    if not user or not user.is_admin:
-        return jsonify({'error': translate('api_forbidden')}), 403
-    supplied = request.headers.get('X-CSRF-Token', '')
-    expected = session.get('_csrf_token', '')
-    if not supplied or not expected or not secrets.compare_digest(supplied, expected):
-        return jsonify({'error': 'invalid csrf token'}), 400
-    payload = request.get_json(silent=True) or {}
-    prefs = save_public_home_prefs(payload)
-    return jsonify({'success': True, 'prefs': prefs})
 
 
 @app.route('/api/openapi.json')
@@ -5885,10 +5944,11 @@ def api_github_webhook():
             append_deploy_log(site.name, 'GitHub webhook deployment completed')
             log_action('deploy.github', f'{site.name}:{repo}')
         except Exception as exc:
-            record_deployment_event(site.name, deploy_mode='git', status='failed', detail=str(exc)[:500], repo_url=payload.get('repository', {}).get('clone_url'))
-            append_deploy_log(site.name, f'GitHub webhook deployment failed: {exc}')
+            safe_error = mask_sensitive_text(str(exc))[:500]
+            record_deployment_event(site.name, deploy_mode='git', status='failed', detail=safe_error, repo_url=payload.get('repository', {}).get('clone_url'))
+            append_deploy_log(site.name, f'GitHub webhook deployment failed: {safe_error}')
             log_action('deploy.github.failed', f'{site.name}:{repo}')
-            return jsonify({'success': False, 'error': str(exc)}), 500
+            return jsonify({'success': False, 'error': 'deployment failed', 'requestId': g.request_id}), 500
     return jsonify({'success': True, 'message': message})
 
 

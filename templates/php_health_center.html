@@ -60,7 +60,7 @@
   </section>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
   (function () {
     function updateSiteHealth(siteId) {
       var statusNode = document.querySelector('[data-health-status="' + siteId + '"]');

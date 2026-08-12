@@ -109,16 +109,6 @@
         <label class="service-row" style="justify-content:flex-start; gap:10px;"><input type="checkbox" id="toggle-private-metrics"><span>{% if current_language == 'en' %}Private mode (mask CPU/RAM){% else %}Приватний режим (маскувати CPU/RAM){% endif %}</span></label>
         <button class="tiny-btn" id="toggle-reveal-metrics" type="button">{% if current_language == 'en' %}Show values{% else %}Показати значення{% endif %}</button>
       </div>
-      <div style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px;">
-        <div class="service-meta" style="margin-bottom: 8px;">{% if current_language == 'en' %}Homepage controls (https://myh.guru/){% else %}Керування головною сторінкою (https://myh.guru/){% endif %}</div>
-        <div class="form-grid">
-          <label class="service-row" style="justify-content:flex-start; gap:10px;"><input type="checkbox" id="public-home-show-cpu" checked><span>{% if current_language == 'en' %}Show CPU on homepage{% else %}Показувати CPU на головній{% endif %}</span></label>
-          <label class="service-row" style="justify-content:flex-start; gap:10px;"><input type="checkbox" id="public-home-show-ram" checked><span>{% if current_language == 'en' %}Show RAM on homepage{% else %}Показувати RAM на головній{% endif %}</span></label>
-          <label class="service-row" style="justify-content:flex-start; gap:10px;"><input type="checkbox" id="public-home-private-mode"><span>{% if current_language == 'en' %}Private mode on homepage{% else %}Приватний режим на головній{% endif %}</span></label>
-          <button class="tiny-btn" id="save-public-home-prefs" type="button">{% if current_language == 'en' %}Save homepage settings{% else %}Зберегти налаштування головної{% endif %}</button>
-        </div>
-        <div class="service-meta" id="public-home-prefs-status" style="margin-top: 8px;"></div>
-      </div>
     </div>
   </div>
 
@@ -357,11 +347,6 @@
     privateMode: false,
     revealValues: false,
   };
-  const publicHomePrefs = {
-    show_cpu: true,
-    show_ram: true,
-    private_mode: false,
-  };
   let latestMainMetrics = {
     cpu: {{ metrics.cpu }},
     load: '{{ metrics.load }}',
@@ -474,78 +459,6 @@
     }
   }
 
-  function applyPublicHomePrefsUi() {
-    const cpuToggle = document.getElementById('public-home-show-cpu');
-    const ramToggle = document.getElementById('public-home-show-ram');
-    const privateToggle = document.getElementById('public-home-private-mode');
-    if (cpuToggle) cpuToggle.checked = publicHomePrefs.show_cpu;
-    if (ramToggle) ramToggle.checked = publicHomePrefs.show_ram;
-    if (privateToggle) privateToggle.checked = publicHomePrefs.private_mode;
-  }
-
-  function setPublicHomePrefsStatus(message, isError = false) {
-    const status = document.getElementById('public-home-prefs-status');
-    if (!status) return;
-    status.textContent = message;
-    status.style.color = isError ? 'var(--danger)' : 'var(--muted)';
-  }
-
-  async function loadPublicHomePrefs() {
-    try {
-      const response = await fetch('/api/public-status');
-      if (!response.ok) throw new Error('failed to load public status');
-      const data = await response.json();
-      const prefs = data.prefs || {};
-      publicHomePrefs.show_cpu = prefs.show_cpu !== false;
-      publicHomePrefs.show_ram = prefs.show_ram !== false;
-      publicHomePrefs.private_mode = prefs.private_mode === true;
-      applyPublicHomePrefsUi();
-      setPublicHomePrefsStatus(isEnglish ? 'Loaded current homepage settings.' : 'Поточні налаштування головної завантажено.');
-    } catch (_) {
-      setPublicHomePrefsStatus(isEnglish ? 'Could not load homepage settings.' : 'Не вдалося завантажити налаштування головної.', true);
-    }
-  }
-
-  function bindPublicHomePrefsControls() {
-    const saveButton = document.getElementById('save-public-home-prefs');
-    if (!saveButton) return;
-    saveButton.addEventListener('click', async () => {
-      const cpuToggle = document.getElementById('public-home-show-cpu');
-      const ramToggle = document.getElementById('public-home-show-ram');
-      const privateToggle = document.getElementById('public-home-private-mode');
-      const payload = {
-        show_cpu: !!(cpuToggle && cpuToggle.checked),
-        show_ram: !!(ramToggle && ramToggle.checked),
-        private_mode: !!(privateToggle && privateToggle.checked),
-      };
-      saveButton.disabled = true;
-      setPublicHomePrefsStatus(isEnglish ? 'Saving…' : 'Збереження…');
-      try {
-        const response = await fetch('/api/public-status/preferences', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': '{{ csrf_token }}'
-          },
-          body: JSON.stringify(payload),
-        });
-        const data = await response.json();
-        if (!response.ok || !data.success) {
-          throw new Error(data.error || 'save failed');
-        }
-        publicHomePrefs.show_cpu = data.prefs.show_cpu;
-        publicHomePrefs.show_ram = data.prefs.show_ram;
-        publicHomePrefs.private_mode = data.prefs.private_mode;
-        applyPublicHomePrefsUi();
-        setPublicHomePrefsStatus(isEnglish ? 'Homepage settings saved.' : 'Налаштування головної збережено.');
-      } catch (_) {
-        setPublicHomePrefsStatus(isEnglish ? 'Could not save homepage settings.' : 'Не вдалося зберегти налаштування головної.', true);
-      } finally {
-        saveButton.disabled = false;
-      }
-    });
-  }
-
   function refreshMetrics() {
     fetch('/api/metrics').then(r => r.json()).then(data => {
       latestMainMetrics = {
@@ -560,6 +473,10 @@
   }
 
   setInterval(refreshMetrics, 3000);
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, (character) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[character]));
+  }
 
   document.querySelectorAll('[data-site-status]').forEach(async element => {
     try {
@@ -600,7 +517,7 @@
       target.innerHTML = `<p class="empty-state">${isEnglish ? 'No data.' : 'Немає даних.'}</p>`;
       return;
     }
-    target.innerHTML = items.map(item => `<div class="service-row"><strong>${item}</strong></div>`).join('');
+    target.innerHTML = items.map(item => `<div class="service-row"><strong>${escapeHtml(item)}</strong></div>`).join('');
   }
 
   function renderJobs(summary, jobs) {
@@ -617,15 +534,15 @@
     body.innerHTML = jobs.map(job => `
       <tr>
         <td>#${job.id}</td>
-        <td>${job.type}</td>
-        <td>${job.target || '—'}</td>
+        <td>${escapeHtml(job.type)}</td>
+        <td>${escapeHtml(job.target || '—')}</td>
         <td><span class="status-badge ${job.status === 'failed' ? 'danger' : 'success'}">${job.status}</span></td>
         <td>
           <div class="progress-track"><div class="progress-fill" style="width:${job.progress}%"></div></div>
           <div class="service-meta">${job.progress}%</div>
         </td>
         <td>
-          ${job.message}
+          ${escapeHtml(job.message)}
           ${job.status === 'pending' ? `<div style="margin-top:6px"><button class="tiny-btn" data-cancel-job="${job.id}">Cancel</button></div>` : ''}
         </td>
       </tr>
@@ -659,9 +576,9 @@
     }
     body.innerHTML = services.map(item => `
       <tr>
-        <td>${item.service}</td>
+        <td>${escapeHtml(item.service)}</td>
         <td><span class="status-badge ${item.active ? 'success' : 'danger'}">${item.active ? (isEnglish ? 'active' : 'активний') : (isEnglish ? 'inactive' : 'неактивний')}</span></td>
-        <td>${item.detail || '—'}</td>
+        <td>${escapeHtml(item.detail || '—')}</td>
         <td><div class="action-btns"><button class="tiny-btn" data-service-action="start" data-service-id="${item.id}">${isEnglish ? 'Start' : 'Старт'}</button><button class="tiny-btn" data-service-action="stop" data-service-id="${item.id}">${isEnglish ? 'Stop' : 'Стоп'}</button><button class="tiny-btn" data-service-action="restart" data-service-id="${item.id}">${isEnglish ? 'Restart' : 'Рестарт'}</button></div></td>
       </tr>
     `).join('');
@@ -695,7 +612,7 @@
       container.innerHTML = `<div class="alert-card">${isEnglish ? 'No active alerts.' : 'Немає активних алертів.'}</div>`;
       return;
     }
-    container.innerHTML = alerts.map(item => `<div class="alert-card ${item.level}"><strong>${item.title}</strong><div class="service-meta">${item.detail}</div></div>`).join('');
+    container.innerHTML = alerts.map(item => `<div class="alert-card ${item.level === 'danger' ? 'danger' : 'warning'}"><strong>${escapeHtml(item.title)}</strong><div class="service-meta">${escapeHtml(item.detail)}</div></div>`).join('');
   }
 
   async function refreshPlatformOverview() {
@@ -760,9 +677,7 @@
   bindModals();
   applyMetricPrefsUi();
   bindMetricPrivacyControls();
-  bindPublicHomePrefsControls();
   renderMetricValues();
-  loadPublicHomePrefs();
 
   refreshPlatformOverview();
   refreshJobs();
