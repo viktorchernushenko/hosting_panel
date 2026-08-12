@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block page_context %}AI status{% endblock %}
+{% block content %}
+<section class="page-shell">
+  <header class="page-header"><p class="eyebrow">Administration / AI</p><h1>MyH AI status</h1><p>{% if current_language == 'en' %}Configuration and usage visibility without exposing secrets.{% else %}Стан конфігурації та використання без розкриття секретів.{% endif %}</p></header>
+  <section class="metric-strip"><article><span>Status</span><strong>{{ 'Enabled' if ai_status.configured else 'Not configured' }}</strong></article><article><span>Provider</span><strong>{{ ai_status.provider }}</strong></article><article><span>Model</span><strong>{{ ai_status.model }}</strong></article><article><span>Requests today</span><strong>{{ requests_today }}</strong></article></section>
+  <section class="panel-card full-width"><div class="panel-head"><h3>{% if current_language == 'en' %}Provider configuration{% else %}Конфігурація провайдера{% endif %}</h3><span class="status-pill {{ 'online' if ai_status.configured else '' }}">{{ 'ready' if ai_status.configured else 'attention' }}</span></div><div class="backup-list"><div class="backup-row"><span><strong>Endpoint</strong><small>{{ ai_status.endpoint }}</small></span></div><div class="backup-row"><span><strong>API key</strong><small>{{ 'configured (masked)' if ai_status.key_configured else 'not configured' }}</small></span></div><div class="backup-row"><span><strong>Last successful request</strong><small>{{ last_success.created_at.strftime('%Y-%m-%d %H:%M:%S') if last_success else 'not recorded' }}</small></span></div></div><p class="service-meta">Read-only: the assistant receives sanitized runtime state and short log excerpts only. It has no command execution tools.</p></section>
+</section>
+{% endblock %}

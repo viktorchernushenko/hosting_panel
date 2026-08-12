@@ -129,15 +129,10 @@
     <article class="panel-card">
       <div class="panel-head">
         <h3>➕ {% if current_language == 'en' %}Create site{% else %}Додати сайт{% endif %}</h3>
-        <span class="status-pill online">Wildcard DNS</span>
+        <span class="status-pill online">5 runtimes</span>
       </div>
-      <form method="POST" class="stack-form">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-        <input type="text" name="site_name" placeholder="{% if current_language == 'en' %}project-name{% else %}назва-проєкту{% endif %}" pattern="[a-z0-9-]+" required>
-        <select name="owner_id" required>{% for owner in users %}<option value="{{ owner.id }}">{{ owner.username }}</option>{% endfor %}</select>
-        <div class="service-meta">{% if current_language == 'en' %}Type: static site (HTML, CSS, JS){% else %}Тип: статичний сайт (HTML, CSS, JS){% endif %}</div>
-        <button type="submit">{% if current_language == 'en' %}Create site{% else %}Створити сайт{% endif %}</button>
-      </form>
+      <p class="service-meta">{% if current_language == 'en' %}Choose Static, PHP, Node.js, Python or Docker in the unified creation wizard.{% else %}Оберіть Static, PHP, Node.js, Python або Docker в єдиному майстрі створення.{% endif %}</p>
+      <div class="action-group utility-gap-top"><a class="tiny-btn" href="{{ url_for('create_site_wizard') }}">{% if current_language == 'en' %}Open creation wizard{% else %}Відкрити майстер створення{% endif %}</a></div>
     </article>
 
     <article class="panel-card">

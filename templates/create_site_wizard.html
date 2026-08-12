@@ -40,7 +40,7 @@
       </div>
     </fieldset>
 
-    <details class="runtime-help"><summary>{% if current_language == 'en' %}Not sure what to choose?{% else %}Не знаєте, що обрати?{% endif %}</summary><p class="service-meta">HTML/CSS/JS або готовий React/Vue/Vite build → Static. <code>index.php</code> → PHP. Серверний <code>package.json</code> → Node.js. <code>requirements.txt</code> / <code>pyproject.toml</code> → Python. <code>Dockerfile</code> → Docker. Остаточний вибір завжди підтверджуєте ви.</p></details>
+    <details class="runtime-help"><summary>{% if current_language == 'en' %}Not sure what to choose?{% else %}Не знаєте, що обрати?{% endif %}</summary><p class="service-meta">HTML/CSS/JS або готовий React/Vue/Vite build → Static. <code>index.php</code> → PHP. Серверний <code>package.json</code> → Node.js. <code>requirements.txt</code> / <code>pyproject.toml</code> → Python. <code>Dockerfile</code> → Docker. Остаточний вибір завжди підтверджуєте ви.</p><div class="stack-form utility-gap-top"><label for="ai-project-description">{% if current_language == 'en' %}Describe the project or list key files{% else %}Опишіть проєкт або вкажіть ключові файли{% endif %}</label><textarea id="ai-project-description" maxlength="500" rows="3" placeholder="Dockerfile, package.json, requirements.txt…"></textarea><button type="button" class="ghost-btn" id="ai-runtime-button">{% if current_language == 'en' %}Help me choose with MyH AI{% else %}Допомогти вибрати з MyH AI{% endif %}</button><p id="ai-runtime-result" class="service-meta" aria-live="polite"></p></div></details>
 
     <details class="advanced-settings" id="process-command-shell"><summary>{% if current_language == 'en' %}Advanced runtime settings{% else %}Розширені налаштування runtime{% endif %}</summary><div id="process-command-block" class="advanced-settings-body">
       <label for="install_command">Install command</label><input id="install_command" name="install_command" placeholder="npm ci / pip install --target /tmp/deps -r requirements.txt">
@@ -111,6 +111,9 @@
     var siteNameInput = document.getElementById('site_name');
     var sourceSelect = document.getElementById('source_mode');
     var domainInput = document.getElementById('domain');
+    var aiRuntimeButton = document.getElementById('ai-runtime-button');
+    var aiProjectDescription = document.getElementById('ai-project-description');
+    var aiRuntimeResult = document.getElementById('ai-runtime-result');
     if (!typeInputs.length || !runtimeBlock) return;
 
     function selectedType() {
@@ -139,6 +142,24 @@
     [siteNameInput, domainInput].forEach(function (input) { input.addEventListener('input', syncReview); });
     sourceSelect.addEventListener('change', syncReview);
     syncPhpRuntimeVisibility();
+
+    if (aiRuntimeButton && aiProjectDescription && aiRuntimeResult && csrfInput) {
+      aiRuntimeButton.addEventListener('click', function () {
+        aiRuntimeButton.disabled = true;
+        aiRuntimeResult.textContent = {{ ('Asking local AI…' if current_language == 'en' else 'Запит до локального AI…')|tojson }};
+        fetch('{{ url_for('api_ai_runtime_recommend') }}', {
+          method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfInput.value},
+          body: JSON.stringify({description: aiProjectDescription.value})
+        }).then(function (response) { return response.json().then(function (data) { return {ok: response.ok, data: data}; }); })
+          .then(function (result) {
+            if (!result.ok) throw new Error((result.data.error && result.data.error.message) || 'AI request failed');
+            var input = document.querySelector('input[name="site_type"][value="' + result.data.recommended + '"]');
+            if (input && !input.disabled) { input.checked = true; syncPhpRuntimeVisibility(); }
+            aiRuntimeResult.textContent = result.data.recommended.toUpperCase() + ': ' + result.data.reason;
+          }).catch(function (error) { aiRuntimeResult.textContent = error.message; })
+          .finally(function () { aiRuntimeButton.disabled = false; });
+      });
+    }
 
     if (createForm && createButton) {
       createForm.addEventListener('submit', function () {

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block page_context %}MyH AI{% endblock %}
+{% block content %}
+<section class="page-shell">
+  <header class="page-header"><p class="eyebrow">MyH AI</p><h1>{% if current_language == 'en' %}Read-only assistant{% else %}Read-only помічник{% endif %}</h1><p>{% if current_language == 'en' %}Local diagnostics for your sites. AI cannot run commands or change configuration.{% else %}Локальна діагностика ваших сайтів. AI не може виконувати команди чи змінювати конфігурацію.{% endif %}</p></header>
+  <section class="panel-card full-width">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}Service status{% else %}Стан сервісу{% endif %}</h3><span class="status-pill {{ 'online' if ai_status.configured else '' }}">{{ 'Available' if ai_status.configured else 'Not configured' }}</span></div>
+    <div class="backup-list"><div class="backup-row"><span><strong>Provider</strong><small>{{ ai_status.provider }}</small></span></div><div class="backup-row"><span><strong>Model</strong><small>{{ ai_status.model }}</small></span></div></div>
+  </section>
+  <section class="panel-card full-width">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}Site diagnostics{% else %}Діагностика сайтів{% endif %}</h3><span class="status-pill">sanitized logs</span></div>
+    <div class="backup-list">{% for site in sites %}<div class="backup-row"><span><strong>{{ site.name }}</strong><small>{{ site.runtime_type }} {{ site.runtime_version }}</small></span><a class="ghost-btn" href="{{ url_for('manage_site', folder_name=site.folder_name) }}#ai-diagnostics">{% if current_language == 'en' %}Open AI diagnostics{% else %}Відкрити AI-діагностику{% endif %}</a></div>{% else %}<p class="service-meta">{% if current_language == 'en' %}No accessible sites.{% else %}Немає доступних сайтів.{% endif %}</p>{% endfor %}</div>
+  </section>
+</section>
+{% endblock %}
