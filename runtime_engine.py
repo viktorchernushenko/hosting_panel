@@ -269,7 +269,10 @@ def prepare_runtime(stack_root: str, source_root: str, runtime: str, version: st
     if version not in allowed_versions: raise ValueError('unsupported runtime version')
     stack, source = Path(stack_root).resolve(), Path(source_root).resolve()
     stack.mkdir(parents=True, exist_ok=True); source.mkdir(parents=True, exist_ok=True)
-    source.chmod(0o2750)
+    try:
+        source.chmod(0o2750)
+    except PermissionError:
+        pass
     try:
         os.chown(source, -1, 33)
     except PermissionError:
