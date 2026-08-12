@@ -4,6 +4,7 @@ import json
 import io
 import zipfile
 import unittest
+import tempfile
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -196,7 +197,7 @@ class ServiceCatalogWizardTests(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(access.deployment_root, 'runtime.json')))
         mocked_prepare.assert_called_once()
 
-    @mock.patch.object(panel_app.runtime_engine.Path, 'chmod', side_effect=PermissionError(1, 'Operation not permitted'))
+    @mock.patch('runtime_engine.Path.chmod', side_effect=PermissionError(1, 'Operation not permitted'))
     def test_prepare_runtime_tolerates_sftp_owned_source_directory(self, _mocked_chmod):
         with tempfile.TemporaryDirectory() as temp_root:
             stack_root = os.path.join(temp_root, 'stack')
