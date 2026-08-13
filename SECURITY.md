@@ -31,3 +31,8 @@
 - Administrator 2FA readiness.
 - Key-only administrator SSH after a verified recovery path exists.
 - Independently configured and restore-tested off-server backup storage.
+## Production SSH boundary
+
+Root SSH login is disabled. SFTP-only accounts are generated with `internal-sftp`, a root-owned chroot, no TTY, no tunnels, and explicit TCP and agent forwarding denial. The privileged worker validates usernames, chroot paths and key material before regenerating policy.
+
+Global password authentication is not disabled automatically during unattended maintenance. It may be disabled only after a second concurrent administrator session proves key-based login, preventing an unrecoverable remote lockout.

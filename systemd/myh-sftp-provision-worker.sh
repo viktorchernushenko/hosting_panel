@@ -315,6 +315,7 @@ for username in sorted(state.keys()):
         lines.append("    ForceCommand internal-sftp -d /upload")
         lines.append("    DisableForwarding yes")
         lines.append("    AllowTcpForwarding no")
+        lines.append("    AllowAgentForwarding no")
         lines.append("    X11Forwarding no")
         lines.append("    PermitTunnel no")
         lines.append("    PermitTTY no")

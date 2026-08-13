@@ -80,6 +80,14 @@ class SecurityPhase2Tests(unittest.TestCase):
         self.assertIsInstance(payload, dict)
         self.assertIn('success', payload)
 
+    def test_sftp_provisioner_explicitly_disables_agent_forwarding(self):
+        worker_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'systemd', 'myh-sftp-provision-worker.sh')
+        with open(worker_path, encoding='utf-8') as handle:
+            worker = handle.read()
+        self.assertIn('lines.append("    DisableForwarding yes")', worker)
+        self.assertIn('lines.append("    AllowTcpForwarding no")', worker)
+        self.assertIn('lines.append("    AllowAgentForwarding no")', worker)
+
     def test_unassigned_developer_cannot_access_foreign_site_status(self):
         owner = self._create_user('owner1', role='user', is_admin=False)
         developer = self._create_user('dev1', role='developer', is_admin=False)

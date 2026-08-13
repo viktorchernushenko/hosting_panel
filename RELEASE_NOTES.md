@@ -1,11 +1,11 @@
-# MyH 2.7.0 release notes
+# MyH 2.7.1 release notes
 
 Released: 2026-08-13
 
-MyH 2.7.0 adds complete Telegram and standard SMTP configuration to Admin → Сповіщення. Administrators can save credentials, select transport encryption, enable or disable each provider, and run a real provider-specific delivery test without editing server files.
+MyH 2.7.1 is a production verification and SFTP hardening release. The privileged SFTP provisioner now explicitly disables SSH agent forwarding in addition to the existing chroot, internal-SFTP, no-TTY, no-tunnel and no-TCP-forwarding controls.
 
-Secrets are authenticated-encrypted on the server, written atomically with restrictive permissions, and never returned to HTML or the settings API. Existing environment configuration remains a compatible fallback; UI-managed configuration is loaded dynamically and needs no service restart.
+The live SSH policy passed `sshd -t`, was reloaded without interrupting the service, and reports both TCP and agent forwarding disabled for each enabled SFTP-only account. Global administrator authentication was deliberately left unchanged because a second key-authenticated session was not available to prove lockout safety.
 
-A provider is not marked configured merely because fields exist. Only a successful real delivery test produces `CONFIGURED`; failed or unverified settings produce `ERROR`, and disabled credentials remain stored without being used for operational alerts.
+Production E2E revalidated all five runtime lifecycles and the PHP-to-private-MySQL path, including disposable database provisioning, restricted credentials, logical backup, checksum, restore and cleanup.
 
-See [NOTIFICATIONS.md](NOTIFICATIONS.md), [CHANGELOG.md](CHANGELOG.md) and [OPERATIONS.md](OPERATIONS.md).
+See [SFTP.md](SFTP.md), [SECURITY.md](SECURITY.md), [RUNTIMES.md](RUNTIMES.md), [DATABASES.md](DATABASES.md), [CHANGELOG.md](CHANGELOG.md) and [OPERATIONS.md](OPERATIONS.md).

@@ -2,6 +2,24 @@
 
 MyH follows Semantic Versioning. Entries below are reconstructed from the actual Git history, code, configuration, UI and recorded tests; they do not create synthetic historical commits or tags.
 
+## [2.7.1] - 2026-08-13
+
+### Changed
+
+- Re-ran the complete Static, PHP, Node.js, Python and custom Docker lifecycle smoke matrix against production infrastructure.
+- Re-verified MySQL private networking, least-privilege provisioner grants, PHP/PDO connectivity and logical backup/checksum/restore.
+
+### Security
+
+- Explicitly disabled SSH agent forwarding for every enabled SFTP-only account in both the canonical privileged provisioner and live generated SSH policy.
+- Validated the generated policy with `sshd -t`, reloaded only SSH and confirmed TCP and agent forwarding are disabled per SFTP account.
+
+### Known limitations
+
+- Global SSH password authentication and admin forwarding remain unchanged until an administrator confirms a second simultaneous key-authenticated SSH session.
+- Off-server backup and notification providers still require external storage/provider configuration.
+- Four system SFTP accounts remain `UNKNOWN`; no account or data was deleted.
+
 ## [2.7.0] - 2026-08-13
 
 ### Added
