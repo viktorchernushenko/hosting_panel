@@ -4012,30 +4012,42 @@ def site_public_root(site):
     return os.path.join(app.config['UPLOAD_FOLDER'], site.folder_name)
 
 
+class PreserveUpstreamRedirects(urllib.request.HTTPRedirectHandler):
+    """Return upstream redirects to the browser instead of recursively following public URLs."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def proxy_runtime_request(site):
     if site.runtime_type not in {'php', 'node', 'python', 'docker', 'wordpress'} or not site.internal_port:
         return None
     target = f'http://127.0.0.1:{site.internal_port}{request.full_path}'
     if target.endswith('?'):
         target = target[:-1]
-    blocked_headers = {'host', 'connection', 'content-length', 'transfer-encoding'}
+    hop_by_hop_headers = {
+        'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+        'te', 'trailer', 'trailers', 'transfer-encoding', 'upgrade',
+    }
+    blocked_headers = hop_by_hop_headers | {'host', 'content-length'}
     headers = {key: value for key, value in request.headers if key.lower() not in blocked_headers}
     headers['X-Forwarded-Host'] = request.host
     headers['X-Forwarded-Proto'] = request.headers.get('X-Forwarded-Proto', request.scheme)
+    headers['X-Forwarded-Port'] = '443' if headers['X-Forwarded-Proto'] == 'https' else '80'
     headers['Host'] = request.host
     upstream_request = urllib.request.Request(
         target, data=request.get_data() if request.method not in {'GET', 'HEAD'} else None,
         headers=headers, method=request.method,
     )
     try:
-        upstream = urllib.request.urlopen(upstream_request, timeout=25)
+        upstream = urllib.request.build_opener(PreserveUpstreamRedirects).open(upstream_request, timeout=25)
     except urllib.error.HTTPError as exc:
         upstream = exc
     except (urllib.error.URLError, TimeoutError, OSError):
         return Response('Application unavailable', status=503, content_type='text/plain; charset=utf-8')
     response_headers = []
     for key, value in upstream.headers.items():
-        if key.lower() not in {'connection', 'content-length', 'transfer-encoding', 'content-encoding'}:
+        if key.lower() not in hop_by_hop_headers | {'content-length'}:
             response_headers.append((key, value))
     return Response(upstream.read(), status=upstream.status, headers=response_headers)
 

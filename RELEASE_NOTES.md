@@ -1,7 +1,5 @@
-# MyH 2.9.1 release notes
+# MyH 2.9.2 release notes
 
-MyH 2.9.1 fixes Database Studio table browsing against MySQL servers that return uppercase `INFORMATION_SCHEMA` dictionary keys. Metadata is normalized once into the existing lowercase snake_case schema used by structure, data, index, row-editor and frontend consumers.
+MyH 2.9.2 fixes compressed response corruption in the wildcard customer-site proxy. The proxy now follows a consistent raw-byte strategy: encoded upstream bytes retain their matching `Content-Encoding`, while stale `Content-Length` and HTTP hop-by-hop headers are removed.
 
-Empty tables now render an explicit empty state. API failures remain JSON and the frontend offers retry plus a safe request ID instead of displaying Flask HTML or traceback details.
-
-Production read-only validation covered `wp_commentmeta`, `wp_comments`, `wp_links`, `wp_options`, `wp_postmeta`, `wp_posts`, `wp_users`, and `wp_usermeta`. A disposable isolated database verified `INT`, `BIGINT`, `VARCHAR`, `TEXT`, `DECIMAL`, `DATETIME`, `NULL`, `JSON`, `BLOB`, insert, update, delete, serialization, and cleanup.
+WordPress redirects are returned to the browser instead of being followed internally through Cloudflare. As a result, `/wp-admin/` correctly redirects to the canonical public `/wp-login.php` URL and the browser receives normal HTML rather than compressed bytes without encoding metadata.

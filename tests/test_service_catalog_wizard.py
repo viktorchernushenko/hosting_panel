@@ -703,6 +703,31 @@ class ServiceCatalogWizardTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 404)
         self.assertFalse(os.path.exists(index_path))
 
+    def test_runtime_proxy_preserves_raw_content_encoding_and_redirects(self):
+        site = self._create_site(self.user, name='encodedproxy')
+        site.runtime_type = 'php'; site.internal_port = 23458
+        panel_app.db.session.commit()
+        upstream = mock.MagicMock()
+        upstream.headers.items.return_value = [
+            ('Content-Type', 'text/html; charset=UTF-8'), ('Content-Encoding', 'gzip'),
+            ('Content-Length', '99'), ('Transfer-Encoding', 'chunked'), ('Connection', 'keep-alive'),
+        ]
+        upstream.read.return_value = b'\x1f\x8braw-gzip'; upstream.status = 200
+        opener = mock.MagicMock(); opener.open.return_value = upstream
+        client = self.app.test_client()
+        with mock.patch.object(panel_app.urllib.request, 'build_opener', return_value=opener):
+            response = client.get('/', headers={'Host': 'encodedproxy.myh.guru', 'Accept-Encoding': 'gzip'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, b'\x1f\x8braw-gzip')
+        self.assertEqual(response.headers['Content-Encoding'], 'gzip')
+        self.assertNotEqual(response.headers.get('Content-Length'), '99')
+        sent = opener.open.call_args.args[0]
+        self.assertEqual(sent.get_header('X-forwarded-port'), '443')
+
+    def test_runtime_proxy_redirect_handler_never_follows_location(self):
+        handler = panel_app.PreserveUpstreamRedirects()
+        self.assertIsNone(handler.redirect_request(None, None, 302, 'Found', {}, 'https://example.test/login'))
+
     def test_deploy_webhook_config_requires_integration_manage(self):
         site = self._create_site(self.admin, name='hookdemo')
         self._assign_developer_permissions(site, self.developer, ['deployment.execute'])

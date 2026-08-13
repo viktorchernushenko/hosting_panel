@@ -1,6 +1,6 @@
 # MyH
 
-MyH is a production-oriented, multi-user Flask hosting platform. Current release: **2.9.1**. The canonical version is stored in [`VERSION`](VERSION).
+MyH is a production-oriented, multi-user Flask hosting platform. Current release: **2.9.2**. The canonical version is stored in [`VERSION`](VERSION).
 
 ## Verified capabilities
 

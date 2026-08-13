@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.9.2] - 2026-08-13
+
+### Fixed
+
+- Preserved raw upstream `Content-Encoding` while stripping hop-by-hop and stale length headers in the customer runtime proxy.
+- Prevented the proxy HTTP client from following application redirects through public domains, restoring correct WordPress `/wp-admin/` redirects and browser rendering.
+- Forwarded the canonical public port alongside host and scheme metadata.
+
 ## [2.9.1] - 2026-08-13
 
 ### Fixed
