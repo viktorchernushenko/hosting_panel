@@ -2,6 +2,35 @@
 
 MyH follows Semantic Versioning. Entries below are reconstructed from the actual Git history, code, configuration, UI and recorded tests; they do not create synthetic historical commits or tags.
 
+## [2.3.0] - 2026-08-13
+
+### Added
+
+- Added a focused database creation dialog with site, backend-reported engine availability, name and review guidance.
+- Added regression coverage for Ukrainian database UI and rejection of unavailable engines before provisioning.
+
+### Changed
+
+- Reorganized regular-user navigation into Hosting, Operations, Tools and Account while retaining the shared role-aware AppShell.
+- Made MySQL availability and displayed version come from a live restricted backend query; PostgreSQL is explicitly unavailable until its full lifecycle is provisionable.
+- Reworked database rows for compact desktop tables and labelled mobile cards, with masked write-only passwords and working copy/reset/backup/restore/delete controls only.
+
+### Fixed
+
+- Localized the database workflow and core Ukrainian navigation labels instead of mixing English surrounding UI.
+- Confined sidebar scrolling to navigation content and added mobile drawer focus containment, Escape close and focus return.
+- Removed the stale hardcoded current version from the administrator release view.
+
+### Security
+
+- Rejects unsupported database engines server-side before any provisioner call; UI availability is not treated as an authorization boundary.
+
+### Known limitations
+
+- PostgreSQL is not installed/provisionable and remains unavailable.
+- Supabase is deferred after the current host capacity review; core hosting remains independent of it.
+- Browser DevTools screenshots and responsive visual inspection require a browser integration and remain separate from server-side verification.
+
 ## [2.2.0] - 2026-08-12
 
 ### Added

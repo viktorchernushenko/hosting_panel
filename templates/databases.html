@@ -1,45 +1,55 @@
 {% extends "base.html" %}
-{% block page_context %}Databases{% endblock %}
+{% block page_context %}{% if current_language == 'en' %}Databases{% else %}Бази даних{% endif %}{% endblock %}
 {% block content %}
 <div class="dashboard-shell">
   <header class="hero-card">
-    <div><p class="eyebrow">Hosting</p><h2>Databases</h2><p class="subtitle">Isolated MySQL 8.4 databases with per-site credentials and private-network access.</p></div>
+    <div>
+      <p class="eyebrow">{% if current_language == 'en' %}Hosting{% else %}Хостинг{% endif %}</p>
+      <h2>{% if current_language == 'en' %}Databases{% else %}Бази даних{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}Create and manage databases for your sites.{% else %}Створюйте та керуйте базами даних для ваших сайтів.{% endif %}</p>
+    </div>
+    <div class="hero-actions"><button class="tiny-btn" type="button" data-open-database-modal {% if not sites or not database_engines|selectattr('available')|list %}disabled{% endif %}>+ {% if current_language == 'en' %}Create database{% else %}Створити базу{% endif %}</button></div>
   </header>
+
   <section class="panel-card">
-    <div class="panel-head"><h3>Create database</h3></div>
-    <form action="{{ url_for('database_create') }}" method="POST" class="form-grid">
-      <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-      <label>Database name<input name="database_name" required maxlength="80" pattern=".*[A-Za-z0-9].*" placeholder="store"></label>
-      <label>Attached site<select name="site_id" required>{% for site in sites %}<option value="{{ site.id }}">{{ site.name }}</option>{% endfor %}</select></label>
-      <button type="submit" {% if not sites %}disabled{% endif %}>Create database</button>
-    </form>
-  </section>
-  <section class="panel-card">
-    <div class="data-table-wrap"><table class="data-table"><thead><tr><th>Name</th><th>Site</th><th>Engine</th><th>Size</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
-    <tbody>{% for database in databases %}<tr>
-      <td><strong>{{ database.display_name }}</strong><div class="site-meta">{{ database.database_name }}</div></td>
-      <td>{{ database.application.name }}</td><td>MySQL 8.4</td>
-      <td>{% set size = database_sizes.get(database.id) %}{% if size is none %}—{% elif size < 1048576 %}{{ (size / 1024)|round(1) }} KB{% elif size < 1073741824 %}{{ (size / 1048576)|round(1) }} MB{% else %}{{ (size / 1073741824)|round(2) }} GB{% endif %}</td>
-      <td><span class="status-badge {{ 'success' if database.status == 'ready' else 'warning' }}">{{ 'Active' if database.status == 'ready' else database.status|capitalize }}</span></td>
-      <td>{{ database.created_at.strftime('%Y-%m-%d') }}</td>
-      <td class="actions-cell"><details><summary>Details</summary><div class="panel-card">
-        <p><strong>Connection</strong></p>
-        <p>Host: <code>{{ database.host }}</code> <button type="button" class="tiny-btn" data-copy="{{ database.host }}">Copy host</button></p>
-        <p>Port: <code>{{ database.port }}</code></p>
-        <p>Database: <code>{{ database.database_name }}</code> <button type="button" class="tiny-btn" data-copy="{{ database.database_name }}">Copy database</button></p>
-        <p>Username: <code>{{ database.database_user }}</code> <button type="button" class="tiny-btn" data-copy="{{ database.database_user }}">Copy username</button></p>
-        <p>Password: <code>••••••••••••</code> (write-only; reset when needed)</p>
-        <pre>DB_HOST={{ database.host }}
-DB_PORT={{ database.port }}
-DB_DATABASE={{ database.database_name }}
-DB_USERNAME={{ database.database_user }}
-DB_PASSWORD=&lt;your-secret&gt;</pre>
-        <form action="{{ url_for('database_reset', resource_id=database.id) }}" method="POST" data-confirm="Reset database credentials? Applications must use the updated runtime secret."><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button type="submit" class="tiny-btn">Reset credentials</button></form>
-        <form action="{{ url_for('database_backup', resource_id=database.id) }}" method="POST"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button type="submit" class="tiny-btn">Create backup</button></form>
-        {% for backup in database_backups.get(database.id, []) %}<div><code>{{ backup }}</code> <a class="tiny-btn" href="{{ url_for('database_backup_download', resource_id=database.id, backup_name=backup) }}">Download</a><form action="{{ url_for('database_backup_restore', resource_id=database.id, backup_name=backup) }}" method="POST" data-confirm="Restore {{ backup }} over {{ database.database_name }}?"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><input type="hidden" name="confirm" value="{{ database.database_name }}"><button type="submit" class="tiny-btn">Restore</button></form><form action="{{ url_for('database_backup_delete', resource_id=database.id, backup_name=backup) }}" method="POST" data-confirm="Delete backup {{ backup }}?"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button type="submit" class="tiny-btn">Delete backup</button></form></div>{% endfor %}
-        <form action="{{ url_for('database_delete', resource_id=database.id) }}" method="POST" data-confirm="Permanently delete {{ database.database_name }} and its MySQL user?"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button type="submit" class="danger-btn">Delete database</button></form>
+    <div class="data-table-wrap"><table class="data-table responsive-table"><thead><tr>
+      <th>{% if current_language == 'en' %}Name{% else %}Назва{% endif %}</th><th>{% if current_language == 'en' %}Site{% else %}Сайт{% endif %}</th><th>{% if current_language == 'en' %}Type{% else %}Тип{% endif %}</th><th>{% if current_language == 'en' %}Size{% else %}Розмір{% endif %}</th><th>{% if current_language == 'en' %}Status{% else %}Статус{% endif %}</th><th>{% if current_language == 'en' %}Created{% else %}Створено{% endif %}</th><th>{% if current_language == 'en' %}Actions{% else %}Дії{% endif %}</th>
+    </tr></thead><tbody>{% for database in databases %}<tr>
+      <td data-label="{% if current_language == 'en' %}Name{% else %}Назва{% endif %}"><strong>{{ database.display_name }}</strong><div class="site-meta technical-detail">{{ database.database_name }}</div></td>
+      <td data-label="{% if current_language == 'en' %}Site{% else %}Сайт{% endif %}">{{ database.application.name }}</td>
+      <td data-label="{% if current_language == 'en' %}Type{% else %}Тип{% endif %}">{{ database.engine|capitalize }}</td>
+      <td data-label="{% if current_language == 'en' %}Size{% else %}Розмір{% endif %}">{% set size = database_sizes.get(database.id) %}{% if size is none %}—{% elif size < 1048576 %}{{ (size / 1024)|round(1) }} KB{% elif size < 1073741824 %}{{ (size / 1048576)|round(1) }} MB{% else %}{{ (size / 1073741824)|round(2) }} GB{% endif %}</td>
+      <td data-label="{% if current_language == 'en' %}Status{% else %}Статус{% endif %}"><span class="status-badge {{ 'success' if database.status == 'ready' else 'warning' }}">{% if database.status == 'ready' %}{% if current_language == 'en' %}Active{% else %}Активна{% endif %}{% else %}{{ database.status }}{% endif %}</span></td>
+      <td data-label="{% if current_language == 'en' %}Created{% else %}Створено{% endif %}">{{ database.created_at.strftime('%Y-%m-%d') }}</td>
+      <td class="actions-cell" data-label="{% if current_language == 'en' %}Actions{% else %}Дії{% endif %}"><details><summary class="ghost-btn">{% if current_language == 'en' %}Open{% else %}Відкрити{% endif %}</summary><div class="database-detail">
+        <h3>{{ database.display_name }}</h3>
+        <div class="copy-row"><span class="copy-label">Host</span><code class="copy-value">{{ database.host }}</code><button type="button" class="icon-btn" data-copy="{{ database.host }}" aria-label="Copy host">⧉</button></div>
+        <div class="copy-row"><span class="copy-label">Port</span><code class="copy-value">{{ database.port }}</code><button type="button" class="icon-btn" data-copy="{{ database.port }}" aria-label="Copy port">⧉</button></div>
+        <div class="copy-row"><span class="copy-label">Database</span><code class="copy-value">{{ database.database_name }}</code><button type="button" class="icon-btn" data-copy="{{ database.database_name }}" aria-label="Copy database">⧉</button></div>
+        <div class="copy-row"><span class="copy-label">Username</span><code class="copy-value">{{ database.database_user }}</code><button type="button" class="icon-btn" data-copy="{{ database.database_user }}" aria-label="Copy username">⧉</button></div>
+        <div class="copy-row"><span class="copy-label">Password</span><code class="copy-value">••••••••••••</code><span class="field-help">{% if current_language == 'en' %}Write-only{% else %}Лише для запису{% endif %}</span></div>
+        <div class="database-actions">
+          <form action="{{ url_for('database_reset', resource_id=database.id) }}" method="POST" data-confirm="{% if current_language == 'en' %}Reset credentials? Your application must use the new secret.{% else %}Скинути облікові дані? Застосунок має використовувати новий секрет.{% endif %}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button type="submit" class="ghost-btn">{% if current_language == 'en' %}Reset password{% else %}Скинути пароль{% endif %}</button></form>
+          <form action="{{ url_for('database_backup', resource_id=database.id) }}" method="POST"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button type="submit" class="ghost-btn">{% if current_language == 'en' %}Create backup{% else %}Створити копію{% endif %}</button></form>
+        </div>
+        {% for backup in database_backups.get(database.id, []) %}<div class="backup-row"><code>{{ backup }}</code><div class="database-actions"><a class="ghost-btn" href="{{ url_for('database_backup_download', resource_id=database.id, backup_name=backup) }}">{% if current_language == 'en' %}Download{% else %}Завантажити{% endif %}</a><form action="{{ url_for('database_backup_restore', resource_id=database.id, backup_name=backup) }}" method="POST" data-confirm="{% if current_language == 'en' %}Restore this backup over the current database?{% else %}Відновити цю копію поверх поточної бази?{% endif %}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><input type="hidden" name="confirm" value="{{ database.database_name }}"><button type="submit" class="ghost-btn">{% if current_language == 'en' %}Restore{% else %}Відновити{% endif %}</button></form></div></div>{% endfor %}
+        <form action="{{ url_for('database_delete', resource_id=database.id) }}" method="POST" data-confirm="{% if current_language == 'en' %}Permanently delete this database and its account?{% else %}Назавжди видалити цю базу та її обліковий запис?{% endif %}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button type="submit" class="danger-btn">{% if current_language == 'en' %}Delete database{% else %}Видалити базу{% endif %}</button></form>
       </div></details></td>
-    </tr>{% else %}<tr><td colspan="7"><div class="empty-state"><strong>No databases yet</strong><p>Create an isolated MySQL database for one of your sites.</p></div></td></tr>{% endfor %}</tbody></table></div>
+    </tr>{% else %}<tr><td colspan="7"><div class="empty-state"><strong>{% if current_language == 'en' %}You have no databases yet.{% else %}У вас ще немає баз даних.{% endif %}</strong><p>{% if current_language == 'en' %}Create a database for one of your sites.{% else %}Створіть базу для одного з ваших сайтів.{% endif %}</p>{% if sites %}<button class="tiny-btn" type="button" data-open-database-modal>{% if current_language == 'en' %}Create database{% else %}Створити базу{% endif %}</button>{% endif %}</div></td></tr>{% endfor %}</tbody></table></div>
   </section>
+</div>
+
+<div class="modal-backdrop" id="database-create-modal" aria-hidden="true" inert>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="database-create-title">
+    <div class="modal-head"><h3 id="database-create-title">{% if current_language == 'en' %}Create database{% else %}Створити базу даних{% endif %}</h3><button class="modal-close" type="button" data-close-database-modal>{% if current_language == 'en' %}Close{% else %}Закрити{% endif %}</button></div>
+    <form action="{{ url_for('database_create') }}" method="POST" class="stack-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+      <label>1. {% if current_language == 'en' %}Site{% else %}Сайт{% endif %}<select name="site_id" required>{% for site in sites %}<option value="{{ site.id }}">{{ site.name }}</option>{% endfor %}</select></label>
+      <fieldset class="database-engine-fieldset"><legend>2. {% if current_language == 'en' %}Database type{% else %}Тип бази{% endif %}</legend><div class="database-engine-grid">{% for engine in database_engines %}<label class="database-engine-card {{ 'unavailable' if not engine.available }}"><input type="radio" name="engine" value="{{ engine.id }}" {% if engine.available and loop.first %}checked{% endif %} {% if not engine.available %}disabled{% endif %}><strong>{{ engine.name }}{% if engine.version %} {{ engine.version }}{% endif %}</strong><span>{{ engine.description_en if current_language == 'en' else engine.description_uk }}</span><small class="{{ 'success-text' if engine.available else 'warning-text' }}">{% if engine.available %}{% if current_language == 'en' %}Available{% else %}Доступна{% endif %}{% else %}{% if current_language == 'en' %}Temporarily unavailable{% else %}Тимчасово недоступна{% endif %}{% endif %}</small></label>{% endfor %}</div></fieldset>
+      <label>3. {% if current_language == 'en' %}Name{% else %}Назва{% endif %}<input name="database_name" required maxlength="80" pattern=".*[A-Za-z0-9].*" placeholder="store"></label>
+      <p class="field-help">4. {% if current_language == 'en' %}Review the site, type and name before creation. Credentials will be generated securely.{% else %}Перевірте сайт, тип і назву. Облікові дані буде створено безпечно.{% endif %}</p>
+      <button type="submit">{% if current_language == 'en' %}Create database{% else %}Створити базу даних{% endif %}</button>
+    </form>
+  </div>
 </div>
 {% endblock %}

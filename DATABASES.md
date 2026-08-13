@@ -6,6 +6,12 @@ Customer backups use logical `mysqldump`, a temporary mode-0600 client option fi
 
 Every application receives a unique database and least-privilege database account. Containers connect through `hosting-databases`; bridge ICC is disabled to prevent lateral container traffic. Logical backups are written below `/srv/backups/mysql/<owner>/<resource>` and restore operations are audited by the panel.
 
+The customer UI discovers MySQL health and version from the backend. PostgreSQL is shown as unavailable because no provisioner or private listener exists on this host; it must not be advertised as working until create, connect, tenant-isolation, backup, restore, reset and delete pass end to end.
+
+## Advanced services
+
+Supabase is a backend-as-a-service, not a third SQL engine. It is deferred on the current 2 CPU / 3.4 GiB RAM host because the existing panel, customer runtimes, Docker services and local AI already share constrained memory. Core MyH does not depend on Supabase. Any future installation must use the official self-hosted Docker architecture after a fresh capacity review.
+
 ## MyH application database
 
 Panel metadata uses a separate SQLite DB at `instance/hosting.db`; it is not a customer database. Production currently has one backend instance, a small DB, low write concurrency, `journal_mode=DELETE`, 30-second busy timeout and a passing integrity check. SQLite is safe to retain and is not an error.

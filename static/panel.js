@@ -2,8 +2,23 @@
   const body = document.body;
   const open = document.querySelector('[data-nav-open]');
   const closeTargets = document.querySelectorAll('[data-nav-close]');
-  if (open) open.addEventListener('click', () => body.classList.add('nav-open'));
-  closeTargets.forEach((item) => item.addEventListener('click', () => body.classList.remove('nav-open')));
+  const sidebar = document.getElementById('app-navigation');
+  let drawerReturnFocus = null;
+  function openDrawer() {
+    drawerReturnFocus = document.activeElement;
+    body.classList.add('nav-open');
+    if (sidebar) sidebar.setAttribute('aria-modal', 'true');
+    const firstLink = sidebar && sidebar.querySelector('a,button');
+    if (firstLink) firstLink.focus();
+  }
+  function closeDrawer() {
+    body.classList.remove('nav-open');
+    if (sidebar) sidebar.removeAttribute('aria-modal');
+    if (drawerReturnFocus && typeof drawerReturnFocus.focus === 'function') drawerReturnFocus.focus();
+    drawerReturnFocus = null;
+  }
+  if (open) open.addEventListener('click', openDrawer);
+  closeTargets.forEach((item) => item.addEventListener('click', closeDrawer));
   const collapse = document.querySelector('[data-sidebar-collapse]');
   const collapseKey = 'myh.sidebar.collapsed';
   function syncSidebar() {
@@ -21,6 +36,21 @@
     item.className = 'ui-toast'; item.setAttribute('role', 'status'); item.textContent = message;
     region.appendChild(item); window.setTimeout(() => item.remove(), 2200);
   }
+  const databaseModal = document.getElementById('database-create-modal');
+  let databaseModalReturnFocus = null;
+  function closeDatabaseModal() {
+    if (!databaseModal) return;
+    databaseModal.classList.remove('open'); databaseModal.setAttribute('aria-hidden', 'true'); databaseModal.setAttribute('inert', '');
+    if (databaseModalReturnFocus) databaseModalReturnFocus.focus();
+    databaseModalReturnFocus = null;
+  }
+  document.querySelectorAll('[data-open-database-modal]').forEach((button) => button.addEventListener('click', () => {
+    if (!databaseModal) return;
+    databaseModalReturnFocus = button; databaseModal.removeAttribute('inert'); databaseModal.setAttribute('aria-hidden', 'false'); databaseModal.classList.add('open');
+    const first = databaseModal.querySelector('select,input:not([type=hidden]),button'); if (first) first.focus();
+  }));
+  document.querySelectorAll('[data-close-database-modal]').forEach((button) => button.addEventListener('click', closeDatabaseModal));
+  if (databaseModal) databaseModal.addEventListener('click', (event) => { if (event.target === databaseModal) closeDatabaseModal(); });
   document.querySelectorAll('[data-copy]').forEach((button) => {
     button.addEventListener('click', async () => {
       const value = button.dataset.copy || '';
@@ -83,6 +113,14 @@
     button.disabled = true; button.dataset.originalText = button.textContent; button.textContent = button.dataset.loadingText || (document.documentElement.lang === 'en' ? 'Working…' : 'Виконується…');
   }));
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') body.classList.remove('nav-open');
+    if (event.key === 'Escape' && databaseModal && databaseModal.classList.contains('open')) closeDatabaseModal();
+    else if (event.key === 'Escape' && body.classList.contains('nav-open')) closeDrawer();
+    if (event.key === 'Tab' && body.classList.contains('nav-open') && sidebar) {
+      const focusable = Array.from(sidebar.querySelectorAll('a,button:not([disabled])'));
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
   });
 })();

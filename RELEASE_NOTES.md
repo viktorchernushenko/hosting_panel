@@ -1,4 +1,8 @@
-# MyH 2.2.0 release notes
+# MyH 2.3.0 release notes
+
+MyH 2.3.0 completes the database and AppShell UX pass: localized modal-based database creation, live MySQL availability/version, an honest unavailable PostgreSQL state, clearer user navigation, and accessible mobile drawer behavior. See `CHANGELOG.md` for verified changes and known limitations.
+
+## Previous release: 2.2.0
 
 Released: 2026-08-12
 

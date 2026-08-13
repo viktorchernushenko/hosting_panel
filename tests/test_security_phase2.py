@@ -110,6 +110,36 @@ class SecurityPhase2Tests(unittest.TestCase):
         self.assertEqual(client.get('/developer/infrastructure').status_code, 403)
         self.assertEqual(client.get('/api/docker/containers').status_code, 403)
 
+    def test_database_page_localizes_uk_and_reports_backend_engine_state(self):
+        owner = self._create_user('database-owner')
+        self._create_site(owner, name='store')
+        client = self.app.test_client()
+        self._auth_session(client, owner.id)
+        connection = mock.MagicMock()
+        connection.__enter__.return_value = connection
+        connection.cursor.return_value.__enter__.return_value.fetchone.return_value = {'version': '8.4.6-0ubuntu0'}
+        with mock.patch.object(panel_app, 'mysql_provision_connection', return_value=connection):
+            response = client.get('/databases')
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn('Створюйте та керуйте базами даних', body)
+        self.assertIn('MySQL 8.4.6', body)
+        self.assertIn('PostgreSQL', body)
+        self.assertIn('Тимчасово недоступна', body)
+
+    def test_unavailable_database_engine_is_rejected_before_provisioning(self):
+        owner = self._create_user('postgres-owner')
+        site = self._create_site(owner, name='api')
+        client = self.app.test_client()
+        self._auth_session(client, owner.id)
+        with mock.patch.object(panel_app, 'provision_mysql_database') as provision:
+            response = client.post(f'/site/{site.id}/database', data={
+                '_csrf_token': 'csrf-token', 'database_name': 'store', 'engine': 'postgresql',
+            })
+        self.assertEqual(response.status_code, 302)
+        provision.assert_not_called()
+        self.assertEqual(panel_app.DatabaseResource.query.count(), 0)
+
     def test_capabilities_are_backend_derived_and_require_login(self):
         client = self.app.test_client()
         self.assertEqual(client.get('/api/capabilities').status_code, 401)

@@ -279,13 +279,13 @@
     <div class="app-shell">
       <aside class="app-sidebar" id="app-navigation" aria-label="{% if current_language == 'en' %}Main navigation{% else %}Основна навігація{% endif %}">
         <div class="sidebar-brand-row"><a class="sidebar-brand" href="{{ url_for('dashboard') }}"><img src="{{ url_for('static', filename='favicon.ico') }}?v=3" alt=""><span>myh.guru</span></a><button class="icon-btn sidebar-collapse" type="button" data-sidebar-collapse aria-label="{% if current_language == 'en' %}Collapse navigation{% else %}Згорнути навігацію{% endif %}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#menu"/></svg></button></div>
-        <nav>
+        <nav class="sidebar-navigation">
           <section class="nav-group">
             <div class="nav-label">{% if current_language == 'en' %}Overview{% else %}Огляд{% endif %}</div>
             <a class="nav-link {{ 'active' if request.endpoint == 'dashboard' else '' }}" href="{{ url_for('dashboard') }}"><svg class="ui-icon fill" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#grid"/></svg><span>{% if current_language == 'en' %}Home{% else %}Головна{% endif %}</span></a>
           </section>
           <section class="nav-group">
-            <div class="nav-label">Hosting</div>
+            <div class="nav-label">{% if current_language == 'en' %}Hosting{% else %}Хостинг{% endif %}</div>
             <a class="nav-link {{ 'active' if request.endpoint in ['user_sites_index','manage_site','create_site_wizard'] else '' }}" href="{{ url_for('user_sites_index') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#globe"/></svg><span>{% if current_language == 'en' %}Sites{% else %}Сайти{% endif %}</span></a>
             <a class="nav-link {{ 'active' if request.endpoint == 'user_domains_index' else '' }}" href="{{ url_for('user_domains_index') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#layers"/></svg><span>{% if current_language == 'en' %}Domains{% else %}Домени{% endif %}</span></a>
             <a class="nav-link {{ 'active' if request.endpoint == 'user_databases_index' else '' }}" href="{{ url_for('user_databases_index') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#server"/></svg><span>{% if current_language == 'en' %}Databases{% else %}Бази даних{% endif %}</span></a>
@@ -293,15 +293,18 @@
           </section>
           <section class="nav-group">
             <div class="nav-label">{% if current_language == 'en' %}Operations{% else %}Операції{% endif %}</div>
-            <a class="nav-link {{ 'active' if request.endpoint in ['developer_deploy','developer_deploy_history'] else '' }}" href="{{ url_for('developer_deploy') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#upload"/></svg><span>Deployments</span></a>
-            <a class="nav-link {{ 'active' if request.endpoint == 'user_backups_index' else '' }}" href="{{ url_for('user_backups_index') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#history"/></svg><span>Backups</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint in ['developer_deploy','developer_deploy_history'] else '' }}" href="{{ url_for('developer_deploy') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#upload"/></svg><span>{% if current_language == 'en' %}Deployments{% else %}Розгортання{% endif %}</span></a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'user_backups_index' else '' }}" href="{{ url_for('user_backups_index') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#history"/></svg><span>{% if current_language == 'en' %}Backups{% else %}Резервні копії{% endif %}</span></a>
             <a class="nav-link {{ 'active' if request.endpoint == 'user_logs_index' else '' }}" href="{{ url_for('user_logs_index') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#file"/></svg><span>{% if current_language == 'en' %}Logs{% else %}Логи{% endif %}</span></a>
+          </section>
+          <section class="nav-group">
+            <div class="nav-label">{% if current_language == 'en' %}Tools{% else %}Інструменти{% endif %}</div>
             <a class="nav-link {{ 'active' if request.endpoint == 'ai_assistant' else '' }}" href="{{ url_for('ai_assistant') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#code"/></svg><span>MyH AI</span></a>
           </section>
-          <section class="nav-group"><div class="nav-label">Account</div><a class="nav-link {{ 'active' if request.endpoint == 'user_profile' else '' }}" href="{{ url_for('user_profile') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#settings"/></svg><span>{% if current_language == 'en' %}Account settings{% else %}Налаштування акаунта{% endif %}</span></a></section>
+          <section class="nav-group"><div class="nav-label">{% if current_language == 'en' %}Account{% else %}Акаунт{% endif %}</div><a class="nav-link {{ 'active' if request.endpoint == 'user_profile' else '' }}" href="{{ url_for('user_profile') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#settings"/></svg><span>{% if current_language == 'en' %}Account settings{% else %}Налаштування акаунта{% endif %}</span></a></section>
           {% if is_admin_user %}
           <section class="nav-group">
-            <div class="nav-label">Administration</div>
+            <div class="nav-label">{% if current_language == 'en' %}Administration{% else %}Адміністрування{% endif %}</div>
             <a class="nav-link {{ 'active' if request.endpoint == 'developer_dashboard' else '' }}" href="{{ url_for('developer_dashboard') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#grid"/></svg><span>{% if current_language == 'en' %}Admin overview{% else %}Огляд адміністратора{% endif %}</span></a>
             <a class="nav-link {{ 'active' if request.endpoint == 'developer_users' else '' }}" href="{{ url_for('developer_users') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#users"/></svg><span>{% if current_language == 'en' %}Users{% else %}Користувачі{% endif %}</span></a>
             <a class="nav-link {{ 'active' if request.endpoint == 'developer_applications' else '' }}" href="{{ url_for('developer_applications') }}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#globe"/></svg><span>{% if current_language == 'en' %}Sites{% else %}Сайти{% endif %}</span></a>

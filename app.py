@@ -4594,7 +4594,30 @@ def user_databases_index():
         except pymysql.MySQLError: sizes[resource.id] = None
         path = os.path.join(MYSQL_BACKUP_ROOT, str(resource.application.user_id), str(resource.id))
         backups[resource.id] = sorted([name for name in os.listdir(path) if re.fullmatch(r'\d{8}-\d{6}\.sql', name)], reverse=True) if os.path.isdir(path) else []
-    return render_template('databases.html', user=user, sites=sites, databases=databases, database_sizes=sizes, database_backups=backups)
+    mysql_available = False
+    mysql_version = None
+    try:
+        with mysql_provision_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT VERSION() AS version')
+                version_row = cursor.fetchone()
+        mysql_available = True
+        if isinstance(version_row, dict):
+            mysql_version = str(version_row.get('version') or '').split('-', 1)[0] or None
+        elif version_row:
+            mysql_version = str(version_row[0]).split('-', 1)[0] or None
+    except pymysql.MySQLError:
+        pass
+    database_engines = [
+        {'id': 'mysql', 'name': 'MySQL', 'available': mysql_available, 'version': mysql_version,
+         'description_uk': 'Популярна база даних для WordPress, PHP, Laravel та багатьох вебзастосунків.',
+         'description_en': 'A popular database for WordPress, PHP, Laravel and many web applications.'},
+        {'id': 'postgresql', 'name': 'PostgreSQL', 'available': False, 'version': None,
+         'description_uk': 'Потужна база даних для Django, FastAPI, Node.js та сучасних вебзастосунків.',
+         'description_en': 'A powerful database for Django, FastAPI, Node.js and modern web applications.'},
+    ]
+    return render_template('databases.html', user=user, sites=sites, databases=databases, database_sizes=sizes,
+                           database_backups=backups, database_engines=database_engines)
 
 
 @app.route('/databases/create', methods=['POST'])
@@ -5682,6 +5705,11 @@ def site_database_create(site_id):
         return redirect(url_for('login'))
     user = db.session.get(User, session['user_id']); site = db.session.get(Site, site_id)
     require_application_permission(user, site, 'database.create')
+    engine = (request.form.get('engine') or 'mysql').strip().lower()
+    if engine != 'mysql':
+        flash('PostgreSQL is not provisionable on this host yet.' if get_current_language() == 'en'
+              else 'PostgreSQL поки недоступний для створення на цьому сервері.', 'error')
+        return redirect(request.referrer or url_for('user_databases_index'))
     display_name = (request.form.get('database_name') or site.name or 'database').strip()[:80]
     database_name, database_user = generated_database_identifiers(site.user_id, display_name)
     password = secrets.token_urlsafe(32)

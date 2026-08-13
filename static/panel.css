@@ -10,11 +10,12 @@
 }
 html { background: var(--bg); }
 body { padding: 0; background: var(--bg); font-size: 15px; line-height: 1.5; }
-body.has-app-shell { overflow-x: hidden; }
+body.has-app-shell { margin:0; }
 a, button, input, select, textarea { transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: var(--sidebar-w) minmax(0,1fr); }
-.app-sidebar { position: sticky; top: 0; height: 100vh; padding: var(--space-5) var(--space-3); border-right: 1px solid var(--line); background: #0c101a; overflow-y: auto; z-index: 50; }
+.app-sidebar { position: sticky; top: 0; height: 100vh; padding: var(--space-5) var(--space-3); border-right: 1px solid var(--line); background: #0c101a; overflow:hidden; z-index: 50; display:flex; flex-direction:column; }
+.sidebar-navigation { flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
 .sidebar-brand { display:flex; align-items:center; gap:10px; height:44px; padding:0 10px; color:var(--text); text-decoration:none; font-weight:750; font-size:1rem; }
 .sidebar-brand img { width:24px; height:24px; }
 .sidebar-brand-row { display:flex; align-items:center; justify-content:space-between; gap:var(--space-1); }
@@ -147,6 +148,20 @@ button:disabled, .ui-button:disabled { opacity:.45; cursor:not-allowed; }
 .technical-detail { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }
 .attention-row { display:flex; align-items:center; justify-content:space-between; gap:var(--space-4); padding:var(--space-3) var(--space-4); border:1px solid rgba(245,187,87,.22); border-radius:var(--radius-md); background:rgba(245,187,87,.06); }
 .attention-row p { color:var(--muted); font-size:.86rem; margin-top:var(--space-1); }
+.database-detail { width:min(620px,70vw); margin-top:var(--space-2); padding:var(--space-4); border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel-2); text-align:left; white-space:normal; }
+.database-detail h3 { margin-bottom:var(--space-3); }
+.database-actions { display:flex; flex-wrap:wrap; gap:var(--space-2); margin:var(--space-3) 0; }
+.database-actions form { margin:0; }
+.database-engine-fieldset { border:0; min-width:0; }
+.database-engine-fieldset legend { margin-bottom:var(--space-2); font-size:.84rem; font-weight:650; }
+.database-engine-grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--space-3); }
+.database-engine-card { position:relative; display:flex; flex-direction:column; gap:var(--space-2); min-height:150px; padding:var(--space-4); border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel-2); cursor:pointer; }
+.database-engine-card:has(input:checked) { border-color:var(--accent); box-shadow:0 0 0 3px rgba(76,167,255,.14); }
+.database-engine-card input { position:absolute; opacity:0; }
+.database-engine-card span { color:var(--muted); font-size:.84rem; }
+.database-engine-card small { margin-top:auto; font-weight:700; }
+.database-engine-card.unavailable { opacity:.58; cursor:not-allowed; }
+.success-text { color:var(--success); } .warning-text { color:var(--warning); }
 @media (max-width: 900px) {
   .app-shell { grid-template-columns:1fr; }
   .app-sidebar { position:fixed; left:0; top:0; width:min(280px,82vw); transform:translateX(-105%); transition:transform 180ms ease; box-shadow:var(--shadow); }
@@ -177,6 +192,8 @@ button:disabled, .ui-button:disabled { opacity:.45; cursor:not-allowed; }
   .responsive-table td::before { content:attr(data-label); color:var(--muted); font-size:.75rem; font-weight:650; }
   .responsive-table .actions-cell > * { margin:0 var(--space-1) var(--space-1) 0; }
   .attention-row { align-items:flex-start; flex-direction:column; }
+  .database-detail { width:100%; padding:var(--space-3); }
+  .database-engine-grid { grid-template-columns:1fr; }
 }
 @media (max-width: 390px) {
   .metric-strip, .metrics-grid, .quick-actions { grid-template-columns:1fr; }

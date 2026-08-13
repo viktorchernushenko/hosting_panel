@@ -5,7 +5,7 @@
   <header class="hero-card">
     <div>
       <p class="eyebrow">Overview</p>
-      <h2>Dashboard</h2>
+      <h2>{% if current_language == 'en' %}Dashboard{% else %}Головна{% endif %}</h2>
       <p class="subtitle">{% if current_language == 'en' %}An overview of your sites and resources.{% else %}Огляд ваших сайтів і ресурсів.{% endif %}</p>
     </div>
     <div class="hero-actions">

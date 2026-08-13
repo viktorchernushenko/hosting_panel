@@ -1,6 +1,6 @@
 # MyH product audit
 
-Audit checkpoint: release `2.2.0`. Pre-change recovery set: `/srv/backups/platform-audit/20260812-143254` (root-only, SHA-256 verified).
+Audit checkpoint: release `2.3.0`. Pre-change recovery set: `/srv/backups/platform-audit/20260812-143254` (root-only, SHA-256 verified).
 
 ## Control reality map
 
