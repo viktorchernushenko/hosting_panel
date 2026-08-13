@@ -1,6 +1,6 @@
 # MyH operations
 
-Current application release: `2.3.0`. The repository-root `VERSION` file is canonical; `/api/public-status` and the UI receive the value from the running backend.
+Current application release: `2.4.0`. The repository-root `VERSION` file is canonical; `/api/public-status` and the UI receive the value from the running backend.
 
 ## Canonical production
 
@@ -8,7 +8,7 @@ Current application release: `2.3.0`. The repository-root `VERSION` file is cano
 - Service: `myh-guru.service`, Gunicorn on `127.0.0.1:5000` and `127.0.0.1:5001`.
 - Ingress: Cloudflare → Cloudflare Tunnel → Gunicorn. Host nginx is not part of production ingress.
 - Wildcard site traffic and `myh.guru` use the same panel proxy layer. `ssh.myh.guru` tunnels to OpenSSH port 22.
-- MySQL listens on the private `hosting-databases` bridge only. Runtime HTTP ports and local AI bind to loopback. Docker has no TCP daemon listener.
+- MySQL listens on the private `hosting-databases` bridge only. Runtime HTTP ports bind to loopback. Docker has no TCP daemon listener.
 
 ## Health and incident checks
 
@@ -24,7 +24,6 @@ Check `/healthz`, `myh-guru`, `cloudflared`, `mysql`, `docker`, failed systemd u
 | 3306 | `172.23.0.1` | customer MySQL | Docker bridge only |
 | 5000/5001 | loopback | MyH Gunicorn | never public directly |
 | 8080 | loopback | Nextcloud | tunnel/proxy only |
-| 11435 | loopback | local AI | panel API-key client only |
 | 20000–29999 | loopback | customer runtimes | allocated dynamically, never public directly |
 
 ## Backups

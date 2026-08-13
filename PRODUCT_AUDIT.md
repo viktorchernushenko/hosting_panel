@@ -1,6 +1,6 @@
 # MyH product audit
 
-Audit checkpoint: release `2.3.0`. Pre-change recovery set: `/srv/backups/platform-audit/20260812-143254` (root-only, SHA-256 verified).
+Audit checkpoint: release `2.4.0`. Pre-change recovery set: `/srv/backups/platform-audit/20260812-143254` (root-only, SHA-256 verified).
 
 ## Control reality map
 
@@ -23,7 +23,8 @@ Audit checkpoint: release `2.3.0`. Pre-change recovery set: `/srv/backups/platfo
 | Public CPU/RAM controls | Legacy admin dashboard | removed | no guest infrastructure disclosure | DEAD / REMOVED |
 | Password reset email | Login | no mail/reset backend | link intentionally absent | NOT IMPLEMENTED |
 | Self-registration | Login | invite-only policy | policy stated, no fake control | NOT IMPLEMENTED |
-| AI assistant | `/ai`, Create Site, Site workspace, Admin AI | local provider abstraction + sanitized context | runtime guidance and read-only diagnostics | WORKING |
+| Runtime guidance | Create Site | deterministic project marker detection | recommendation requiring confirmation | WORKING |
+| Log guidance | `/logs` | fixed common-error mapping over sanitized logs | direct next-step hints | WORKING |
 
 ## Route and ownership findings
 
@@ -33,4 +34,4 @@ User A/User B regression covers foreign site status, database detail, file works
 
 ## Verification limits
 
-No Chrome DevTools MCP is available in this environment, so real-browser console, Network panel, Lighthouse scores, and viewport screenshots remain **NOT VERIFIED**. Responsive CSS breakpoints and keyboard/focus semantics were inspected and unit/server tests pass, but they are not a substitute for browser evidence. The configured local AI provider passed a real request; model answers remain advisory and CPU inference may be slow.
+No Chrome DevTools MCP is available in this environment, so real-browser console, Network panel, Lighthouse scores, and viewport screenshots remain **NOT VERIFIED**. Responsive CSS breakpoints and keyboard/focus semantics were inspected and unit/server tests pass, but they are not a substitute for browser evidence.

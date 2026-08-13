@@ -40,7 +40,7 @@
       </div>
     </fieldset>
 
-    <details class="runtime-help"><summary>{% if current_language == 'en' %}Not sure what to choose?{% else %}Не знаєте, що обрати?{% endif %}</summary><p class="service-meta">HTML/CSS/JS або готовий React/Vue/Vite build → Static. <code>index.php</code> → PHP. Серверний <code>package.json</code> → Node.js. <code>requirements.txt</code> / <code>pyproject.toml</code> → Python. <code>Dockerfile</code> → Docker. Остаточний вибір завжди підтверджуєте ви.</p><div class="stack-form utility-gap-top"><label for="ai-project-description">{% if current_language == 'en' %}Describe the project or list key files{% else %}Опишіть проєкт або вкажіть ключові файли{% endif %}</label><textarea id="ai-project-description" maxlength="500" rows="3" placeholder="Dockerfile, package.json, requirements.txt…"></textarea><button type="button" class="ghost-btn" id="ai-runtime-button">{% if current_language == 'en' %}Help me choose with MyH AI{% else %}Допомогти вибрати з MyH AI{% endif %}</button><p id="ai-runtime-result" class="service-meta" aria-live="polite"></p></div></details>
+    <details class="runtime-help"><summary>{% if current_language == 'en' %}Not sure what to choose?{% else %}Не знаєте, що обрати?{% endif %}</summary><p class="service-meta">HTML/CSS/JS або готовий React/Vue/Vite build → Static. <code>index.php</code> / <code>composer.json</code> → PHP. Серверний <code>package.json</code> → Node.js. <code>requirements.txt</code> / <code>pyproject.toml</code> → Python. <code>Dockerfile</code> → Docker. Остаточний вибір завжди підтверджуєте ви.</p><div class="stack-form utility-gap-top"><label for="project-files">{% if current_language == 'en' %}List the key project files{% else %}Вкажіть ключові файли проєкту{% endif %}</label><textarea id="project-files" maxlength="500" rows="3" placeholder="Dockerfile, package.json, requirements.txt…"></textarea><button type="button" class="ghost-btn" id="runtime-detect-button">{% if current_language == 'en' %}Detect environment{% else %}Визначити середовище{% endif %}</button><p id="runtime-detect-result" class="service-meta" aria-live="polite"></p></div></details>
 
     <details class="advanced-settings" id="process-command-shell"><summary>{% if current_language == 'en' %}Advanced runtime settings{% else %}Розширені налаштування runtime{% endif %}</summary><div id="process-command-block" class="advanced-settings-body">
       <label for="install_command">Install command</label><input id="install_command" name="install_command" placeholder="npm ci / pip install --target /tmp/deps -r requirements.txt">
@@ -111,9 +111,9 @@
     var siteNameInput = document.getElementById('site_name');
     var sourceSelect = document.getElementById('source_mode');
     var domainInput = document.getElementById('domain');
-    var aiRuntimeButton = document.getElementById('ai-runtime-button');
-    var aiProjectDescription = document.getElementById('ai-project-description');
-    var aiRuntimeResult = document.getElementById('ai-runtime-result');
+    var runtimeDetectButton = document.getElementById('runtime-detect-button');
+    var projectFiles = document.getElementById('project-files');
+    var runtimeDetectResult = document.getElementById('runtime-detect-result');
     if (!typeInputs.length || !runtimeBlock) return;
 
     function selectedType() {
@@ -143,21 +143,24 @@
     sourceSelect.addEventListener('change', syncReview);
     syncPhpRuntimeVisibility();
 
-    if (aiRuntimeButton && aiProjectDescription && aiRuntimeResult && csrfInput) {
-      aiRuntimeButton.addEventListener('click', function () {
-        aiRuntimeButton.disabled = true;
-        aiRuntimeResult.textContent = {{ ('Asking local AI…' if current_language == 'en' else 'Запит до локального AI…')|tojson }};
-        fetch('{{ url_for('api_ai_runtime_recommend') }}', {
+    if (runtimeDetectButton && projectFiles && runtimeDetectResult && csrfInput) {
+      runtimeDetectButton.addEventListener('click', function () {
+        runtimeDetectButton.disabled = true;
+        runtimeDetectResult.textContent = {{ ('Checking project markers…' if current_language == 'en' else 'Перевірка маркерів проєкту…')|tojson }};
+        var files = projectFiles.value.split(/[\s,;]+/).filter(Boolean);
+        fetch('{{ url_for('api_runtime_detect') }}', {
           method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfInput.value},
-          body: JSON.stringify({description: aiProjectDescription.value})
+          body: JSON.stringify({files: files})
         }).then(function (response) { return response.json().then(function (data) { return {ok: response.ok, data: data}; }); })
           .then(function (result) {
-            if (!result.ok) throw new Error((result.data.error && result.data.error.message) || 'AI request failed');
-            var input = document.querySelector('input[name="site_type"][value="' + result.data.recommended + '"]');
+            if (!result.ok) throw new Error((result.data.error && result.data.error.message) || 'Detection failed');
+            var detection = result.data.detection;
+            if (!detection.recommended) throw new Error({{ ('Not enough project markers to recommend an environment.' if current_language == 'en' else 'Недостатньо маркерів проєкту для рекомендації середовища.')|tojson }});
+            var input = document.querySelector('input[name="site_type"][value="' + detection.recommended + '"]');
             if (input && !input.disabled) { input.checked = true; syncPhpRuntimeVisibility(); }
-            aiRuntimeResult.textContent = result.data.recommended.toUpperCase() + ': ' + result.data.reason;
-          }).catch(function (error) { aiRuntimeResult.textContent = error.message; })
-          .finally(function () { aiRuntimeButton.disabled = false; });
+            runtimeDetectResult.textContent = {{ ('Recommended environment: ' if current_language == 'en' else 'Рекомендоване середовище: ')|tojson }} + detection.recommended.toUpperCase() + '. ' + detection.reason;
+          }).catch(function (error) { runtimeDetectResult.textContent = error.message; })
+          .finally(function () { runtimeDetectButton.disabled = false; });
       });
     }
 

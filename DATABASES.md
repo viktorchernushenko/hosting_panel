@@ -10,7 +10,7 @@ The customer UI discovers MySQL health and version from the backend. PostgreSQL 
 
 ## Advanced services
 
-Supabase is a backend-as-a-service, not a third SQL engine. It is deferred on the current 2 CPU / 3.4 GiB RAM host because the existing panel, customer runtimes, Docker services and local AI already share constrained memory. Core MyH does not depend on Supabase. Any future installation must use the official self-hosted Docker architecture after a fresh capacity review.
+Supabase is a backend-as-a-service, not a third SQL engine. It is deferred on the current 2 CPU / 3.4 GiB RAM host because the panel, customer runtimes and Docker services share constrained memory. Core MyH does not depend on Supabase. Any future installation must use the official self-hosted Docker architecture after a fresh capacity review.
 
 ## MyH application database
 

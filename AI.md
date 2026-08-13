@@ -1,11 +1,5 @@
-# MyH local AI diagnostics
+# Historical AI integration note
 
-The inference service is `myh-ai.service`: llama.cpp `b10373` with the official Apache-2.0 Qwen2.5 0.5B Instruct Q4_K_M model. It listens only on `127.0.0.1:11435`, has no public Web UI, and is constrained by systemd to 900 MB RAM, one CPU, and 64 tasks.
+The MyH AI integration was removed in release 2.4.0 after production usage and dependency review showed two runtime-recommendation events and no site/log diagnostic use. Runtime selection now uses deterministic project markers, while Logs uses fixed common-error classifications. The panel has no AI routes, provider, credentials, model service or inference dependency.
 
-The panel is the only client. It constructs a small, server-derived diagnostic context after checking authentication, tenant assignment, and `health.view`. Logs are sanitized and truncated before inference. The model receives no credentials, raw files, database access, Docker socket, shell, network tool, or mutation capability. Model output is advice, never authorization or an executable action.
-
-The panel limits prompt length, output tokens, request duration, per-user request rate, and daily usage. Every request records the user, site, request type, status, latency, and token counters without storing the full prompt or answer.
-
-Business logic uses the provider boundary in `ai_provider.py`. Production selects `local-openai-compatible` through server-side configuration; an unsupported/missing provider disables AI gracefully. Provider credentials remain in a root/group-readable key file and are never returned to the browser or committed.
-
-The UI exposes MyH AI in the main navigation, runtime guidance in Create Site, contextual site/log diagnostics, and **Admin → AI status**. The administrator view reports provider, model, configured/masked key state, successful usage and current availability. It never returns the credential itself. Runtime selection is constrained to the backend registry; the model only explains the safe server-derived recommendation.
+Historical `ai.*` entries remain in the shared audit log to preserve operational history; no AI-specific table or schema migration exists.

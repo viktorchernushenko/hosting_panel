@@ -1,6 +1,6 @@
 # MyH
 
-MyH is a production-oriented, multi-user Flask hosting platform. Current release: **2.3.0**. The canonical version is stored in [`VERSION`](VERSION).
+MyH is a production-oriented, multi-user Flask hosting platform. Current release: **2.4.0**. The canonical version is stored in [`VERSION`](VERSION).
 
 ## Verified capabilities
 
@@ -13,9 +13,9 @@ MyH is a production-oriented, multi-user Flask hosting platform. Current release
 - MySQL 8.4 customer databases with per-application credentials, logical backup/checksum/restore; SQLite retained for internal MyH metadata.
 - Cloudflare Tunnel ingress, DNS/SSL status and Cloudflare-managed edge certificate renewal.
 - Verified local backups, optional encrypted off-server copy, provider-based alerts and operations monitoring.
-- Read-only local MyH AI for runtime guidance and sanitized site diagnostics.
+- Deterministic runtime detection and common log-error guidance without an inference dependency.
 
-See [RUNTIMES.md](RUNTIMES.md), [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), [DATABASES.md](DATABASES.md), [SFTP.md](SFTP.md), [BACKUP_RESTORE.md](BACKUP_RESTORE.md), [AI.md](AI.md) and [OPERATIONS.md](OPERATIONS.md).
+See [RUNTIMES.md](RUNTIMES.md), [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), [DATABASES.md](DATABASES.md), [SFTP.md](SFTP.md), [BACKUP_RESTORE.md](BACKUP_RESTORE.md) and [OPERATIONS.md](OPERATIONS.md).
 
 ## Architecture
 
@@ -49,7 +49,6 @@ GitHub Actions performs Python compilation, unit tests and installer shell synta
 
 - Off-server backup requires an independently mounted or SFTP target plus a GPG recipient.
 - Telegram/SMTP alerts require server-side credentials.
-- AI inference is advisory and can be slow on CPU.
 - Customer Docker Compose is disabled; validated Dockerfile projects are supported.
 - WordPress provisioning exists but is not claimed as lifecycle-verified in the current release.
 

@@ -178,53 +178,19 @@ class SecurityPhase2Tests(unittest.TestCase):
         self.assertNotIn('NeverShowMe', response.get_data(as_text=True))
         self.assertNotIn('secret-token', response.get_data(as_text=True))
 
-    def test_ai_diagnostics_enforces_tenant_scope(self):
-        user_a = self._create_user('ai-user-a')
-        user_b = self._create_user('ai-user-b')
-        site_b = self._create_site(user_b, name='ai-private')
-        client = self.app.test_client()
-        self._auth_session(client, user_a.id)
-        with mock.patch.object(panel_app, 'MYH_AI_URL', 'http://127.0.0.1:11435/v1/chat/completions'), \
-             mock.patch.object(panel_app.os.path, 'isfile', return_value=True):
-            response = client.post(
-                f'/api/sites/{site_b.id}/ai/diagnose', json={'question': 'status'},
-                headers={'X-CSRF-Token': 'csrf-token'},
-            )
-        self.assertEqual(response.status_code, 403)
+    def test_removed_ai_routes_are_not_registered(self):
+        routes = {rule.rule for rule in self.app.url_map.iter_rules()}
+        self.assertNotIn('/ai', routes)
+        self.assertNotIn('/developer/ai', routes)
+        self.assertFalse(any('/ai/' in route for route in routes))
 
-    def test_ai_diagnostics_is_sanitized_and_audited(self):
-        owner = self._create_user('ai-owner')
-        site = self._create_site(owner, name='ai-site')
-        access = panel_app.ensure_application_access(site)
-        log_dir = os.path.join(panel_app.app.instance_path, 'deploy_logs')
-        os.makedirs(log_dir, exist_ok=True)
-        with open(os.path.join(log_dir, f'{site.name}.log'), 'w', encoding='utf-8') as handle:
-            handle.write('password=NeverShowMe Authorization: Bearer hidden-token\n')
-        client = self.app.test_client()
-        self._auth_session(client, owner.id)
-        captured = {}
-
-        def fake_ai(messages, max_tokens=64):
-            captured['messages'] = messages
-            return 'Перевірте стан runtime.', {'prompt_tokens': 10, 'completion_tokens': 4, 'total_tokens': 14}
-
-        with mock.patch.object(panel_app, 'MYH_AI_URL', 'http://127.0.0.1:11435/v1/chat/completions'), \
-             mock.patch.object(panel_app.os.path, 'isfile', return_value=True), \
-             mock.patch.object(panel_app, 'actual_site_runtime_status', return_value='running'), \
-             mock.patch.object(panel_app, 'probe_domain_status', return_value={'dns': 'verified', 'ssl': 'secure'}), \
-             mock.patch.object(panel_app, 'call_local_ai', side_effect=fake_ai):
-            response = client.post(
-                f'/api/sites/{site.id}/ai/diagnose', json={'question': 'Чому сайт не працює?'},
-                headers={'X-CSRF-Token': 'csrf-token'},
-            )
-        self.assertEqual(response.status_code, 200)
-        prompt = str(captured['messages'])
-        self.assertNotIn('NeverShowMe', prompt)
-        self.assertNotIn('hidden-token', prompt)
-        self.assertIn('недовірені', captured['messages'][0]['content'])
-        audit = panel_app.AuditLog.query.filter_by(user_id=owner.id, action='ai.diagnose').first()
-        self.assertIsNotNone(audit)
-        self.assertNotIn('Чому сайт', audit.detail)
+    def test_log_issue_classification_is_deterministic_and_deduplicated(self):
+        issues = panel_app.classify_log_issues([
+            'npm ERR dependency install failed',
+            'Error: EACCES permission denied',
+            'again: permission denied',
+        ])
+        self.assertEqual([issue['code'] for issue in issues], ['dependencies', 'permissions'])
 
     def test_file_copy_move_download_and_escape_protection(self):
         owner = self._create_user('file-owner')

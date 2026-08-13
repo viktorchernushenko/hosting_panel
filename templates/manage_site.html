@@ -73,47 +73,6 @@
     </div>
   </section>
 
-  {% if capabilities.canUseAi and 'health.view' in permissions %}
-  <section class="panel-card full-width" id="ai-diagnostics">
-    <div class="panel-head"><h3>{% if current_language == 'en' %}Local AI diagnostics{% else %}Локальна AI-діагностика{% endif %}</h3><span class="status-pill online">read-only</span></div>
-    <p class="service-meta">{% if current_language == 'en' %}A small model analyses only sanitized service state and recent log excerpts. It cannot run commands or change the site; a response may take up to two minutes.{% else %}Мала модель аналізує лише очищений стан сервісів і короткі фрагменти журналу. Вона не може виконувати команди чи змінювати сайт; відповідь може тривати до двох хвилин.{% endif %}</p>
-    <div class="stack-form utility-gap-top">
-      <div class="field">
-        <label for="ai-question">{% if current_language == 'en' %}What should be checked?{% else %}Що потрібно перевірити?{% endif %}</label>
-        <textarea id="ai-question" maxlength="200" rows="3" placeholder="{% if current_language == 'en' %}Why is the site unavailable?{% else %}Чому сайт недоступний?{% endif %}"></textarea>
-      </div>
-      <button id="ai-diagnose-button" type="button">{% if current_language == 'en' %}Explain logs with MyH AI{% else %}Пояснити логи з MyH AI{% endif %}</button>
-      <pre id="ai-diagnose-output" class="console-output" aria-live="polite">{% if current_language == 'en' %}Ready for read-only diagnostics.{% else %}Готово до read-only діагностики.{% endif %}</pre>
-    </div>
-  </section>
-  <script nonce="{{ csp_nonce }}">
-    (() => {
-      const button = document.getElementById('ai-diagnose-button');
-      const question = document.getElementById('ai-question');
-      const output = document.getElementById('ai-diagnose-output');
-      if (!button || !question || !output) return;
-      button.addEventListener('click', async () => {
-        button.disabled = true;
-        output.textContent = {{ ('Analysing locally…' if current_language == 'en' else 'Локальний аналіз…')|tojson }};
-        try {
-          const response = await fetch({{ url_for('api_ai_diagnose', site_id=site.id)|tojson }}, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': {{ csrf_token|tojson }}},
-            body: JSON.stringify({question: question.value})
-          });
-          const data = await response.json();
-          if (!response.ok) throw new Error((data.error && data.error.message) || 'AI request failed');
-          output.textContent = data.answer;
-        } catch (error) {
-          output.textContent = {{ ('Error: ' if current_language == 'en' else 'Помилка: ')|tojson }} + error.message;
-        } finally {
-          button.disabled = false;
-        }
-      });
-    })();
-  </script>
-  {% endif %}
-
   <section class="panel-card full-width" id="access">
     <div class="panel-head"><h3>SFTP & Access Scope</h3><span class="status-pill">SFTP :22</span></div>
     <div class="backup-list">

@@ -13,7 +13,7 @@ Audit date: 2026-08-12. The inventory maps the existing Flask/Jinja interface; i
 | `/databases` | All databases | Assigned user | Create/manage database | DatabaseResource + live MySQL size | Working; secrets remain write-only |
 | `/dashboard/sftp-access` | File access | User | Enable/reset SFTP | SftpAccount + provisioner | Working; global label is File access |
 | `/dashboard/deploy`, `/dashboard/deploy/history` | Deployments | Assigned user | Deploy/review | Integration + DeploymentEvent | Two pages for one workflow; history remains reachable from Deployments |
-| `/backups`, `/logs`, `/ai`, `/profile` | Operations/account | User | Restore/read/diagnose/update | filesystem backups, scoped logs, local AI, User | Working; AI is read-only and restore/delete require confirmation |
+| `/backups`, `/logs`, `/profile` | Operations/account | User | Restore/read/update | filesystem backups, scoped logs, User | Working; log hints are deterministic and restore/delete require confirmation |
 | `/developer/*` | Administration | Admin/developer by permission | Operate platform | services, Docker, jobs, audit tables | Hidden from regular users; technical detail is appropriate here |
 | `/api/*` | Async/status integrations | Auth/permission specific | Read or mutate | backend services | No standalone UI required for health, metrics, capabilities and webhook endpoints |
 
@@ -26,7 +26,7 @@ Audit date: 2026-08-12. The inventory maps the existing Flask/Jinja interface; i
 - Feedback: Flask flash messages, toast region, native dialog confirmation, scoped empty states.
 - Data views: site/domain/database tables, backup lists, log viewer, admin tables.
 - Global dialogs: version, privacy, destructive confirmation; closed backdrop is inert and aria-hidden.
-- Settings scopes: Account settings, Site settings and Platform modules use distinct labels; administrator AI state is a separate page.
+- Settings scopes: Account settings, Site settings and Platform modules use distinct labels.
 
 ## Verified issues and dependency decisions
 

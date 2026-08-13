@@ -2,6 +2,30 @@
 
 MyH follows Semantic Versioning. Entries below are reconstructed from the actual Git history, code, configuration, UI and recorded tests; they do not create synthetic historical commits or tags.
 
+## [2.4.0] - 2026-08-13
+
+### Removed
+
+- Removed MyH AI from user/admin navigation, Create Site, the site workspace and monitoring UI.
+- Removed `/ai`, `/developer/ai`, `/api/ai/runtime-recommend` and `/api/sites/<id>/ai/diagnose`.
+- Removed the provider implementation, prompt/rate/usage code, AI configuration templates and repository systemd units.
+- Removed the production inference service, model/runtime files, key reference and AI-only service identity after dependency verification.
+
+### Changed
+
+- Replaced inference-assisted runtime choice with the existing deterministic project-marker detector.
+- Added deterministic classification for common port, environment, dependency, permission, database and storage log failures.
+- Preserved direct DNS, HTTPS and database diagnostics without introducing a replacement inference layer.
+
+### Security
+
+- Removed the model endpoint, provider credential, prompt-processing surface and AI-specific service access.
+- Preserved historical `ai.*` events in the shared audit log; no AI-specific database tables existed.
+
+### Known limitations
+
+- Browser DevTools screenshots and network-console verification remain unavailable in this environment; route, template, server and external HTTP checks are used instead.
+
 ## [2.3.0] - 2026-08-13
 
 ### Added
