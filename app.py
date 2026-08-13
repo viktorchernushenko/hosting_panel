@@ -1190,6 +1190,18 @@ def structured_http_error(error):
     }}), error.code
 
 
+@app.errorhandler(500)
+def structured_internal_error(error):
+    if not request.path.startswith('/api/'):
+        return error
+    return jsonify({'error': {
+        'code': 'INTERNAL_SERVER_ERROR',
+        'message': 'Не вдалося завантажити дані таблиці.',
+        'details': None,
+        'requestId': getattr(g, 'request_id', ''),
+    }}), 500
+
+
 def get_server_metrics():
     cpu_percent = psutil.cpu_percent(interval=None)
     load_avg = os.getloadavg()[0] if hasattr(os, 'getloadavg') else 0
@@ -2884,25 +2896,44 @@ def json_database_value(value):
     return str(value)
 
 
+DATABASE_COLUMN_FIELDS = ('column_name', 'column_type', 'is_nullable', 'column_default', 'column_key', 'extra')
+DATABASE_INDEX_FIELDS = ('index_name', 'non_unique', 'columns_list')
+DATABASE_FOREIGN_KEY_FIELDS = ('constraint_name', 'column_name', 'referenced_table_name', 'referenced_column_name')
+
+
+def normalize_database_metadata(rows, fields):
+    """Normalize INFORMATION_SCHEMA driver casing into Database Studio's canonical schema."""
+    normalized = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise RuntimeError('Database metadata did not use a named-column cursor.')
+        by_name = {str(key).lower(): value for key, value in row.items()}
+        normalized.append({field: json_database_value(by_name.get(field)) for field in fields})
+    return normalized
+
+
 def mysql_table_structure(resource, table_name, connection=None):
     owned = connection is None
     connection = connection or mysql_tenant_connection(resource, dictionary=True)
     try:
         require_mysql_table(resource, table_name, connection)
         with connection.cursor() as cursor:
-            cursor.execute("""SELECT column_name,column_type,is_nullable,column_default,column_key,extra
+            cursor.execute("""SELECT column_name AS column_name,column_type AS column_type,is_nullable AS is_nullable,
+                              column_default AS column_default,column_key AS column_key,extra AS extra
                               FROM information_schema.columns WHERE table_schema=%s AND table_name=%s
                               ORDER BY ordinal_position""", (resource.database_name, table_name))
-            columns = cursor.fetchall()
-            cursor.execute("""SELECT index_name,non_unique,GROUP_CONCAT(column_name ORDER BY seq_in_index) AS columns_list
+            columns = normalize_database_metadata(cursor.fetchall(), DATABASE_COLUMN_FIELDS)
+            cursor.execute("""SELECT index_name AS index_name,non_unique AS non_unique,
+                              GROUP_CONCAT(column_name ORDER BY seq_in_index) AS columns_list
                               FROM information_schema.statistics WHERE table_schema=%s AND table_name=%s
                               GROUP BY index_name,non_unique ORDER BY index_name""", (resource.database_name, table_name))
-            indexes = cursor.fetchall()
-            cursor.execute("""SELECT constraint_name,column_name,referenced_table_name,referenced_column_name
+            indexes = normalize_database_metadata(cursor.fetchall(), DATABASE_INDEX_FIELDS)
+            cursor.execute("""SELECT constraint_name AS constraint_name,column_name AS column_name,
+                              referenced_table_name AS referenced_table_name,referenced_column_name AS referenced_column_name
                               FROM information_schema.key_column_usage
                               WHERE table_schema=%s AND table_name=%s AND referenced_table_name IS NOT NULL""",
                            (resource.database_name, table_name))
-            foreign_keys = cursor.fetchall()
+            foreign_keys = normalize_database_metadata(cursor.fetchall(), DATABASE_FOREIGN_KEY_FIELDS)
         return {'columns': columns, 'indexes': indexes, 'foreignKeys': foreign_keys}
     finally:
         if owned: connection.close()

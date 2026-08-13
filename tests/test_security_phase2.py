@@ -4,6 +4,8 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from datetime import date, datetime, time
+from decimal import Decimal
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -162,6 +164,21 @@ class SecurityPhase2Tests(unittest.TestCase):
         body = response.get_data(as_text=True)
         for label in ('Database Studio', 'Таблиці', 'Імпорт / Експорт', 'Резервні копії', 'Підключення'):
             self.assertIn(label, body)
+
+    def test_database_metadata_normalizes_information_schema_casing(self):
+        rows = [{'COLUMN_NAME': 'id', 'COLUMN_TYPE': 'bigint', 'IS_NULLABLE': 'NO',
+                 'COLUMN_DEFAULT': None, 'COLUMN_KEY': 'PRI', 'EXTRA': 'auto_increment'}]
+        self.assertEqual(panel_app.normalize_database_metadata(rows, panel_app.DATABASE_COLUMN_FIELDS), [{
+            'column_name': 'id', 'column_type': 'bigint', 'is_nullable': 'NO',
+            'column_default': None, 'column_key': 'PRI', 'extra': 'auto_increment',
+        }])
+
+    def test_database_value_serializer_handles_supported_mysql_values(self):
+        values = [None, Decimal('12.34'), datetime(2026, 8, 13, 12, 30), date(2026, 8, 13),
+                  time(12, 30), b'blob', {'json': True}, 'large text']
+        serialized = [panel_app.json_database_value(value) for value in values]
+        self.assertEqual(serialized[:6], [None, '12.34', '2026-08-13T12:30:00', '2026-08-13', '12:30:00', '<binary 4 bytes>'])
+        self.assertEqual(serialized[6], "{'json': True}")
 
     def test_database_page_localizes_uk_and_reports_backend_engine_state(self):
         owner = self._create_user('database-owner')

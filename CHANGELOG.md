@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.9.1] - 2026-08-13
+
+### Fixed
+
+- Normalized MySQL `INFORMATION_SCHEMA` metadata casing at the Database Studio boundary, fixing HTTP 500 responses when opening WordPress table data.
+- Added stable JSON responses for unexpected API errors and retryable Database Studio error/empty states.
+- Added regression coverage for metadata normalization and MySQL value serialization.
+
 ## [2.9.0] - 2026-08-13
 
 ### Added
