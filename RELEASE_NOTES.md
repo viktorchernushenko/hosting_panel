@@ -1,13 +1,9 @@
-# MyH 2.8.1 release notes
+# MyH 2.8.2 release notes
 
 Released: 2026-08-13
 
-MyH 2.8.1 completes the first-class manual WordPress workflow introduced by 2.8.0. Create Site now clearly distinguishes automatic installation from manual installation. Manual mode starts an empty, working PHP 8.3 environment without forcing WordPress files or a database.
+MyH 2.8.2 is an urgent WordPress workspace bugfix. The backend now always supplies a complete `wordpress_state` structure, including non-WordPress requests, while the template also uses defensive dictionary access.
 
-The workspace presents a checklist for files, database, `wp-config.php` and the standard installer. Users can upload files or ZIP packages, use SFTP, explicitly extract archives, optionally flatten the official `wordpress/` root, provision a private database, view credentials on a tenant-authorized no-store page and use either full manual `setup-config.php` or assisted configuration.
+Runtime status now combines the site record, exact Compose project label, container state, HTTP readiness and deterministic WordPress installation detection. An unrelated container can no longer make a site appear running merely because it uses a WordPress image.
 
-Assisted configuration generates unique salts and private database settings but does not create the WordPress administrator or complete installation. Existing `wp-config.php` files are never overwritten silently; confirmed replacement creates a timestamped backup first.
-
-Disposable E2E now proves automatic, full-manual and assisted-manual flows. Automatic lifecycle verification also covers pretty permalinks, core update checking and a real files-plus-database backup/modify/restore cycle.
-
-See [WORDPRESS.md](WORDPRESS.md), [BACKUP_RESTORE.md](BACKUP_RESTORE.md), [SECURITY.md](SECURITY.md) and [CHANGELOG.md](CHANGELOG.md).
+WordPress sites without files, a deployment stack or database display `Needs setup`; public and WordPress Admin actions remain unavailable until the site is actually ready.

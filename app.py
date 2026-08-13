@@ -1282,22 +1282,31 @@ def list_docker_containers():
 
 
 def actual_site_runtime_status(site):
-    """Return runtime state from Docker, never from stale database metadata."""
+    """Combine site metadata, compose ownership, container state and readiness."""
     if site.is_banned:
         return 'stopped'
     access = ApplicationAccess.query.filter_by(site_id=site.id).first()
     metadata_path = os.path.join(access.deployment_root or '', 'runtime.json') if access else ''
     try:
         with open(metadata_path, encoding='utf-8') as handle:
-            project = str(json.load(handle).get('project') or '')
+            metadata = json.load(handle)
+            project = str(metadata.get('project') or '')
     except (OSError, ValueError, TypeError):
-        return 'not deployed'
+        return 'needs_setup' if site.application_type == 'wordpress' else 'not deployed'
     if not project:
         return 'not deployed'
     project_containers = [item for item in list_docker_containers() if item.get('project') == project]
     if not project_containers:
         return 'stopped'
     if any('unhealthy' in item.get('status', '').lower() or item.get('state') != 'running' for item in project_containers):
+        return 'error'
+    ready = healthcheck(metadata, timeout=3)
+    if site.application_type == 'wordpress':
+        access = access or ensure_application_access(site)
+        state = detect_wordpress_state(site, access)
+        if state.get('code') != 'installed':
+            return 'needs_setup'
+    if not ready.get('ok'):
         return 'error'
     return 'running'
 
@@ -6076,7 +6085,7 @@ def manage_site(folder_name):
     domain_state = probe_domain_status(public_domain)
     latest_deployment = DeploymentEvent.query.filter_by(site_name=site.name).order_by(DeploymentEvent.created_at.desc()).first()
     wordpress_version = None
-    wordpress_state = None
+    wordpress_state = {'code': 'not_wordpress', 'files': False, 'config': False, 'database': False, 'nested': False}
     if site.application_type == 'wordpress':
         wordpress_state = detect_wordpress_state(site, access)
         version_file = os.path.join(site_path, 'wp-includes', 'version.php')

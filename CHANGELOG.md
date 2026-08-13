@@ -2,6 +2,14 @@
 
 MyH follows Semantic Versioning. Entries below are reconstructed from the actual Git history, code, configuration, UI and recorded tests; they do not create synthetic historical commits or tags.
 
+## [2.8.2] - 2026-08-13
+
+### Fixed
+
+- Made the `manage_site.html` WordPress state contract unconditional and added defensive template access for optional application context.
+- Combined compose project ownership, container state, readiness and deterministic WordPress installation state for workspace status.
+- Classified WordPress records without a deployment stack or files as `Needs setup` and disabled public/admin actions until ready.
+
 ## [2.8.1] - 2026-08-13
 
 ### Added
