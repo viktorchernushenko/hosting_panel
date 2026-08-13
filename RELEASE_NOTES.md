@@ -1,11 +1,11 @@
-# MyH 2.5.0 release notes
+# MyH 2.6.0 release notes
 
 Released: 2026-08-13
 
-MyH 2.5.0 introduces the native Database Studio. Users can open an assigned MySQL database from the database list or site workspace and manage tables, data, SQL, imports, exports, backups and connection settings without leaving MyH or using a server-global database login.
+MyH 2.6.0 makes the administrative dashboard operationally truthful. “Потребує уваги” is generated from one backend model and includes only findings that require action; healthy Cloudflare TLS and SQLite integrity are shown separately under platform status.
 
-Every Studio request is authenticated and checked against resource ownership. Database operations use the database's restricted application credential. SQL is single-statement and bounded by execution, row and response limits; server-level operations remain blocked by application policy and MySQL grants.
+The audit confirms that local backups are current but no independently hosted backup target is configured, and that neither Telegram nor SMTP has complete server-side configuration. Both remain visible actions rather than optimistic successes.
 
-The production E2E created two disposable tenants and verified provisioning, table and row operations, logical backup/checksum/restore, password reset and cross-tenant denial before deleting all disposable resources. PostgreSQL remains honestly unavailable pending its own private provisioner and complete lifecycle.
+The live SFTP inventory contains one panel-linked production account and four unlinked accounts. Those four remain `UNKNOWN`, are explicitly not safe to remove, and were not modified or deleted.
 
-See [DATABASES.md](DATABASES.md), [CHANGELOG.md](CHANGELOG.md) and [OPERATIONS.md](OPERATIONS.md).
+See [BACKUP.md](BACKUP.md), [NOTIFICATIONS.md](NOTIFICATIONS.md), [SFTP.md](SFTP.md), [CHANGELOG.md](CHANGELOG.md) and [OPERATIONS.md](OPERATIONS.md).

@@ -2,6 +2,25 @@
 
 MyH follows Semantic Versioning. Entries below are reconstructed from the actual Git history, code, configuration, UI and recorded tests; they do not create synthetic historical commits or tags.
 
+## [2.6.0] - 2026-08-13
+
+### Added
+
+- Added a canonical admin platform-status model and protected `/api/platform/status` endpoint with stable item fields and explicit `requires_action` semantics.
+- Added a separate healthy Platform Status section to the administrative dashboard.
+
+### Changed
+
+- The Needs Attention section now renders only actionable findings instead of hardcoded informational rows.
+- Cloudflare-managed healthy TLS and healthy SQLite integrity moved to Platform Status.
+- Backup, notification and SFTP findings now reflect verified runtime state and link directly to the relevant admin workflow.
+
+### Security and operations
+
+- Confirmed that off-server backup remains unconfigured; local backup success is not represented as disaster recovery.
+- Confirmed that Telegram and SMTP are not configured; the existing test action reports real provider results.
+- Classified the panel-linked `developer` SFTP account as `PRODUCTION`; four unlinked accounts remain `UNKNOWN` and not safe to remove pending owner/dependency confirmation. No account or data was deleted.
+
 ## [2.5.0] - 2026-08-13
 
 ### Added

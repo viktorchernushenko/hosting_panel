@@ -20,11 +20,18 @@
   <section class="panel-card full-width">
     <div class="panel-head"><h3>{% if current_language == 'en' %}Needs attention{% else %}Потребує уваги{% endif %}</h3><a class="ghost-btn" href="{{ url_for('developer_backup_center') }}">{% if current_language == 'en' %}Open backup center{% else %}Відкрити backup center{% endif %}</a></div>
     <div class="service-list">
-      <div class="attention-row"><div><strong>P0 · Off-server backup</strong><p>{{ 'Verified outside this server' if admin_posture.backup.remote_status == 'verified' else 'Not configured: local backup is not disaster recovery' }}</p></div><span class="status-badge {{ 'success' if admin_posture.backup.remote_status == 'verified' else 'danger' }}">{{ admin_posture.backup.remote_status|replace('_',' ')|title }}</span></div>
-      <div class="attention-row"><div><strong>P1 · Notifications</strong><p>{{ admin_posture.notifications|selectattr('configured')|list|length }} / {{ admin_posture.notifications|length }} providers configured</p></div><a class="ghost-btn" href="{{ url_for('developer_notifications') }}">Configure</a></div>
-      <div class="attention-row"><div><strong>P1 · SFTP review</strong><p>{{ admin_posture.sftp_review }} system accounts require classification review; no automatic deletion authorized.</p></div><a class="ghost-btn" href="{{ url_for('developer_sftp_users') }}">Review</a></div>
-      <div class="attention-row"><div><strong>Info · SSL</strong><p>Edge TLS {{ admin_posture.tls.status }} · renewal managed by Cloudflare · {{ admin_posture.tls.days_remaining if admin_posture.tls.days_remaining is not none else '—' }} days remaining</p></div><a class="ghost-btn" href="{{ url_for('developer_dns_ssl') }}">Details</a></div>
-      <div class="attention-row"><div><strong>Info · Application database</strong><p>SQLite · {{ admin_posture.sqlite.status }} · integrity {{ admin_posture.sqlite.integrity }}. Customer MySQL is independent.</p></div><span class="status-badge {{ 'success' if admin_posture.sqlite.status == 'healthy' else 'danger' }}">{{ admin_posture.sqlite.status|title }}</span></div>
+      {% for item in admin_posture.attention_items %}
+      <div class="attention-row"><div><strong>{{ item.severity }} · {{ item.title }}</strong><p>{{ item.message }}</p></div><a class="ghost-btn" href="{{ item.action_url }}">{{ item.action }}</a></div>
+      {% else %}<p class="empty-state">{% if current_language == 'en' %}No issues require action.{% else %}Немає проблем, що потребують дій.{% endif %}</p>{% endfor %}
+    </div>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}Platform status{% else %}Стан платформи{% endif %}</h3><span class="status-badge success">OK</span></div>
+    <div class="service-list">
+      {% for item in admin_posture.platform_status %}
+      <div class="attention-row"><div><strong>{{ item.title }}</strong><p>{{ item.message }}</p></div><span class="status-badge success">{{ item.status|replace('_', ' ')|upper }}</span></div>
+      {% endfor %}
     </div>
   </section>
 

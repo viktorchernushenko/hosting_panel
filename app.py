@@ -36,7 +36,7 @@ from notification_service import NotificationService
 from runtime_engine import RUNTIME_VERSIONS, SUPPORTED_RUNTIMES, compose_action, detect_file_names, detect_stack, healthcheck, infer_runtime_commands, prepare_custom_docker, prepare_runtime, prepare_wordpress_runtime, recommend_runtime, validate_runtime_commands
 from runtime_registry import public_runtime, runtime_catalog
 from collections import defaultdict, deque
-from datetime import datetime
+from datetime import datetime, timezone
 
 app = Flask(__name__)
 panel_secret = os.environ.get('HOSTING_PANEL_SECRET')
@@ -3034,6 +3034,73 @@ def platform_backup_status():
         return {'local_status': 'unknown', 'remote_status': 'not_configured', 'last_restore_test': None}
 
 
+def admin_platform_status():
+    """Return the canonical admin status model consumed by dashboard and API."""
+    backup = platform_backup_status()
+    notifications = notification_statuses()
+    sqlite_health = sqlite_application_health()
+    tls = edge_tls_certificate_status(CLOUDFLARE_ZONE_NAME)
+    sftp_accounts = system_sftp_inventory(SftpAccount.query.all())
+    items = []
+
+    def add(item_id, category, severity, status, title, message, action, action_url, requires_action):
+        items.append({
+            'id': item_id, 'category': category, 'severity': severity, 'status': status,
+            'title': title, 'message': message, 'action': action,
+            'action_url': action_url, 'requires_action': bool(requires_action),
+        })
+
+    remote_status = str(backup.get('remote_status') or 'not_configured').lower()
+    add(
+        'offserver-backup', 'backup', 'P0' if remote_status != 'verified' else 'INFO', remote_status,
+        'Off-server backup',
+        ('Віддалену копію перевірено поза цим сервером.' if remote_status == 'verified'
+         else 'Віддалене сховище не налаштоване або не перевірене. Локальна копія не захищає від втрати сервера.'),
+        'Відкрити Backup Center', url_for('developer_backup_center'), remote_status != 'verified',
+    )
+
+    configured = sum(1 for provider in notifications if provider.get('configured'))
+    add(
+        'notification-providers', 'notifications', 'P1' if configured == 0 else 'INFO',
+        'configured' if configured else 'not_configured', 'Операційні сповіщення',
+        f'Налаштовано каналів: {configured} з {len(notifications)}. Telegram та SMTP потребують серверних секретів.',
+        'Налаштувати / перевірити', url_for('developer_notifications'), configured == 0,
+    )
+
+    pending_sftp = [row for row in sftp_accounts if row['classification'] == 'UNKNOWN']
+    add(
+        'sftp-classification', 'sftp', 'P1' if pending_sftp else 'INFO',
+        'review_required' if pending_sftp else 'classified', 'Класифікація SFTP-акаунтів',
+        (f'{len(pending_sftp)} системні акаунти не пов’язані з панеллю та потребують ручного підтвердження. '
+         'Автоматичне видалення заборонене.' if pending_sftp else 'Усі системні SFTP-акаунти класифіковано.'),
+        'Переглянути інвентар', url_for('developer_sftp_users'), bool(pending_sftp),
+    )
+
+    sqlite_ok = sqlite_health.get('status') == 'healthy' and sqlite_health.get('integrity') == 'ok'
+    add(
+        'application-database', 'database', 'INFO' if sqlite_ok else 'P0',
+        'healthy' if sqlite_ok else 'failed', 'База даних застосунку',
+        (f"SQLite працює справно, integrity={sqlite_health.get('integrity')}. Клієнтські MySQL-бази незалежні."
+         if sqlite_ok else 'Перевірка цілісності SQLite не пройдена.'),
+        'Переглянути системний аудит', url_for('developer_system_audit'), not sqlite_ok,
+    )
+
+    tls_ok = tls.get('status') == 'valid' and (tls.get('days_remaining') or 0) >= 30
+    add(
+        'edge-tls', 'tls', 'INFO' if tls_ok else ('P1' if tls.get('status') == 'expiring' else 'P0'),
+        tls.get('status') or 'failed', 'Edge SSL/TLS',
+        (f"Сертифікат дійсний, керується Cloudflare; залишилось {tls.get('days_remaining')} днів."
+         if tls_ok else 'Edge TLS недійсний або потребує швидкого оновлення.'),
+        'Переглянути DNS і SSL', url_for('developer_dns_ssl'), not tls_ok,
+    )
+    return {
+        'items': items,
+        'attention_items': [item for item in items if item['requires_action']],
+        'platform_status': [item for item in items if not item['requires_action']],
+        'generated_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+    }
+
+
 def read_text_command(command, timeout=10, max_lines=None):
     code, output = run_command(command, timeout=timeout)
     lines = [line.rstrip() for line in (output or '').splitlines() if line.strip()]
@@ -4264,13 +4331,7 @@ def dashboard():
         usage = {item.id: user_usage_bytes(item) for item in users}
         recent_logs = AuditLog.query.order_by(AuditLog.id.desc()).limit(15).all()
         overview = dashboard_overview()
-        admin_posture = {
-            'backup': platform_backup_status(),
-            'notifications': notification_statuses(),
-            'sqlite': sqlite_application_health(),
-            'tls': edge_tls_certificate_status(CLOUDFLARE_ZONE_NAME),
-            'sftp_review': sum(1 for item in system_sftp_inventory(SftpAccount.query.all()) if item['classification'] != 'PRODUCTION'),
-        }
+        admin_posture = admin_platform_status()
         return render_template('developer_dashboard.html', user=user, sites=all_sites, users=users, usage=usage, recent_logs=recent_logs, metrics=metrics, services=service_statuses, overview=overview, admin_posture=admin_posture, is_platform_admin=bool(user_role(user) == 'admin' or user.is_admin), can_create_site=user_has_role_permission(user, 'site.create'))
 
     user_sites = Site.query.filter_by(user_id=session['user_id']).all()
@@ -4298,6 +4359,12 @@ def dashboard():
 @admin_required
 def developer_dashboard():
     return redirect(url_for('dashboard'))
+
+
+@app.route('/api/platform/status')
+@admin_required
+def api_platform_status():
+    return jsonify(admin_platform_status())
 
 # --- НОВІ МАРШРУТИ РЕЖИМУ РОЗРОБНИКА (Крок 2) ---
 

@@ -2,7 +2,7 @@
 
 ## Production identity
 
-- Release: `2.5.0`, sourced from [`VERSION`](VERSION).
+- Release: `2.6.0`, sourced from [`VERSION`](VERSION).
 - Repository and service working directory: `/home/myserver/hosting_panel`.
 - Release branch: `platform/universal-hosting-upgrade`.
 - Service: `myh-guru.service`, Gunicorn on loopback ports 5000/5001.
