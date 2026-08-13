@@ -62,9 +62,10 @@
     <article class="metric-tile">
       <div class="metric-label">Runtime</div><div class="metric-value">{{ site.runtime_type|capitalize }} {{ site.runtime_version }}</div><div class="metric-caption">{% if current_language == 'en' %}execution environment{% else %}середовище виконання{% endif %}</div>
     </article>
-    <article class="metric-tile">
+    {% if site.application_type != 'wordpress' or latest_deployment %}<article class="metric-tile">
       <div class="metric-label">{% if current_language == 'en' %}Last deployment{% else %}Останнє розгортання{% endif %}</div><div class="metric-value">{{ latest_deployment.status|capitalize if latest_deployment else 'Not deployed' }}</div><div class="metric-caption">{{ latest_deployment.created_at.strftime('%Y-%m-%d %H:%M') if latest_deployment else '—' }}</div>
-    </article>
+    </article>{% endif %}
+    {% if site.application_type == 'wordpress' %}<article class="metric-tile"><div class="metric-label">WordPress Cron</div><div class="metric-value">Active</div><div class="metric-caption">{% if wordpress_cron %}{{ wordpress_cron.status|capitalize }} · {{ wordpress_cron.created_at.strftime('%Y-%m-%d %H:%M') }}{% else %}{% if current_language == 'en' %}scheduled every 15 minutes{% else %}кожні 15 хвилин{% endif %}{% endif %}</div></article>{% endif %}
     <article class="metric-tile">
       <div class="metric-label">{% if current_language == 'en' %}Storage{% else %}Сховище{% endif %}</div><div class="metric-value">{{ '%.1f'|format(usage_bytes / 1048576) }} MB</div><div class="metric-caption">{{ quota.application_ratio }}% {% if current_language == 'en' %}of site quota{% else %}квоти сайту{% endif %}</div>
     </article>

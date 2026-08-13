@@ -196,11 +196,15 @@ def prepare_wordpress_runtime(stack_root: str, source_root: str, port: int | Non
     source.chmod(0o2770); source_gid = source.stat().st_gid; port = int(port or allocate_loopback_port()); project = safe_project_name(stack.name)
     env_file = stack / 'env.list'
     if not env_file.exists(): _write(env_file, '', 0o600)
-    front_controller = 'try_files $uri $uri/ /index.php?$args;' if populate_wordpress else 'try_files $uri $uri/ @wordpress_setup;'
+    front_controller = 'try_files $uri $uri/ /index.php?$args;' if populate_wordpress else 'try_files $uri $uri/ @wordpress_front;'
     setup_location = '' if populate_wordpress else '''
-  location = / {
-    default_type text/plain;
-    return 503 "WordPress setup required for this site.\n";
+  location = / { try_files /myh-wordpress-not-installed @wordpress_front; }
+  location @wordpress_front {
+    try_files /index.php @wordpress_setup;
+    include fastcgi_params;
+    fastcgi_param SCRIPT_FILENAME $document_root/index.php;
+    fastcgi_param HTTP_X_FORWARDED_PROTO $http_x_forwarded_proto;
+    fastcgi_pass wordpress:9000;
   }
   location @wordpress_setup {
     default_type text/plain;

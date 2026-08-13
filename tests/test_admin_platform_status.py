@@ -56,7 +56,7 @@ class AdminPlatformStatusTests(unittest.TestCase):
         )
         self.assertEqual(
             [item['id'] for item in status['platform_status']],
-            ['application-database', 'edge-tls'],
+            ['orphan-site-directories', 'application-database', 'edge-tls'],
         )
         required_fields = {'id', 'category', 'severity', 'status', 'title', 'message', 'action', 'action_url', 'requires_action'}
         self.assertTrue(all(required_fields <= set(item) for item in status['items']))
@@ -64,7 +64,7 @@ class AdminPlatformStatusTests(unittest.TestCase):
     def test_healthy_configuration_clears_attention(self):
         status = self._build(remote='verified', configured=2, sftp_unknown=0)
         self.assertEqual(status['attention_items'], [])
-        self.assertEqual(len(status['platform_status']), 5)
+        self.assertEqual(len(status['platform_status']), 6)
 
     def test_failed_health_checks_are_actionable(self):
         status = self._build(remote='verified', configured=2, sqlite_ok=False, tls_ok=False, sftp_unknown=0)

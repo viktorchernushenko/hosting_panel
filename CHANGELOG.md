@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.10.0] - 2026-08-13
+
+### Added
+
+- Added an isolated 15-minute WordPress cron scheduler using per-site WP-CLI jobs, bounded execution time and Job Queue history.
+- Added read-only admin inventory for unregistered legacy site directories; destructive recovery actions remain disabled.
+- Added WordPress Cron status to the site workspace.
+
+### Changed
+
+- WordPress provisioning is now described as installation rather than a missing Git deployment in site UX.
+- Raised safe ZIP extraction limits to support the official WordPress package while retaining traversal, quota and expanded-size validation.
+
+### Fixed
+
+- Manual WordPress Nginx routing now transitions automatically from a site-specific setup response to the installed front controller.
+- WordPress restore now reconciles permissions after extraction, supporting mixed panel/PHP ownership without world-writable modes.
+- Site deletion now removes the empty canonical site container directory.
+
 ## [2.9.2] - 2026-08-13
 
 ### Fixed

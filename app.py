@@ -37,7 +37,7 @@ from notification_config import NotificationConfigError, NotificationConfigStore
 from runtime_engine import RUNTIME_VERSIONS, SUPPORTED_RUNTIMES, compose_action, detect_file_names, detect_stack, healthcheck, infer_runtime_commands, prepare_custom_docker, prepare_runtime, prepare_wordpress_runtime, recommend_runtime, validate_runtime_commands
 from runtime_registry import public_runtime, runtime_catalog
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 app = Flask(__name__)
 panel_secret = os.environ.get('HOSTING_PANEL_SECRET')
@@ -2550,20 +2550,17 @@ def reconcile_wordpress_permissions(site, access=None):
     if site.application_type != 'wordpress':
         return
     access = access or ensure_application_access(site)
-    metadata_path = os.path.join(access.deployment_root, 'runtime.json')
-    if not os.path.isfile(metadata_path):
-        return
-    with open(metadata_path, encoding='utf-8') as handle:
-        metadata = json.load(handle)
-    source_gid = os.stat(application_root(access, bucket='file')).st_gid
-    fixed_script = (f'chgrp -R {int(source_gid)} /var/www/html 2>/dev/null || true; '
-                    'find /var/www/html -type d -exec chmod 2770 {} +; '
-                    'find /var/www/html -type f -exec chmod 0660 {} +')
-    process = subprocess.run(['docker', 'compose', '-p', metadata['project'], '-f', os.path.join(access.deployment_root, 'compose.yml'),
-                              'exec', '-T', 'wordpress', 'sh', '-c', fixed_script], capture_output=True, text=True, timeout=120, check=False)
-    if process.returncode:
-        detail = mask_sensitive_text((process.stderr or process.stdout or '')[-500:])
-        raise RuntimeError('Unable to reconcile WordPress file permissions.' + (f' {detail}' if app.config.get('TESTING') else ''))
+    root = application_root(access, bucket='file')
+    source_gid = os.stat(root).st_gid
+    try:
+        os.chmod(root, 0o2770)
+        for current_root, directories, filenames in os.walk(root):
+            for name in directories:
+                path = os.path.join(current_root, name); os.chmod(path, 0o2770); os.chown(path, -1, source_gid)
+            for name in filenames:
+                path = os.path.join(current_root, name); os.chmod(path, 0o660); os.chown(path, -1, source_gid)
+    except OSError as exc:
+        raise RuntimeError('Unable to reconcile WordPress file permissions.') from exc
 
 
 def extract_zip_to_site(zip_path, site_path):
@@ -3041,6 +3038,7 @@ def wordpress_cli(stack_root, arguments, input_text=None, timeout=300):
         ('post', 'create'), ('post', 'get'), ('post', 'delete'), ('plugin', 'install'), ('plugin', 'activate'),
         ('plugin', 'deactivate'), ('plugin', 'delete'), ('theme', 'install'), ('theme', 'activate'),
         ('media', 'import'), ('rewrite', 'structure'), ('rewrite', 'flush'),
+        ('cron', 'event'),
     }
     arguments = [str(item) for item in arguments]
     if tuple(arguments[:2]) not in allowed_commands or any('\x00' in item or '\n' in item for item in arguments):
@@ -3324,6 +3322,15 @@ def admin_platform_status():
         'Переглянути інвентар', url_for('developer_sftp_users'), bool(pending_sftp),
     )
 
+    orphan_sites = orphan_site_inventory()
+    add(
+        'orphan-site-directories', 'storage', 'P1' if orphan_sites else 'INFO',
+        'review_required' if orphan_sites else 'classified', 'Legacy site directories',
+        (f'{len(orphan_sites)} каталогів не мають Site record; вони збережені без змін і потребують рішення адміністратора.'
+         if orphan_sites else 'Усі каталоги сайтів пов’язані з Site records.'),
+        'Переглянути JSON-інвентар', url_for('api_admin_orphan_sites'), bool(orphan_sites),
+    )
+
     sqlite_ok = sqlite_health.get('status') == 'healthy' and sqlite_health.get('integrity') == 'ok'
     add(
         'application-database', 'database', 'INFO' if sqlite_ok else 'P0',
@@ -3347,6 +3354,41 @@ def admin_platform_status():
         'platform_status': [item for item in items if not item['requires_action']],
         'generated_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
     }
+
+
+def orphan_site_inventory():
+    if app.config.get('TESTING'):
+        return []
+    registered = {os.path.realpath(os.path.join(app.config['UPLOAD_FOLDER'], site.folder_name)) for site in Site.query.all()}
+    rows = []
+    try:
+        entries = list(os.scandir(app.config['UPLOAD_FOLDER']))
+    except OSError:
+        return rows
+    for entry in entries:
+        if not entry.is_dir(follow_symlinks=False) or os.path.realpath(entry.path) in registered:
+            continue
+        root = entry.path
+        wordpress = all(os.path.exists(os.path.join(root, name)) for name in ('wp-admin', 'wp-content', 'wp-includes'))
+        if not wordpress and os.path.isdir(os.path.join(root, 'public_html')):
+            candidate = os.path.join(root, 'public_html')
+            wordpress = all(os.path.exists(os.path.join(candidate, name)) for name in ('wp-admin', 'wp-content', 'wp-includes'))
+        detected = 'wordpress' if wordpress else ('php' if any(name.endswith('.php') for _, _, names in os.walk(root) for name in names[:20]) else 'static_or_unknown')
+        stat = entry.stat(follow_symlinks=False)
+        rows.append({'name': entry.name, 'path': root, 'sizeBytes': directory_size_safe(root),
+                     'modifiedAt': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                     'detectedType': detected, 'classification': 'RECOVERABLE' if wordpress else 'UNKNOWN'})
+    return sorted(rows, key=lambda row: row['name'])
+
+
+@app.route('/api/admin/orphan-sites')
+def api_admin_orphan_sites():
+    if 'user_id' not in session:
+        abort(401)
+    user = db.session.get(User, session['user_id'])
+    if not user or (not user.is_admin and user_role(user) != 'admin'):
+        abort(403)
+    return jsonify({'directories': orphan_site_inventory(), 'destructiveActionsEnabled': False, 'requestId': g.request_id})
 
 
 def read_text_command(command, timeout=10, max_lines=None):
@@ -3665,6 +3707,7 @@ JOB_TYPE_LABELS = {
     'site.delete': 'Delete сайту',
     'service.restart': 'Restart service',
     'agent.refresh': 'Refresh agent',
+    'wordpress.cron': 'WordPress Cron',
 }
 
 def job_payload_dict(payload_json):
@@ -3735,6 +3778,14 @@ def perform_job(job):
         clean_site_backup_retention(site)
         return {'site': site.name, 'folder_name': site.folder_name, 'backups_kept': 10}
 
+    if job.job_type == 'wordpress.cron':
+        site = db.session.get(Site, payload.get('site_id'))
+        if not site or site.application_type != 'wordpress' or site.provisioning_phase != 'ready':
+            raise ValueError('WordPress site is not ready')
+        access = ensure_application_access(site)
+        wordpress_cli(access.deployment_root, ['cron', 'event', 'run', '--due-now', '--quiet'], timeout=90)
+        return {'site': site.name, 'isolated': True}
+
     if job.job_type == 'site.restore':
         site = db.session.get(Site, payload.get('site_id'))
         backup_name = payload.get('backup_name', '')
@@ -3746,7 +3797,6 @@ def perform_job(job):
         restore_size = estimate_zip_unpacked_bytes(archive_path)
         enforce_application_quota(access, restore_size)
         validate_wordpress_database_sidecar(site, archive_path)
-        reconcile_wordpress_permissions(site, access)
         set_job_state(job, progress=25, message=f'Restore {site.name} очищається')
         for root, directories, filenames in os.walk(site_path, topdown=False):
             for filename in filenames:
@@ -3756,6 +3806,7 @@ def perform_job(job):
         set_job_state(job, progress=55, message=f'Restore {site.name} розпаковується')
         with zipfile.ZipFile(archive_path, 'r') as archive:
             safe_extract_zip(archive, site_path)
+        reconcile_wordpress_permissions(site, access)
         restore_wordpress_database_sidecar(site, archive_path)
         return {'site': site.name, 'backup_name': backup_name}
 
@@ -3798,10 +3849,30 @@ def perform_job(job):
     raise ValueError(f'Unsupported job type: {job.job_type}')
 
 
+def schedule_wordpress_cron_jobs(now=None):
+    if app.config.get('TESTING'):
+        return 0
+    now = now or datetime.now()
+    cutoff = now - timedelta(minutes=14)
+    created = 0
+    for site in Site.query.filter_by(application_type='wordpress', provisioning_phase='ready').all():
+        recent = JobTask.query.filter(JobTask.job_type == 'wordpress.cron', JobTask.target == str(site.id),
+                                      JobTask.created_at >= cutoff).first()
+        if recent:
+            continue
+        create_job('wordpress.cron', target=str(site.id), payload={'site_id': site.id}, created_by='scheduler')
+        created += 1
+    return created
+
+
 def job_worker_loop():
     with app.app_context():
+        next_cron_scan = datetime.min
         while True:
             try:
+                if datetime.now() >= next_cron_scan:
+                    schedule_wordpress_cron_jobs()
+                    next_cron_scan = datetime.now() + timedelta(minutes=1)
                 job = JobTask.query.filter_by(status='pending').order_by(JobTask.id.asc()).first()
                 if not job:
                     JOB_WORKER_WAKEUP.wait(timeout=2)
@@ -6066,7 +6137,7 @@ def manage_site(folder_name):
                         with zipfile.ZipFile(file_path, 'r') as zip_ref:
                             members = zip_ref.infolist()
                             extracted_size = sum(item.file_size for item in members)
-                            if len(members) > 1000 or extracted_size > 128 * 1024 * 1024:
+                            if len(members) > 10000 or extracted_size > 256 * 1024 * 1024:
                                 raise ValueError('Архів перевищує безпечний ліміт')
                             if user_usage_bytes(site.owner) - upload_size + extracted_size > quota_bytes:
                                 raise ValueError('Розпакований архів перевищить квоту користувача')
@@ -6150,6 +6221,9 @@ def manage_site(folder_name):
             wordpress_version = version_match.group(1) if version_match else None
         except OSError:
             pass
+    wordpress_cron = None
+    if site.application_type == 'wordpress':
+        wordpress_cron = JobTask.query.filter_by(job_type='wordpress.cron', target=str(site.id)).order_by(JobTask.created_at.desc()).first()
     return render_template(
         'manage_site.html',
         site=site,
@@ -6170,6 +6244,7 @@ def manage_site(folder_name):
         latest_deployment=latest_deployment,
         wordpress_version=wordpress_version,
         wordpress_state=wordpress_state,
+        wordpress_cron=wordpress_cron,
     )
 
 
@@ -6287,7 +6362,6 @@ def restore_site_backup(site_id, backup_name):
         restore_size = estimate_zip_unpacked_bytes(archive_path)
         enforce_application_quota(access, restore_size)
         validate_wordpress_database_sidecar(site, archive_path)
-        reconcile_wordpress_permissions(site, access)
     except ValueError as exc:
         flash(str(exc), 'error')
         record_upload_history(site, user, backup_name, os.path.getsize(archive_path), source='panel', status='blocked', deployment='restore', detail='application-quota-limit-restore')
@@ -6299,6 +6373,7 @@ def restore_site_backup(site_id, backup_name):
             os.rmdir(os.path.join(root, directory))
     with zipfile.ZipFile(archive_path, 'r') as archive:
         safe_extract_zip(archive, site_path)
+    reconcile_wordpress_permissions(site, access)
     restore_wordpress_database_sidecar(site, archive_path)
     log_action('backup.restore', f'{site.name}: {backup_name}')
     record_upload_history(site, user, backup_name, os.path.getsize(archive_path), source='panel', status='success', deployment='restore', detail='restore from backup')
@@ -6373,6 +6448,9 @@ def delete_site(site_id):
                             'alpine:3.22', 'find', '/target', '-mindepth', '1', '-delete'],
                            capture_output=True, text=True, timeout=90, check=False)
             remove_tree(site_path)
+    site_container_root = os.path.join(app.config['UPLOAD_FOLDER'], site.folder_name)
+    if os.path.isdir(site_container_root) and not os.listdir(site_container_root):
+        os.rmdir(site_container_root)
         
     site_name = site.name
     for resource in DatabaseResource.query.filter_by(application_id=site.id).all():
