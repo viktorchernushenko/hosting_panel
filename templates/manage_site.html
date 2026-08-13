@@ -34,6 +34,7 @@
       <div class="backup-row"><span><strong>○ Завершення встановлення</strong><small>/wp-admin/install.php</small></span>{% if wp_state.get('files') %}<a class="tiny-btn" href="https://{{ site.custom_domain or site.name ~ '.myh.guru' }}/wp-admin/{{ 'install.php' if wp_state.get('config') else 'setup-config.php' }}" target="_blank" rel="noopener">Продовжити встановлення ↗</a>{% endif %}</div>
     </div>
     <div class="action-group utility-gap-top">
+      <form action="{{ url_for('retry_wordpress_provisioning', site_id=site.id) }}" method="POST"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button type="submit">Повторити provisioning</button></form>
       <a class="ghost-btn" href="#file-actions">Відкрити File Manager</a><a class="ghost-btn" href="{{ url_for('user_sftp_access') }}">Підключитися через SFTP</a>
       {% for database in site.database_resources %}<form action="{{ url_for('wordpress_database_credentials', site_id=site.id) }}" method="POST"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button class="ghost-btn" type="submit">Дані підключення</button></form>{% endfor %}
     </div>

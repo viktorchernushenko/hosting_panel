@@ -196,24 +196,35 @@ def prepare_wordpress_runtime(stack_root: str, source_root: str, port: int | Non
     source.chmod(0o2770); source_gid = source.stat().st_gid; port = int(port or allocate_loopback_port()); project = safe_project_name(stack.name)
     env_file = stack / 'env.list'
     if not env_file.exists(): _write(env_file, '', 0o600)
-    _write(stack / 'nginx.conf', '''server {
+    front_controller = 'try_files $uri $uri/ /index.php?$args;' if populate_wordpress else 'try_files $uri $uri/ @wordpress_setup;'
+    setup_location = '' if populate_wordpress else '''
+  location = / {
+    default_type text/plain;
+    return 503 "WordPress setup required for this site.\n";
+  }
+  location @wordpress_setup {
+    default_type text/plain;
+    return 503 "WordPress setup required for this site.\n";
+  }'''
+    _write(stack / 'nginx.conf', f'''server {{
   listen 8080;
   root /var/www/html;
   index index.php index.html;
   autoindex off;
   client_max_body_size 64m;
-  location / { try_files $uri $uri/ /index.php?$args; }
-  location = /wp-config.php { deny all; }
-  location ~ /\\. { deny all; }
-  location ~* ^/wp-content/uploads/.*\\.php$ { deny all; }
-  location ~ \\.php$ {
+  location / {{ {front_controller} }}{setup_location}
+  location = /myh-runtime-health {{ include fastcgi_params; fastcgi_param SCRIPT_FILENAME /var/www/myh-health.php; fastcgi_pass wordpress:9000; }}
+  location = /wp-config.php {{ deny all; }}
+  location ~ /\\. {{ deny all; }}
+  location ~* ^/wp-content/uploads/.*\\.php$ {{ deny all; }}
+  location ~ \\.php$ {{
     try_files $uri =404;
     include fastcgi_params;
     fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
     fastcgi_param HTTP_X_FORWARDED_PROTO $http_x_forwarded_proto;
     fastcgi_pass wordpress:9000;
-  }
-}
+  }}
+}}
 ''', 0o644)
     _write(stack / 'wordpress.ini', '''memory_limit=256M
 upload_max_filesize=64M
@@ -222,16 +233,17 @@ max_execution_time=120
 expose_php=Off
 cgi.fix_pathinfo=0
 ''', 0o644)
+    _write(stack / 'myh-health.php', '<?php http_response_code(200); header("Content-Type: text/plain"); echo "MYH_PHP_READY";\n', 0o644)
     _write(stack / 'wordpress-entrypoint.sh', f'''#!/bin/sh
 set -eu
 if [ "${{MYH_WORDPRESS_POPULATE:-1}}" = "0" ]; then exec php-fpm; fi
-(
-  while [ ! -f /var/www/html/wp-settings.php ] || [ ! -d /var/www/html/wp-admin ]; do sleep 1; done
-  sleep 1
-  chgrp -R {source_gid} /var/www/html 2>/dev/null || true
-  find /var/www/html -type d -exec chmod 2770 {{}} +
-  find /var/www/html -type f -exec chmod 0660 {{}} +
-) &
+if [ ! -f /var/www/html/.myh-wordpress-files-ready ]; then
+  cp -R /usr/src/wordpress/. /var/www/html/
+  touch /var/www/html/.myh-wordpress-files-ready
+fi
+chgrp -R {source_gid} /var/www/html 2>/dev/null || true
+find /var/www/html -mindepth 1 -type d -exec chmod 2770 {{}} +
+find /var/www/html -mindepth 1 -type f -exec chmod 0660 {{}} +
 exec docker-entrypoint.sh "$@"
 ''', 0o755)
     wordpress_populate = '1' if populate_wordpress else '0'
@@ -264,7 +276,7 @@ exec docker-entrypoint.sh "$@"
     group_add: ["{source_gid}", "33"]
     env_file: ["{env_file}"]
     environment: ["MYH_WORDPRESS_POPULATE={wordpress_populate}"]
-    volumes: ["{source}:/var/www/html", "{stack / 'wordpress.ini'}:/usr/local/etc/php/conf.d/myh-wordpress.ini:ro", "{stack / 'wordpress-entrypoint.sh'}:/usr/local/bin/myh-wordpress-entrypoint:ro"]
+    volumes: ["{source}:/var/www/html", "{stack / 'wordpress.ini'}:/usr/local/etc/php/conf.d/myh-wordpress.ini:ro", "{stack / 'wordpress-entrypoint.sh'}:/usr/local/bin/myh-wordpress-entrypoint:ro", "{stack / 'myh-health.php'}:/var/www/myh-health.php:ro"]
     mem_limit: 384m
     cpus: 0.75
     pids_limit: 128
@@ -286,7 +298,8 @@ networks:
   hosting-databases: {{external: true}}
 '''
     _write(stack / 'compose.yml', compose)
-    metadata={'runtime':'wordpress','version':'6-php8.3-fpm-alpine','port':port,'project':project,'source_root':str(source),'status':'configured','populate_wordpress':populate_wordpress}
+    metadata={'runtime':'wordpress','version':'6-php8.3-fpm-alpine','port':port,'project':project,'source_root':str(source),'status':'configured','populate_wordpress':populate_wordpress,
+              'health_path':'/myh-runtime-health'}
     _write(stack / 'runtime.json',json.dumps(metadata,indent=2)+'\n',0o600); return metadata
 
 
@@ -469,7 +482,7 @@ def compose_action(stack_root: str, action: str, timeout: int = 180) -> tuple[in
 def healthcheck(metadata: dict, timeout: int = 8) -> dict:
     deadline = time.monotonic() + timeout
     last_error = ''
-    health_path = '/health' if metadata.get('runtime') == 'node' else '/'
+    health_path = metadata.get('health_path') or ('/health' if metadata.get('runtime') == 'node' else '/')
     while time.monotonic() < deadline:
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{int(metadata['port'])}{health_path}", timeout=min(2, timeout)) as response:

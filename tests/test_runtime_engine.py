@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from runtime_engine import detect_file_names, healthcheck, prepare_custom_docker, prepare_runtime, validate_custom_compose
+from runtime_engine import detect_file_names, healthcheck, prepare_custom_docker, prepare_runtime, prepare_wordpress_runtime, validate_custom_compose
 from runtime_registry import runtime_catalog
 
 
@@ -60,6 +60,21 @@ class RuntimeEngineTests(unittest.TestCase):
         result = healthcheck({'runtime': 'node', 'port': 20000}, timeout=1)
         self.assertTrue(result['ok'])
         self.assertEqual(mocked_urlopen.call_args.args[0], 'http://127.0.0.1:20000/health')
+
+    def test_wordpress_runtime_has_exact_fastcgi_health_and_manual_setup_response(self):
+        with tempfile.TemporaryDirectory() as root:
+            stack = os.path.join(root, 'stack')
+            source = os.path.join(root, 'public_html')
+            metadata = prepare_wordpress_runtime(stack, source, port=23456, populate_wordpress=False)
+            self.assertEqual(metadata['health_path'], '/myh-runtime-health')
+            with open(os.path.join(stack, 'nginx.conf'), encoding='utf-8') as handle:
+                config = handle.read()
+            self.assertIn('fastcgi_pass wordpress:9000', config)
+            self.assertIn('return 503 "WordPress setup required for this site.', config)
+            with open(os.path.join(stack, 'compose.yml'), encoding='utf-8') as handle:
+                compose = handle.read()
+            self.assertIn('MYH_WORDPRESS_POPULATE=0', compose)
+            self.assertIn('/var/www/myh-health.php:ro', compose)
 
     @mock.patch('runtime_registry._installed', return_value=(True, 'ok'))
     def test_registry_requires_successful_e2e(self, _installed):

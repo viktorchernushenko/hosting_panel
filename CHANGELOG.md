@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.9.0] - 2026-08-13
+
+### Added
+
+- Persisted WordPress provisioning phases and an idempotent provisioning retry action.
+- Added a dedicated Nginx-to-PHP-FPM health endpoint for every managed WordPress stack.
+- Added explicit site-local `503` responses for manual WordPress sites awaiting uploaded files.
+
+### Changed
+
+- WordPress and PHP sites now use canonical `public_html` roots without static placeholders.
+- WordPress core population is resumable and guarded by a completion marker.
+- Runtime environment serialization now safely preserves PHP dollar-prefixed variables.
+- Customer proxy requests preserve the requested host, and managed WordPress disables request-driven cron callbacks that can block the panel proxy.
+
+### Fixed
+
+- Fixed partial WordPress core copies after first-start health timeouts.
+- Fixed invalid `WORDPRESS_CONFIG_EXTRA` values caused by Compose interpolation.
+- Fixed misleading root-URL health checks and inconsistent access roots after failed provisioning.
+
 MyH follows Semantic Versioning. Entries below are reconstructed from the actual Git history, code, configuration, UI and recorded tests; they do not create synthetic historical commits or tags.
 
 ## [2.8.2] - 2026-08-13

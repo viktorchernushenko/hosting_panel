@@ -514,6 +514,7 @@ class Site(db.Model):
     runtime_type = db.Column(db.String(20), nullable=False, default='static')
     application_type = db.Column(db.String(40), nullable=False, default='custom')
     installation_mode = db.Column(db.String(20), nullable=False, default='automatic')
+    provisioning_phase = db.Column(db.String(40), nullable=False, default='ready')
     runtime_version = db.Column(db.String(40), nullable=False, default='nginx-alpine')
     runtime_status = db.Column(db.String(20), nullable=False, default='configured')
     deployment_status = db.Column(db.String(20), nullable=False, default='pending')
@@ -921,6 +922,9 @@ def ensure_database_schema(force=False):
             if 'installation_mode' not in site_columns:
                 with db.engine.begin() as conn:
                     conn.execute(text("ALTER TABLE site ADD COLUMN installation_mode VARCHAR(20) NOT NULL DEFAULT 'automatic'"))
+            if 'provisioning_phase' not in site_columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE site ADD COLUMN provisioning_phase VARCHAR(40) NOT NULL DEFAULT 'ready'"))
 
         if 'application_access' in inspector.get_table_names():
             access_columns = {column['name'] for column in inspector.get_columns('application_access')}
@@ -2753,7 +2757,7 @@ def sync_runtime_environment(site):
     os.makedirs(access.deployment_root, exist_ok=True)
     with open(env_path + '.tmp', 'w', encoding='utf-8') as handle:
         for row in rows:
-            value = read_application_secret(row.secret_ref, site.id).replace('\n', '\\n')
+            value = read_application_secret(row.secret_ref, site.id).replace('$', '$$').replace('\n', '\\n')
             handle.write(f'{row.key}={value}\n')
     os.chmod(env_path + '.tmp', 0o600)
     os.replace(env_path + '.tmp', env_path)
@@ -3090,6 +3094,7 @@ define('DB_COLLATE', '');
 {salts}
 $table_prefix = '{table_prefix}';
 define('DISALLOW_FILE_EDIT', true);
+define('DISABLE_WP_CRON', true);
 if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {{ $_SERVER['HTTPS'] = 'on'; }}
 if (!defined('ABSPATH')) {{ define('ABSPATH', __DIR__ . '/'); }}
 require_once ABSPATH . 'wp-settings.php';
@@ -3986,6 +3991,7 @@ def proxy_runtime_request(site):
     headers = {key: value for key, value in request.headers if key.lower() not in blocked_headers}
     headers['X-Forwarded-Host'] = request.host
     headers['X-Forwarded-Proto'] = request.headers.get('X-Forwarded-Proto', request.scheme)
+    headers['Host'] = request.host
     upstream_request = urllib.request.Request(
         target, data=request.get_data() if request.method not in {'GET', 'HEAD'} else None,
         headers=headers, method=request.method,
@@ -4464,7 +4470,8 @@ def create_site_wizard():
         folder_name = f"{owner.username}_{subdomain}"
         site_path = os.path.join(app.config['UPLOAD_FOLDER'], folder_name)
         os.makedirs(site_path, exist_ok=True)
-        scaffold_site_content(site_path, subdomain)
+        if site_type == 'static':
+            scaffold_site_content(site_path, subdomain)
 
         runtime_type = 'php' if site_type == 'wordpress' else site_type
         runtime_version = '8.3' if site_type == 'wordpress' else (php_runtime if runtime_type == 'php' else RUNTIME_VERSIONS[runtime_type][0])
@@ -4476,6 +4483,7 @@ def create_site_wizard():
             runtime_type=runtime_type,
             application_type='wordpress' if site_type == 'wordpress' else 'custom',
             installation_mode=wordpress_mode if site_type == 'wordpress' else 'automatic',
+            provisioning_phase='creating',
             runtime_version=runtime_version,
             runtime_status='configuring',
             deployment_status='pending',
@@ -4495,12 +4503,14 @@ def create_site_wizard():
         if site_type == 'php':
             ensure_php_site_bootstrap(document_root, f'{subdomain}.myh.guru', runtime_version=runtime_version)
         stack_root = os.path.join(APP_STACKS_ROOT, folder_name)
+        access.file_root = document_root
+        access.upload_root = document_root
+        access.deployment_root = stack_root
+        new_site.provisioning_phase = 'provisioning_runtime'
+        db.session.commit()
         try:
             if site_type == 'wordpress':
                 if wordpress_mode == 'manual':
-                    placeholder = os.path.join(document_root, 'index.php')
-                    with open(placeholder, 'w', encoding='utf-8') as handle:
-                        handle.write('<?php http_response_code(200); ?><h1>WordPress ще не встановлено.</h1>')
                     metadata = prepare_wordpress_runtime(stack_root, document_root, allocate_application_port(), populate_wordpress=False)
                 else:
                     metadata = prepare_wordpress_runtime(stack_root, document_root, allocate_application_port())
@@ -4511,6 +4521,7 @@ def create_site_wizard():
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
             new_site.runtime_status = 'error'
             new_site.deployment_status = 'failed'
+            new_site.provisioning_phase = 'failed_runtime'
             db.session.commit()
             log_action('site.runtime.provision.failed', f'{subdomain}: {mask_sensitive_text(str(exc))[:300]}')
             flash('Сайт збережено зі статусом Failed: середовище не вдалося підготувати. Ресурси можна безпечно видалити або повторити запуск після виправлення.', 'error')
@@ -4522,10 +4533,8 @@ def create_site_wizard():
                 'generated_at': datetime.now().isoformat(timespec='seconds'),
                 'runtime': {'language': runtime_type, 'version': runtime_version},
             }, handle, indent=2)
-        access.file_root = document_root
-        access.upload_root = document_root
-        access.deployment_root = stack_root
         new_site.internal_port = metadata['port']
+        new_site.provisioning_phase = 'configuring_database' if site_type == 'wordpress' and wordpress_create_database else 'verifying'
         db.session.commit()
         if site_type == 'wordpress' and wordpress_create_database:
             database_name, database_user = generated_database_identifiers(owner.id, f'{subdomain}_wordpress')
@@ -4540,29 +4549,26 @@ def create_site_wizard():
                     'WORDPRESS_DB_HOST':f'{MYSQL_HOST}:{MYSQL_PORT}','WORDPRESS_DB_NAME':database_name,'WORDPRESS_DB_USER':database_user,
                     'WORDPRESS_DB_PASSWORD':database_password,'DB_HOST':MYSQL_HOST,'DB_PORT':str(MYSQL_PORT),'DB_NAME':database_name,
                     'DB_USER':database_user,'DB_PASSWORD':database_password,
-                    'WORDPRESS_CONFIG_EXTRA':"define('DISALLOW_FILE_EDIT', true); if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') { $_SERVER['HTTPS']='on'; }",
+                    'WORDPRESS_CONFIG_EXTRA':"define('DISALLOW_FILE_EDIT', true); define('DISABLE_WP_CRON', true); if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') { $_SERVER['HTTPS']='on'; }",
                 }.items(): set_environment_value(new_site, user, key, value)
                 db.session.commit(); sync_runtime_environment(new_site)
             except (RuntimeError, ValueError, pymysql.MySQLError) as exc:
                 try: deprovision_mysql_database(database_name, database_user)
                 except Exception: pass
                 db.session.rollback(); new_site.runtime_status='error'; new_site.deployment_status='failed'; db.session.commit()
+                new_site.provisioning_phase = 'failed_database'; db.session.commit()
                 flash(f'WordPress database provisioning failed: {str(exc)[:300]}', 'error')
                 return redirect(url_for('manage_site', folder_name=folder_name))
         if app.config.get('TESTING'):
             code, runtime_log, check = 0, 'test mode: runtime not started', {'ok': True}
         else:
             code, runtime_log = compose_action(stack_root, 'start')
-            check = healthcheck(metadata, timeout=30 if site_type == 'wordpress' else 12) if code == 0 else {'ok': False}
+            check = healthcheck(metadata, timeout=180 if site_type == 'wordpress' else 12) if code == 0 else {'ok': False}
         new_site.runtime_status = 'running' if check.get('ok') else 'error'
         new_site.deployment_status = 'success' if check.get('ok') else 'failed'
         new_site.last_restart_at = datetime.now() if check.get('ok') else None
+        new_site.provisioning_phase = 'verifying' if check.get('ok') else 'failed_healthcheck'
         db.session.commit()
-        if site_type == 'wordpress' and wordpress_mode == 'manual' and check.get('ok'):
-            try:
-                os.unlink(os.path.join(document_root, 'index.php'))
-            except FileNotFoundError:
-                pass
         if not check.get('ok'):
             try:
                 compose_action(stack_root, 'delete')
@@ -4578,15 +4584,21 @@ def create_site_wizard():
                                                 wordpress_password, wordpress_language)
                     wordpress_password = ''
                     new_site.deployment_status = 'success'
+                    new_site.provisioning_phase = 'ready'
                     db.session.commit()
                     log_action('wordpress.install.success', f'site={new_site.id}; mode=automatic; locale={wordpress_language}')
                 except (RuntimeError, ValueError, subprocess.SubprocessError) as exc:
                     wordpress_password = ''
                     new_site.runtime_status = 'error'
                     new_site.deployment_status = 'failed'
+                    new_site.provisioning_phase = 'failed_wordpress_files'
                     db.session.commit()
                     log_action('wordpress.install.failed', f'site={new_site.id}; phase=core_install')
                     flash('WordPress files and database are ready, but installation failed. Retry from the site workspace or use the standard installer.', 'error')
+            elif site_type == 'wordpress':
+                new_site.provisioning_phase = 'needs_setup'; db.session.commit()
+            elif check.get('ok'):
+                new_site.provisioning_phase = 'ready'; db.session.commit()
 
         personal_sftp = SftpAccount.query.filter_by(assigned_user_id=owner.id).first()
         if personal_sftp:
@@ -6348,12 +6360,17 @@ def repair_missing_runtime_configuration(site, access):
     """Recreate a failed dynamic runtime without touching files, databases or secrets."""
     if site.runtime_type not in {'node', 'python', 'php', 'wordpress', 'docker'}:
         return False, 'Static and unknown sites do not have a managed runtime.'
+    if site.application_type == 'wordpress':
+        canonical_root = os.path.join(app.config['UPLOAD_FOLDER'], site.folder_name, 'public_html')
+        os.makedirs(canonical_root, exist_ok=True)
+        access.file_root = canonical_root; access.upload_root = canonical_root
     site_path = application_root(access, bucket='file')
     stack_root = os.path.join(APP_STACKS_ROOT, site.folder_name)
     port = site.internal_port or allocate_application_port()
     try:
         if site.application_type == 'wordpress':
-            metadata = prepare_wordpress_runtime(stack_root, site_path, port)
+            populate = site.installation_mode != 'manual'
+            metadata = prepare_wordpress_runtime(stack_root, site_path, port, populate_wordpress=populate)
         else:
             inferred = infer_runtime_commands(site_path, site.runtime_type)
             install_command = site.install_command or inferred.get('install_command', '')
@@ -6376,6 +6393,38 @@ def repair_missing_runtime_configuration(site, access):
     sync_runtime_environment(site)
     log_action('site.runtime.configuration.repaired', f'{site.name}:{site.runtime_type}:{metadata["port"]}')
     return True, 'repaired'
+
+
+@app.route('/site/<int:site_id>/wordpress/retry-provisioning', methods=['POST'])
+def retry_wordpress_provisioning(site_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id']); site = db.session.get(Site, site_id)
+    require_application_permission(user, site, 'site.manage')
+    if site.application_type != 'wordpress':
+        abort(404)
+    access = ensure_application_access(site)
+    site.provisioning_phase = 'provisioning_runtime'; site.runtime_status = 'configuring'; db.session.commit()
+    repaired, detail = repair_missing_runtime_configuration(site, access)
+    if not repaired:
+        site.provisioning_phase = 'failed_runtime'; site.runtime_status = 'error'; site.deployment_status = 'failed'; db.session.commit()
+        flash('Не вдалося запустити PHP-середовище. Перегляньте runtime logs.', 'error')
+        return redirect(url_for('manage_site', folder_name=site.folder_name) + '#wordpress-setup')
+    code, output = compose_action(access.deployment_root, 'start')
+    with open(os.path.join(access.deployment_root, 'runtime.json'), encoding='utf-8') as handle:
+        metadata = json.load(handle)
+    checked = healthcheck(metadata, timeout=45) if code == 0 else {'ok': False}
+    if not checked.get('ok'):
+        site.provisioning_phase = 'failed_healthcheck'; site.runtime_status = 'error'; site.deployment_status = 'failed'; db.session.commit()
+        log_action('wordpress.provision.retry.failed', f'site={site.id}; phase=healthcheck; {mask_sensitive_text(output[-200:])}')
+        flash('PHP-середовище створено, але web health check не пройдено.', 'error')
+    else:
+        state = detect_wordpress_state(site, access)
+        site.runtime_status = 'running'; site.deployment_status = 'success'; site.last_restart_at = datetime.now()
+        site.provisioning_phase = 'ready' if state.get('code') == 'installed' else 'needs_setup'; db.session.commit()
+        log_action('wordpress.provision.retry.success', f'site={site.id}; state={state.get("code")}')
+        flash('WordPress infrastructure reconciled without duplicating site or database resources.', 'success')
+    return redirect(url_for('manage_site', folder_name=site.folder_name) + '#wordpress-setup')
 
 
 @app.route('/site/<int:site_id>/runtime/<action>', methods=['POST'])
@@ -6477,7 +6526,7 @@ def site_database_create(site_id):
             for key, value in {
                 'WORDPRESS_DB_HOST': f'{MYSQL_HOST}:{MYSQL_PORT}', 'WORDPRESS_DB_NAME': database_name,
                 'WORDPRESS_DB_USER': database_user, 'WORDPRESS_DB_PASSWORD': password,
-                'WORDPRESS_CONFIG_EXTRA': "define('DISALLOW_FILE_EDIT', true); if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') { $_SERVER['HTTPS']='on'; }",
+                'WORDPRESS_CONFIG_EXTRA': "define('DISALLOW_FILE_EDIT', true); define('DISABLE_WP_CRON', true); if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') { $_SERVER['HTTPS']='on'; }",
             }.items(): set_environment_value(site, user, key, value)
         db.session.commit(); sync_runtime_environment(site)
         log_action('database.create', f'{site.name}:{database_name}')

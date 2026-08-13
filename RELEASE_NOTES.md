@@ -1,9 +1,9 @@
-# MyH 2.8.2 release notes
+# MyH 2.9.0 release notes
 
-Released: 2026-08-13
+MyH 2.9.0 makes WordPress creation a generic, phase-aware provisioning pipeline for every tenant. Automatic sites receive an isolated PHP-FPM/Nginx stack, canonical `public_html`, an isolated MySQL resource, resumable official WordPress files, one-click installation and application-aware status. Manual sites receive the same isolated infrastructure without placeholder content and remain in `needs_setup` until files and installation are present.
 
-MyH 2.8.2 is an urgent WordPress workspace bugfix. The backend now always supplies a complete `wordpress_state` structure, including non-WordPress requests, while the template also uses defensive dictionary access.
+Failed or incomplete WordPress stacks can be reconciled through **Повторити provisioning**. Retry reuses the site, port, stack and database resources. A dedicated FastCGI health endpoint verifies actual PHP execution without depending on WordPress canonical redirects.
 
-Runtime status now combines the site record, exact Compose project label, container state, HTTP readiness and deterministic WordPress installation detection. An unrelated container can no longer make a site appear running merely because it uses a WordPress image.
+Production validation covered three simultaneous UI-created sites owned by different users, distinct host content, cross-database denial, HTTPS, `/wp-admin/`, restart persistence, and a WordPress files-plus-database backup with checksum sidecars.
 
-WordPress sites without files, a deployment stack or database display `Needs setup`; public and WordPress Admin actions remain unavailable until the site is actually ready.
+Request-driven WordPress cron is disabled in managed auto/assisted configurations to prevent loopback callbacks from exhausting the panel proxy. Workloads requiring scheduled WordPress events should use a managed external cron runner; that runner is not included in this release.
