@@ -202,6 +202,51 @@ class ServiceCatalogWizardTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIsNone(panel_app.Site.query.filter_by(name='weakwp').first())
 
+    def test_wordpress_manual_creates_empty_runtime_without_forcing_database(self):
+        client = self.app.test_client(); self._auth_session(client, self.admin.id, role='admin')
+        metadata = {'runtime': 'wordpress', 'version': '6-php8.3-fpm-alpine', 'port': 23457}
+        def prepare_stack(stack_root, source_root, _port, populate_wordpress=True):
+            self.assertFalse(populate_wordpress)
+            os.makedirs(stack_root, exist_ok=True); os.makedirs(source_root, exist_ok=True)
+            return metadata
+        with mock.patch.object(panel_app, 'prepare_wordpress_runtime', side_effect=prepare_stack):
+            response = client.post('/sites/create', data={
+                '_csrf_token': 'csrf-token', 'site_name': 'manualwp', 'site_type': 'wordpress',
+                'source_mode': 'upload', 'wordpress_mode': 'manual', 'wordpress_language': 'uk',
+            }, follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        site = panel_app.Site.query.filter_by(name='manualwp').first()
+        self.assertEqual(site.runtime_type, 'php'); self.assertEqual(site.application_type, 'wordpress')
+        self.assertEqual(site.installation_mode, 'manual'); self.assertEqual(len(site.database_resources), 0)
+        access = panel_app.ensure_application_access(site)
+        self.assertFalse(os.path.exists(os.path.join(access.file_root, 'index.php')))
+
+    def test_assisted_wordpress_config_never_silently_overwrites_existing(self):
+        site = self._create_site(self.admin, name='assistwp'); site.application_type = 'wordpress'; site.installation_mode = 'manual'
+        panel_app.db.session.commit(); access = panel_app.ensure_application_access(site); os.makedirs(access.file_root, exist_ok=True)
+        target = os.path.join(access.file_root, 'wp-config.php')
+        with open(target, 'w', encoding='utf-8') as handle: handle.write('<?php // existing')
+        resource = panel_app.DatabaseResource(application_id=site.id, display_name='wp', engine='mysql', database_name='myh_wp',
+            database_user='u_wp', host='172.23.0.1', port=3306, secret_ref='/safe/secret', created_by=self.admin.id)
+        panel_app.db.session.add(resource); panel_app.db.session.commit()
+        client = self.app.test_client(); self._auth_session(client, self.admin.id, role='admin')
+        response = client.post(f'/site/{site.id}/wordpress/prepare-config', data={
+            '_csrf_token': 'csrf-token', 'resource_id': resource.id, 'table_prefix': 'wp_'
+        })
+        self.assertEqual(response.status_code, 302)
+        with open(target, encoding='utf-8') as handle: self.assertEqual(handle.read(), '<?php // existing')
+
+    def test_generated_wordpress_config_has_unique_salts_and_private_database_host(self):
+        site = self._create_site(self.admin, name='configwp')
+        resource = panel_app.DatabaseResource(application_id=site.id, display_name='wp', engine='mysql', database_name='myh_wp',
+            database_user='u_wp', host='172.23.0.1', port=3306, secret_ref='/safe/secret', created_by=self.admin.id)
+        panel_app.db.session.add(resource); panel_app.db.session.commit()
+        with mock.patch.object(panel_app, 'read_application_secret', return_value='never-log-this-password'):
+            first = panel_app.wordpress_config_contents(resource); second = panel_app.wordpress_config_contents(resource)
+        self.assertIn("define('DB_HOST', '172.23.0.1:3306')", first)
+        self.assertIn("define('DISALLOW_FILE_EDIT', true)", first)
+        self.assertNotEqual(first, second)
+
     @mock.patch.object(panel_app, 'healthcheck', return_value={'ok': True})
     @mock.patch.object(panel_app, 'compose_action', return_value=(0, 'started'))
     @mock.patch.object(panel_app, 'sync_runtime_environment')

@@ -2,6 +2,8 @@
 
 Managed WordPress uses digest-pinned official runtime/CLI images, fixed-argv WP-CLI calls, stdin delivery for the initial administrator password, isolated database credentials and private networking. Nginx denies hidden files, `wp-config.php`, directory listing and uploaded PHP execution; dashboard file editing is disabled. See [WORDPRESS.md](WORDPRESS.md).
 
+Manual ZIP extraction requires explicit confirmation and rejects traversal, links/devices, expansion abuse and existing-file collisions. Assisted configuration preserves an existing `wp-config.php` unless replacement is explicitly confirmed, in which case a timestamped backup is created first. Credential display is tenant-authorized, POST-only and marked `no-store`.
+
 ## Network and service boundary
 
 - Public web traffic enters through Cloudflare Tunnel; Gunicorn and customer HTTP runtimes bind only to loopback.

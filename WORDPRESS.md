@@ -4,10 +4,13 @@ WordPress is a managed application template, not a new general-purpose runtime. 
 
 ## Installation
 
-Create Site offers two paths:
+Create Site offers three practical paths:
 
 - **One-click** provisions an isolated MySQL database and restricted database user, starts WordPress, then invokes WP-CLI with fixed argument arrays. The administrator password is supplied through stdin and is not written to MyH metadata or audit logs.
-- **Standard installer** provisions and starts the same secure stack, then leaves `/wp-admin/install.php` available for browser setup.
+- **Assisted manual** starts an empty PHP environment, lets the user upload WordPress and create/select a tenant database, then generates a confirmed `wp-config.php`; the user completes `/wp-admin/install.php`.
+- **Full manual** starts the same empty PHP environment but leaves configuration and installation to `/wp-admin/setup-config.php` and `/wp-admin/install.php`.
+
+Manual ZIP extraction is explicit and protected against traversal, special entries, expansion abuse and existing-file overwrite. The workspace detects canonical WordPress directories without AI and shows a checklist, `/public_html`, File Manager, SFTP, database actions and connection details. Existing `wp-config.php` is never overwritten silently.
 
 The stack uses the official WordPress 6 PHP 8.3 FPM Alpine and WordPress CLI 2.12.0 PHP 8.3 images pinned by digest. Nginx is loopback-only behind the platform proxy. MySQL is reachable only on the private `hosting-databases` Docker network.
 
@@ -29,8 +32,9 @@ A managed WordPress backup consists of the normal ZIP file archive plus a MySQL 
 - Runtime and CLI containers drop Linux capabilities and enable `no-new-privileges`.
 - Credentials remain in mode-0600 application secret/environment storage and are never exposed in the create response.
 
-Run the disposable verification with production environment variables loaded:
+Run the disposable automatic and manual verification with production environment variables loaded:
 
 ```bash
 PYTHONPATH=. python scripts/wordpress_smoke.py
+PYTHONPATH=. python scripts/wordpress_manual_smoke.py
 ```

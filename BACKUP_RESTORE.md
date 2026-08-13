@@ -2,6 +2,8 @@
 
 Managed WordPress site backups include the normal ZIP plus `.wordpress.sql` and `.wordpress.sql.sha256` sidecars. Restore validates the dump before destructive file replacement, then restores files and the isolated database together; retention and deletion remove all artifacts.
 
+Manual WordPress sites use the same backup pipeline. Before destructive restore, the runtime reconciles only the site document root to tenant-scoped group permissions; world-writable modes are never used. A manual site without an attached database remains file-backup capable.
+
 MyH has two deliberately separate stages:
 
 1. A consistent local backup under `/srv/backups/myh/<UTC backup id>`.

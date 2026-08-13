@@ -191,7 +191,7 @@ networks:
     return metadata
 
 
-def prepare_wordpress_runtime(stack_root: str, source_root: str, port: int | None = None) -> dict:
+def prepare_wordpress_runtime(stack_root: str, source_root: str, port: int | None = None, populate_wordpress: bool = True) -> dict:
     stack, source = Path(stack_root).resolve(), Path(source_root).resolve(); stack.mkdir(parents=True, exist_ok=True); source.mkdir(parents=True, exist_ok=True)
     source.chmod(0o2770); source_gid = source.stat().st_gid; port = int(port or allocate_loopback_port()); project = safe_project_name(stack.name)
     env_file = stack / 'env.list'
@@ -222,6 +222,19 @@ max_execution_time=120
 expose_php=Off
 cgi.fix_pathinfo=0
 ''', 0o644)
+    _write(stack / 'wordpress-entrypoint.sh', f'''#!/bin/sh
+set -eu
+if [ "${{MYH_WORDPRESS_POPULATE:-1}}" = "0" ]; then exec php-fpm; fi
+(
+  while [ ! -f /var/www/html/wp-settings.php ] || [ ! -d /var/www/html/wp-admin ]; do sleep 1; done
+  sleep 1
+  chgrp -R {source_gid} /var/www/html 2>/dev/null || true
+  find /var/www/html -type d -exec chmod 2770 {{}} +
+  find /var/www/html -type f -exec chmod 0660 {{}} +
+) &
+exec docker-entrypoint.sh "$@"
+''', 0o755)
+    wordpress_populate = '1' if populate_wordpress else '0'
     compose = f'''services:
   web:
     image: nginx:1.27-alpine
@@ -241,6 +254,8 @@ cgi.fix_pathinfo=0
     depends_on: [wordpress]
   wordpress:
     image: wordpress:6-php8.3-fpm-alpine@sha256:b0062e171b9c8a24e28acdd25cb8ea67e95e60ca0b3c982f88faf93217b0e1a9
+    entrypoint: ["/usr/local/bin/myh-wordpress-entrypoint"]
+    command: ["php-fpm"]
     user: "82:82"
     restart: unless-stopped
     networks: [app-internal, hosting-databases]
@@ -248,7 +263,8 @@ cgi.fix_pathinfo=0
     cap_drop: [ALL]
     group_add: ["{source_gid}", "33"]
     env_file: ["{env_file}"]
-    volumes: ["{source}:/var/www/html", "{stack / 'wordpress.ini'}:/usr/local/etc/php/conf.d/myh-wordpress.ini:ro"]
+    environment: ["MYH_WORDPRESS_POPULATE={wordpress_populate}"]
+    volumes: ["{source}:/var/www/html", "{stack / 'wordpress.ini'}:/usr/local/etc/php/conf.d/myh-wordpress.ini:ro", "{stack / 'wordpress-entrypoint.sh'}:/usr/local/bin/myh-wordpress-entrypoint:ro"]
     mem_limit: 384m
     cpus: 0.75
     pids_limit: 128
@@ -270,7 +286,7 @@ networks:
   hosting-databases: {{external: true}}
 '''
     _write(stack / 'compose.yml', compose)
-    metadata={'runtime':'wordpress','version':'6-php8.3-fpm-alpine','port':port,'project':project,'source_root':str(source),'status':'configured'}
+    metadata={'runtime':'wordpress','version':'6-php8.3-fpm-alpine','port':port,'project':project,'source_root':str(source),'status':'configured','populate_wordpress':populate_wordpress}
     _write(stack / 'runtime.json',json.dumps(metadata,indent=2)+'\n',0o600); return metadata
 
 

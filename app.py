@@ -513,6 +513,7 @@ class Site(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
     runtime_type = db.Column(db.String(20), nullable=False, default='static')
     application_type = db.Column(db.String(40), nullable=False, default='custom')
+    installation_mode = db.Column(db.String(20), nullable=False, default='automatic')
     runtime_version = db.Column(db.String(40), nullable=False, default='nginx-alpine')
     runtime_status = db.Column(db.String(20), nullable=False, default='configured')
     deployment_status = db.Column(db.String(20), nullable=False, default='pending')
@@ -917,6 +918,9 @@ def ensure_database_schema(force=False):
             if 'application_type' not in site_columns:
                 with db.engine.begin() as conn:
                     conn.execute(text("ALTER TABLE site ADD COLUMN application_type VARCHAR(40) NOT NULL DEFAULT 'custom'"))
+            if 'installation_mode' not in site_columns:
+                with db.engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE site ADD COLUMN installation_mode VARCHAR(20) NOT NULL DEFAULT 'automatic'"))
 
         if 'application_access' in inspector.get_table_names():
             access_columns = {column['name'] for column in inspector.get_columns('application_access')}
@@ -1987,6 +1991,8 @@ def safe_extract_zip(archive, destination, strip_prefix=''):
         target = os.path.realpath(os.path.join(destination, output_rel))
         if os.path.commonpath([destination, target]) != destination:
             raise ValueError('Архів містить небезпечний шлях')
+        if not member.is_dir() and os.path.exists(target):
+            raise ValueError('Архів не може мовчки перезаписати існуючий файл')
 
     for member in members:
         name = (member.filename or '').replace('\\', '/').strip()
@@ -2455,15 +2461,14 @@ def create_backup_archive(site, access=None):
     try:
         if site.application_type == 'wordpress':
             resource = DatabaseResource.query.filter_by(application_id=site.id, engine='mysql').first()
-            if not resource:
-                raise RuntimeError('WordPress database resource is missing.')
-            database_dump = create_database_backup(resource)
-            database_sidecar = destination + '.wordpress.sql'
-            checksum_sidecar = database_sidecar + '.sha256'
-            os.replace(database_dump, database_sidecar)
-            os.replace(database_dump + '.sha256', checksum_sidecar)
-            os.chmod(database_sidecar, 0o600)
-            os.chmod(checksum_sidecar, 0o600)
+            if resource:
+                database_dump = create_database_backup(resource)
+                database_sidecar = destination + '.wordpress.sql'
+                checksum_sidecar = database_sidecar + '.sha256'
+                os.replace(database_dump, database_sidecar)
+                os.replace(database_dump + '.sha256', checksum_sidecar)
+                os.chmod(database_sidecar, 0o600)
+                os.chmod(checksum_sidecar, 0o600)
     except Exception:
         for candidate in (destination, destination + '.wordpress.sql', destination + '.wordpress.sql.sha256'):
             try:
@@ -2480,9 +2485,11 @@ def validate_wordpress_database_sidecar(site, archive_path):
         return None
     sidecar = archive_path + '.wordpress.sql'
     checksum = sidecar + '.sha256'
+    resource = DatabaseResource.query.filter_by(application_id=site.id, engine='mysql').first()
+    if not resource and not os.path.isfile(sidecar) and not os.path.isfile(checksum):
+        return None
     if not os.path.isfile(sidecar) or not os.path.isfile(checksum):
         raise RuntimeError('WordPress database backup is missing.')
-    resource = DatabaseResource.query.filter_by(application_id=site.id, engine='mysql').first()
     if not resource:
         raise RuntimeError('WordPress database resource is missing.')
     with open(checksum, encoding='ascii') as checksum_file:
@@ -2511,6 +2518,27 @@ def restore_wordpress_database_sidecar(site, archive_path):
             raise RuntimeError('WordPress database restore failed.')
     finally:
         os.unlink(defaults)
+
+
+def reconcile_wordpress_permissions(site, access=None):
+    """Grant the panel owner scoped write access without broad world permissions."""
+    if site.application_type != 'wordpress':
+        return
+    access = access or ensure_application_access(site)
+    metadata_path = os.path.join(access.deployment_root, 'runtime.json')
+    if not os.path.isfile(metadata_path):
+        return
+    with open(metadata_path, encoding='utf-8') as handle:
+        metadata = json.load(handle)
+    source_gid = os.stat(application_root(access, bucket='file')).st_gid
+    fixed_script = (f'chgrp -R {int(source_gid)} /var/www/html 2>/dev/null || true; '
+                    'find /var/www/html -type d -exec chmod 2770 {} +; '
+                    'find /var/www/html -type f -exec chmod 0660 {} +')
+    process = subprocess.run(['docker', 'compose', '-p', metadata['project'], '-f', os.path.join(access.deployment_root, 'compose.yml'),
+                              'exec', '-T', 'wordpress', 'sh', '-c', fixed_script], capture_output=True, text=True, timeout=120, check=False)
+    if process.returncode:
+        detail = mask_sensitive_text((process.stderr or process.stdout or '')[-500:])
+        raise RuntimeError('Unable to reconcile WordPress file permissions.' + (f' {detail}' if app.config.get('TESTING') else ''))
 
 
 def extract_zip_to_site(zip_path, site_path):
@@ -2965,8 +2993,8 @@ def restore_database_backup(resource, backup_name):
 def wordpress_cli(stack_root, arguments, input_text=None, timeout=300):
     """Run a fixed WP-CLI argv inside the managed application container."""
     allowed_commands = {
-        ('core', 'install'), ('core', 'is-installed'), ('core', 'version'), ('option', 'get'),
-        ('post', 'create'), ('post', 'get'), ('plugin', 'install'), ('plugin', 'activate'),
+        ('core', 'install'), ('core', 'is-installed'), ('core', 'version'), ('core', 'update'), ('option', 'get'), ('option', 'update'),
+        ('post', 'create'), ('post', 'get'), ('post', 'delete'), ('plugin', 'install'), ('plugin', 'activate'),
         ('plugin', 'deactivate'), ('plugin', 'delete'), ('theme', 'install'), ('theme', 'activate'),
         ('media', 'import'), ('rewrite', 'structure'), ('rewrite', 'flush'),
     }
@@ -2999,6 +3027,64 @@ def install_wordpress_one_click(site, access, title, admin_username, admin_email
     wordpress_cli(access.deployment_root, ['rewrite', 'structure', '/%postname%/', '--hard'])
     wordpress_cli(access.deployment_root, ['rewrite', 'flush', '--hard'])
     return public_url
+
+
+def detect_wordpress_state(site, access):
+    root = application_root(access, bucket='file')
+    required = ('wp-admin', 'wp-content', 'wp-includes', 'wp-settings.php')
+    files_present = all(os.path.exists(os.path.join(root, item)) for item in required)
+    config_present = os.path.isfile(os.path.join(root, 'wp-config.php'))
+    nested = os.path.isdir(os.path.join(root, 'wordpress', 'wp-admin'))
+    resource = DatabaseResource.query.filter_by(application_id=site.id, engine='mysql').first()
+    if not files_present:
+        return {'code': 'files_missing', 'files': False, 'config': config_present, 'database': bool(resource), 'nested': nested}
+    if not config_present:
+        return {'code': 'configuration_required', 'files': True, 'config': False, 'database': bool(resource), 'nested': False}
+    installed = False
+    if resource:
+        try:
+            with open(os.path.join(root, 'wp-config.php'), encoding='utf-8', errors='ignore') as config_file:
+                prefix_match = re.search(r"\$table_prefix\s*=\s*['\"]([A-Za-z0-9_]{1,32})['\"]", config_file.read(256 * 1024))
+            table_prefix = prefix_match.group(1) if prefix_match else 'wp_'
+            connection = mysql_tenant_connection(resource)
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(f'SELECT option_value FROM {quote_mysql_identifier(table_prefix + "options")} WHERE option_name=%s LIMIT 1', ('siteurl',))
+                    installed = bool(cursor.fetchone())
+            finally:
+                connection.close()
+        except (OSError, RuntimeError, pymysql.MySQLError):
+            return {'code': 'database_error', 'files': True, 'config': True, 'database': True, 'nested': False}
+    return {'code': 'installed' if installed else 'installation_required', 'files': True, 'config': True,
+            'database': bool(resource), 'nested': False}
+
+
+def wordpress_config_contents(resource, table_prefix='wp_'):
+    if not re.fullmatch(r'[A-Za-z0-9_]{1,32}', table_prefix):
+        raise ValueError('Invalid WordPress table prefix.')
+    password = read_application_secret(resource.secret_ref, resource.application_id)
+    if not password:
+        raise RuntimeError('Database credential is unavailable.')
+    def php_string(value):
+        return str(value).replace('\\', '\\\\').replace("'", "\\'")
+    salts = '\n'.join(
+        f"define('{name}', '{secrets.token_urlsafe(48)}');" for name in
+        ('AUTH_KEY', 'SECURE_AUTH_KEY', 'LOGGED_IN_KEY', 'NONCE_KEY', 'AUTH_SALT', 'SECURE_AUTH_SALT', 'LOGGED_IN_SALT', 'NONCE_SALT')
+    )
+    return f"""<?php
+define('DB_NAME', '{php_string(resource.database_name)}');
+define('DB_USER', '{php_string(resource.database_user)}');
+define('DB_PASSWORD', '{php_string(password)}');
+define('DB_HOST', '{php_string(resource.host)}:{int(resource.port)}');
+define('DB_CHARSET', 'utf8mb4');
+define('DB_COLLATE', '');
+{salts}
+$table_prefix = '{table_prefix}';
+define('DISALLOW_FILE_EDIT', true);
+if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {{ $_SERVER['HTTPS'] = 'on'; }}
+if (!defined('ABSPATH')) {{ define('ABSPATH', __DIR__ . '/'); }}
+require_once ABSPATH . 'wp-settings.php';
+"""
 
 
 def deploy_from_git(repo_url, site_path, access=None, git_token=None):
@@ -3615,6 +3701,7 @@ def perform_job(job):
         restore_size = estimate_zip_unpacked_bytes(archive_path)
         enforce_application_quota(access, restore_size)
         validate_wordpress_database_sidecar(site, archive_path)
+        reconcile_wordpress_permissions(site, access)
         set_job_state(job, progress=25, message=f'Restore {site.name} очищається')
         for root, directories, filenames in os.walk(site_path, topdown=False):
             for filename in filenames:
@@ -4322,7 +4409,9 @@ def create_site_wizard():
         build_command = (request.form.get('build_command') or '').strip()
         start_command = (request.form.get('start_command') or '').strip()
         spa_enabled = site_type == 'static' and request.form.get('spa_enabled') == '1'
-        wordpress_mode = (request.form.get('wordpress_mode') or 'one_click').strip().lower()
+        wordpress_mode = (request.form.get('wordpress_mode') or 'automatic').strip().lower()
+        wordpress_mode = {'one_click': 'automatic', 'standard': 'manual'}.get(wordpress_mode, wordpress_mode)
+        wordpress_create_database = request.form.get('wordpress_create_database') == '1' or wordpress_mode == 'automatic'
         wordpress_title = (request.form.get('wordpress_title') or subdomain).strip()
         wordpress_admin = (request.form.get('wordpress_admin') or '').strip()
         wordpress_email = (request.form.get('wordpress_email') or '').strip()
@@ -4339,10 +4428,10 @@ def create_site_wizard():
             flash('Unsupported PHP version.', 'error')
             return redirect(url_for('create_site_wizard', site_type='php'))
         if site_type == 'wordpress':
-            if wordpress_mode not in {'one_click', 'standard'} or wordpress_language not in {'uk', 'en_US'}:
+            if wordpress_mode not in {'automatic', 'manual'} or wordpress_language not in {'uk', 'en_US'}:
                 flash('Некоректні параметри WordPress.', 'error')
                 return redirect(url_for('create_site_wizard', site_type='wordpress'))
-            if wordpress_mode == 'one_click' and (not wordpress_admin or not valid_notification_email(wordpress_email) or len(wordpress_password) < 16):
+            if wordpress_mode == 'automatic' and (not wordpress_admin or not valid_notification_email(wordpress_email) or len(wordpress_password) < 16):
                 flash('Для one-click installation потрібні admin username, коректний email і пароль від 16 символів.', 'error')
                 return redirect(url_for('create_site_wizard', site_type='wordpress'))
         if not validate_runtime_commands(install_command, build_command, start_command):
@@ -4377,6 +4466,7 @@ def create_site_wizard():
             user_id=owner.id,
             runtime_type=runtime_type,
             application_type='wordpress' if site_type == 'wordpress' else 'custom',
+            installation_mode=wordpress_mode if site_type == 'wordpress' else 'automatic',
             runtime_version=runtime_version,
             runtime_status='configuring',
             deployment_status='pending',
@@ -4398,7 +4488,13 @@ def create_site_wizard():
         stack_root = os.path.join(APP_STACKS_ROOT, folder_name)
         try:
             if site_type == 'wordpress':
-                metadata = prepare_wordpress_runtime(stack_root, document_root, allocate_application_port())
+                if wordpress_mode == 'manual':
+                    placeholder = os.path.join(document_root, 'index.php')
+                    with open(placeholder, 'w', encoding='utf-8') as handle:
+                        handle.write('<?php http_response_code(200); ?><h1>WordPress ще не встановлено.</h1>')
+                    metadata = prepare_wordpress_runtime(stack_root, document_root, allocate_application_port(), populate_wordpress=False)
+                else:
+                    metadata = prepare_wordpress_runtime(stack_root, document_root, allocate_application_port())
             else:
                 metadata = prepare_runtime(stack_root, document_root, runtime_type, runtime_version, allocate_application_port(),
                                            install_command=install_command, build_command=build_command, start_command=start_command,
@@ -4413,6 +4509,7 @@ def create_site_wizard():
         with open(os.path.join(stack_root, 'panel-metadata.json'), 'w', encoding='utf-8') as handle:
             json.dump({
                 'site_type': site_type, 'source_mode': source_mode,
+                'installation_mode': wordpress_mode if site_type == 'wordpress' else None,
                 'generated_at': datetime.now().isoformat(timespec='seconds'),
                 'runtime': {'language': runtime_type, 'version': runtime_version},
             }, handle, indent=2)
@@ -4421,7 +4518,7 @@ def create_site_wizard():
         access.deployment_root = stack_root
         new_site.internal_port = metadata['port']
         db.session.commit()
-        if site_type == 'wordpress':
+        if site_type == 'wordpress' and wordpress_create_database:
             database_name, database_user = generated_database_identifiers(owner.id, f'{subdomain}_wordpress')
             database_password = secrets.token_urlsafe(32)
             try:
@@ -4452,6 +4549,11 @@ def create_site_wizard():
         new_site.deployment_status = 'success' if check.get('ok') else 'failed'
         new_site.last_restart_at = datetime.now() if check.get('ok') else None
         db.session.commit()
+        if site_type == 'wordpress' and wordpress_mode == 'manual' and check.get('ok'):
+            try:
+                os.unlink(os.path.join(document_root, 'index.php'))
+            except FileNotFoundError:
+                pass
         if not check.get('ok'):
             try:
                 compose_action(stack_root, 'delete')
@@ -4461,14 +4563,14 @@ def create_site_wizard():
             flash('Сайт створено, але runtime не пройшов health check. Перевірте application logs.', 'error')
         else:
             log_action('site.runtime.started', f'{subdomain}:{runtime_type}:{runtime_version}:{metadata["port"]}')
-            if site_type == 'wordpress' and wordpress_mode == 'one_click':
+            if site_type == 'wordpress' and wordpress_mode == 'automatic':
                 try:
                     install_wordpress_one_click(new_site, access, wordpress_title, wordpress_admin, wordpress_email,
                                                 wordpress_password, wordpress_language)
                     wordpress_password = ''
                     new_site.deployment_status = 'success'
                     db.session.commit()
-                    log_action('wordpress.install.success', f'site={new_site.id}; mode=one_click; locale={wordpress_language}')
+                    log_action('wordpress.install.success', f'site={new_site.id}; mode=automatic; locale={wordpress_language}')
                 except (RuntimeError, ValueError, subprocess.SubprocessError) as exc:
                     wordpress_password = ''
                     new_site.runtime_status = 'error'
@@ -5816,6 +5918,21 @@ def manage_site(folder_name):
                 log_action('file.rename', f'{site.name}/{relative} → {new_name}')
                 record_upload_history(site, user, relative, 0, source='panel', status='success', deployment='', detail=f'rename:{new_name}')
                 flash('Перейменовано.', 'success')
+        elif action == 'extract':
+            require_application_permission(user, site, 'files.extract')
+            relative = normalized_relative_path(request.form.get('file_path', ''))
+            source = safe_resource_path(access, relative, bucket='file')
+            if not relative.lower().endswith('.zip') or not os.path.isfile(source):
+                abort(400)
+            target_relative = normalized_relative_path(os.path.dirname(relative))
+            target = safe_resource_path(access, target_relative, bucket='file')
+            with zipfile.ZipFile(source, 'r') as archive:
+                members = archive.infolist()
+                prefix = zip_single_root_folder(members) if request.form.get('flatten_root') == '1' else ''
+                safe_extract_zip(archive, target, strip_prefix=prefix or '')
+            log_action('file.extract', f'{site.name}/{relative}; flatten={bool(prefix)}')
+            record_upload_history(site, user, relative, os.path.getsize(source), source='panel', status='success', deployment='', detail='explicit-safe-extract')
+            flash('Архів безпечно розпаковано.', 'success')
         elif action in {'move', 'copy'}:
             permission = 'files.rename' if action == 'move' else 'files.create'
             require_application_permission(user, site, permission)
@@ -5880,7 +5997,7 @@ def manage_site(folder_name):
                 file.save(file_path)
                 uploaded_total += upload_size
                 application_usage_bytes += upload_size
-                if filename.lower().endswith('.zip'):
+                if filename.lower().endswith('.zip') and request.form.get('extract_zip') == '1':
                     try:
                         with zipfile.ZipFile(file_path, 'r') as zip_ref:
                             members = zip_ref.infolist()
@@ -5959,7 +6076,9 @@ def manage_site(folder_name):
     domain_state = probe_domain_status(public_domain)
     latest_deployment = DeploymentEvent.query.filter_by(site_name=site.name).order_by(DeploymentEvent.created_at.desc()).first()
     wordpress_version = None
+    wordpress_state = None
     if site.application_type == 'wordpress':
+        wordpress_state = detect_wordpress_state(site, access)
         version_file = os.path.join(site_path, 'wp-includes', 'version.php')
         try:
             with open(version_file, encoding='utf-8') as wordpress_version_file:
@@ -5986,6 +6105,7 @@ def manage_site(folder_name):
         domain_state=domain_state,
         latest_deployment=latest_deployment,
         wordpress_version=wordpress_version,
+        wordpress_state=wordpress_state,
     )
 
 
@@ -6103,6 +6223,7 @@ def restore_site_backup(site_id, backup_name):
         restore_size = estimate_zip_unpacked_bytes(archive_path)
         enforce_application_quota(access, restore_size)
         validate_wordpress_database_sidecar(site, archive_path)
+        reconcile_wordpress_permissions(site, access)
     except ValueError as exc:
         flash(str(exc), 'error')
         record_upload_history(site, user, backup_name, os.path.getsize(archive_path), source='panel', status='blocked', deployment='restore', detail='application-quota-limit-restore')
@@ -6343,6 +6464,12 @@ def site_database_create(site_id):
             'DB_USER': database_user, 'DB_PASSWORD': password,
             'DATABASE_URL': f'mysql://{database_user}:{urllib.parse.quote(password, safe="")}@{MYSQL_HOST}:{MYSQL_PORT}/{database_name}',
         }.items(): set_environment_value(site, user, key, value)
+        if site.application_type == 'wordpress':
+            for key, value in {
+                'WORDPRESS_DB_HOST': f'{MYSQL_HOST}:{MYSQL_PORT}', 'WORDPRESS_DB_NAME': database_name,
+                'WORDPRESS_DB_USER': database_user, 'WORDPRESS_DB_PASSWORD': password,
+                'WORDPRESS_CONFIG_EXTRA': "define('DISALLOW_FILE_EDIT', true); if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') { $_SERVER['HTTPS']='on'; }",
+            }.items(): set_environment_value(site, user, key, value)
         db.session.commit(); sync_runtime_environment(site)
         log_action('database.create', f'{site.name}:{database_name}')
         flash(f'Database {database_name} created. Credentials were added as write-only environment variables.', 'success')
@@ -6352,6 +6479,51 @@ def site_database_create(site_id):
         except Exception: pass
         flash(f'Database provisioning failed: {mask_sensitive_text(str(exc))[:300]}', 'error')
     return redirect(request.referrer or url_for('user_databases_index'))
+
+
+@app.route('/site/<int:site_id>/wordpress/database-credentials', methods=['POST'])
+def wordpress_database_credentials(site_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id']); site = db.session.get(Site, site_id)
+    require_application_permission(user, site, 'database.view')
+    if site.application_type != 'wordpress':
+        abort(404)
+    resource = DatabaseResource.query.filter_by(application_id=site.id, engine='mysql').first_or_404()
+    password = read_application_secret(resource.secret_ref, site.id)
+    response = render_template('wordpress_database_credentials.html', site=site, resource=resource, password=password)
+    return response, 200, {'Cache-Control': 'no-store, max-age=0', 'Pragma': 'no-cache', 'X-Robots-Tag': 'noindex'}
+
+
+@app.route('/site/<int:site_id>/wordpress/prepare-config', methods=['POST'])
+def wordpress_prepare_config(site_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id']); site = db.session.get(Site, site_id)
+    require_application_permission(user, site, 'files.upload')
+    if site.application_type != 'wordpress':
+        abort(404)
+    access = ensure_application_access(site); root = application_root(access, bucket='file')
+    resource_id = request.form.get('resource_id', type=int)
+    resource = DatabaseResource.query.filter_by(id=resource_id, application_id=site.id, engine='mysql').first_or_404()
+    target = os.path.join(root, 'wp-config.php')
+    if os.path.exists(target):
+        if request.form.get('replace_existing') != '1':
+            flash('Конфігурація WordPress уже існує. Заміна потребує явного підтвердження.', 'error')
+            return redirect(url_for('manage_site', folder_name=site.folder_name) + '#wordpress-setup')
+        backup_target = target + '.before-myh-' + datetime.now().strftime('%Y%m%d-%H%M%S')
+        shutil.copy2(target, backup_target)
+    try:
+        content = wordpress_config_contents(resource, request.form.get('table_prefix', 'wp_').strip())
+        temporary = target + '.tmp'
+        with open(temporary, 'w', encoding='utf-8') as handle:
+            handle.write(content)
+        os.chmod(temporary, 0o640); os.replace(temporary, target)
+        log_action('wordpress.config.prepared', f'site={site.id}; database={resource.id}')
+        flash('wp-config.php підготовлено. Завершіть встановлення у стандартному майстрі WordPress.', 'success')
+    except (OSError, RuntimeError, ValueError) as exc:
+        flash(mask_sensitive_text(str(exc)), 'error')
+    return redirect(url_for('manage_site', folder_name=site.folder_name) + '#wordpress-setup')
 
 
 @app.route('/site/<int:site_id>/runtime/logs')

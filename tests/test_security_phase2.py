@@ -313,8 +313,16 @@ class SecurityPhase2Tests(unittest.TestCase):
 
             with zipfile.ZipFile(archive_path, 'r') as archive:
                 panel_app.safe_extract_zip(archive, dest)
-
             self.assertTrue(os.path.exists(os.path.join(dest, 'assets', 'index.html')))
+
+    def test_safe_extract_zip_refuses_existing_file_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archive_path = os.path.join(tmp, 'collision.zip'); dest = os.path.join(tmp, 'out'); os.makedirs(dest)
+            with open(os.path.join(dest, 'wp-config.php'), 'w', encoding='utf-8') as handle: handle.write('keep')
+            with zipfile.ZipFile(archive_path, 'w') as archive: archive.writestr('wp-config.php', 'replace')
+            with zipfile.ZipFile(archive_path) as archive:
+                with self.assertRaises(ValueError): panel_app.safe_extract_zip(archive, dest)
+            with open(os.path.join(dest, 'wp-config.php'), encoding='utf-8') as handle: self.assertEqual(handle.read(), 'keep')
 
     def test_safe_extract_zip_blocks_zip_slip(self):
         with tempfile.TemporaryDirectory() as tmp:

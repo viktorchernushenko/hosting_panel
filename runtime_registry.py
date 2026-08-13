@@ -27,7 +27,7 @@ RUNTIME_DEFINITIONS = (
     },
     {
         "id": "wordpress", "displayName": {"uk": "WordPress", "en": "WordPress"},
-        "description": {"uk": "WordPress-сайт з автоматично налаштованою базою даних.", "en": "A WordPress site with an automatically configured database."},
+        "description": {"uk": "Створіть WordPress-сайт автоматично або встановіть його вручну.", "en": "Create WordPress automatically or install it manually."},
         "version": "6-php8.3-fpm-alpine", "template": "wordpress:6-php8.3-fpm-alpine", "category": "managed", "icon": "globe",
         "supportsBuild": False, "supportsDatabase": True, "supportsEnvironmentVariables": True,
         "supportsCustomStartCommand": False, "supportsSpa": False, "advanced": False,

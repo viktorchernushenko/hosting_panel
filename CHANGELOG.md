@@ -2,6 +2,26 @@
 
 MyH follows Semantic Versioning. Entries below are reconstructed from the actual Git history, code, configuration, UI and recorded tests; they do not create synthetic historical commits or tags.
 
+## [2.8.1] - 2026-08-13
+
+### Added
+
+- Added first-class automatic and manual WordPress choices, with manual database provisioning optional at creation time.
+- Added manual installation checklist and deterministic states for missing files, configuration required, installation required, database failure and installed WordPress.
+- Added explicit safe ZIP extraction, optional single-root flattening, assisted `wp-config.php` generation and no-store database credential display.
+- Added full-manual browser E2E through `setup-config.php` and assisted-manual browser E2E through `install.php` without automatic core installation.
+
+### Changed
+
+- WordPress backup/restore E2E now verifies pretty permalinks, core update availability, posts, media and plugin files after a real file/database rollback.
+- WordPress file reconciliation uses tenant-scoped group permissions and never world-writable modes.
+
+### Security
+
+- ZIP extraction refuses traversal, special entries, expansion abuse and silent overwrites.
+- Existing `wp-config.php` is preserved unless replacement is explicitly confirmed; replacement creates a timestamped backup.
+- Database credentials are tenant-authorized, POST-only and served with `no-store` headers.
+
 ## [2.8.0] - 2026-08-13
 
 ### Added

@@ -1,15 +1,13 @@
-# MyH 2.8.0 release notes
+# MyH 2.8.1 release notes
 
 Released: 2026-08-13
 
-MyH 2.8.0 promotes WordPress to a native managed application in Create Site. It remains architecturally PHP 8.3 plus MySQL rather than a separate general-purpose runtime, while the panel records `application_type=wordpress` for lifecycle behavior.
+MyH 2.8.1 completes the first-class manual WordPress workflow introduced by 2.8.0. Create Site now clearly distinguishes automatic installation from manual installation. Manual mode starts an empty, working PHP 8.3 environment without forcing WordPress files or a database.
 
-Both one-click setup and the standard WordPress installer are supported. One-click setup provisions a dedicated database and restricted user, starts the official digest-pinned images, installs core through fixed-argv WP-CLI, configures HTTPS-aware URLs and pretty permalinks, and never persists the generated administrator password in panel metadata or audit logs.
+The workspace presents a checklist for files, database, `wp-config.php` and the standard installer. Users can upload files or ZIP packages, use SFTP, explicitly extract archives, optionally flatten the official `wordpress/` root, provision a private database, view credentials on a tenant-authorized no-store page and use either full manual `setup-config.php` or assisted configuration.
 
-The overview links directly to WordPress Admin and Database Studio and reports the detected WordPress version. Existing file tools cover plugin, theme and media content; WP-CLI lifecycle behavior is verified by the disposable production smoke test.
+Assisted configuration generates unique salts and private database settings but does not create the WordPress administrator or complete installation. Existing `wp-config.php` files are never overwritten silently; confirmed replacement creates a timestamped backup first.
 
-Backups now pair the site archive with a mode-0600 checksummed MySQL dump. Restore verifies the database sidecar before replacing site files, then restores both layers. Site deletion continues to remove the runtime, database resources, secrets and tenant files.
+Disposable E2E now proves automatic, full-manual and assisted-manual flows. Automatic lifecycle verification also covers pretty permalinks, core update checking and a real files-plus-database backup/modify/restore cycle.
 
-Security defaults deny direct `wp-config.php` access, hidden files, directory listings and PHP execution inside uploads; dashboard file editing is disabled and PHP resource limits are explicit.
-
-See [WORDPRESS.md](WORDPRESS.md), [RUNTIMES.md](RUNTIMES.md), [DATABASES.md](DATABASES.md), [BACKUP_RESTORE.md](BACKUP_RESTORE.md), [SECURITY.md](SECURITY.md) and [CHANGELOG.md](CHANGELOG.md).
+See [WORDPRESS.md](WORDPRESS.md), [BACKUP_RESTORE.md](BACKUP_RESTORE.md), [SECURITY.md](SECURITY.md) and [CHANGELOG.md](CHANGELOG.md).

@@ -10,7 +10,7 @@
     </div>
     <div class="hero-actions">
       <a class="tiny-btn" href="https://{{ site.custom_domain or site.name ~ '.myh.guru' }}/" target="_blank" rel="noopener">{% if current_language == 'en' %}Open site ↗{% else %}Відкрити сайт ↗{% endif %}</a>
-      {% if site.application_type == 'wordpress' %}<a class="tiny-btn" href="https://{{ site.custom_domain or site.name ~ '.myh.guru' }}/wp-admin/" target="_blank" rel="noopener">{% if current_language == 'en' %}WordPress Admin ↗{% else %}Панель WordPress ↗{% endif %}</a>{% endif %}
+      {% if site.application_type == 'wordpress' and wordpress_state.code == 'installed' %}<a class="tiny-btn" href="https://{{ site.custom_domain or site.name ~ '.myh.guru' }}/wp-admin/" target="_blank" rel="noopener">{% if current_language == 'en' %}WordPress Admin ↗{% else %}Панель WordPress ↗{% endif %}</a>{% endif %}
       <a class="ghost-btn" href="{{ url_for('developer_deploy', site_id=site.id) }}">Deploy</a>
       <a class="ghost-btn" href="{{ url_for('user_sites_index') }}">{% if current_language == 'en' %}All sites{% else %}Усі сайти{% endif %}</a>
       <form action="{{ url_for('delete_site', site_id=site.id) }}" method="POST" data-confirm="{% if current_language == 'en' %}Permanently delete {{ site.name }}, including its databases and backups?{% else %}Назавжди видалити {{ site.name }} разом із базами даних і резервними копіями?{% endif %}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button class="danger-btn" type="submit">{% if current_language == 'en' %}Delete site{% else %}Видалити сайт{% endif %}</button></form>
@@ -20,6 +20,34 @@
   <nav class="detail-tabs" aria-label="{% if current_language == 'en' %}Site sections{% else %}Розділи сайту{% endif %}">
     <a href="#overview">{% if current_language == 'en' %}Overview{% else %}Огляд{% endif %}</a><a href="{{ url_for('developer_deploy_history') }}">Deployments</a><a href="#files">{% if current_language == 'en' %}Files{% else %}Файли{% endif %}</a><a href="#domain-ssl">{% if current_language == 'en' %}Domain &amp; SSL{% else %}Домен і SSL{% endif %}</a><a href="#database">{% if current_language == 'en' %}Database{% else %}База даних{% endif %}</a><a href="{{ url_for('user_logs_index') }}">Logs</a><a href="#backups">Backups</a><a href="#settings">{% if current_language == 'en' %}Site settings{% else %}Налаштування сайту{% endif %}</a>
   </nav>
+
+  {% if site.application_type == 'wordpress' and wordpress_state.code != 'installed' %}
+  <section class="panel-card full-width" id="wordpress-setup">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}Manual WordPress installation{% else %}Ручне встановлення WordPress{% endif %}</h3><span class="status-pill warning">{% if wordpress_state.code == 'database_error' %}DB error{% else %}Setup{% endif %}</span></div>
+    {% if wordpress_state.code == 'database_error' %}<p class="empty-state">Не вдалося підключитися до бази даних.</p>{% elif wordpress_state.code == 'installation_required' %}<p class="empty-state">WordPress потребує встановлення.</p>{% else %}<p class="field-help">WordPress ще не встановлено. Це підтримуваний manual flow, а не помилка.</p>{% endif %}
+    <div class="backup-list">
+      <div class="backup-row"><span><strong>✓ PHP-середовище готове</strong><small>PHP 8.3 · Document Root: /public_html</small></span></div>
+      <div class="backup-row"><span><strong>{{ '✓' if wordpress_state.files else '○' }} WordPress файли</strong><small>{% if wordpress_state.nested %}WordPress знайдено у вкладеній папці /wordpress{% else %}wp-admin · wp-content · wp-includes{% endif %}</small></span><a class="ghost-btn" href="#file-actions">Завантажити файли</a></div>
+      <div class="backup-row"><span><strong>{{ '✓' if wordpress_state.database else '○' }} База даних</strong><small>Окрема приватна MySQL database</small></span><a class="ghost-btn" href="#database">Створити базу</a></div>
+      <div class="backup-row"><span><strong>{{ '✓' if wordpress_state.config else '○' }} Підключення WordPress до БД</strong><small>wp-config.php</small></span></div>
+      <div class="backup-row"><span><strong>○ Завершення встановлення</strong><small>/wp-admin/install.php</small></span><a class="tiny-btn" href="https://{{ site.custom_domain or site.name ~ '.myh.guru' }}/wp-admin/{{ 'install.php' if wordpress_state.config else 'setup-config.php' }}" target="_blank" rel="noopener">Продовжити встановлення ↗</a></div>
+    </div>
+    <div class="action-group utility-gap-top">
+      <a class="ghost-btn" href="#file-actions">Відкрити File Manager</a><a class="ghost-btn" href="{{ url_for('user_sftp_access') }}">Підключитися через SFTP</a>
+      {% for database in site.database_resources %}<form action="{{ url_for('wordpress_database_credentials', site_id=site.id) }}" method="POST"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button class="ghost-btn" type="submit">Дані підключення</button></form>{% endfor %}
+    </div>
+    {% if wordpress_state.files and site.database_resources %}
+    <details class="utility-gap-top"><summary>Assisted manual: підготувати wp-config.php</summary>
+      <form action="{{ url_for('wordpress_prepare_config', site_id=site.id) }}" method="POST" class="stack-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><input type="hidden" name="resource_id" value="{{ site.database_resources[0].id }}">
+        <label>Table prefix</label><input name="table_prefix" value="wp_" pattern="[A-Za-z0-9_]{1,32}" required>
+        {% if wordpress_state.config %}<label class="checkbox-row"><input type="checkbox" name="replace_existing" value="1"> Створити резервну копію та замінити існуючий wp-config.php</label>{% endif %}
+        <button type="submit">Підготувати wp-config.php</button>
+      </form>
+    </details>
+    {% endif %}
+  </section>
+  {% endif %}
 
   <section class="metric-strip" id="overview">
     {% if site.application_type == 'wordpress' %}<article class="metric-tile"><div class="metric-label">WordPress</div><div class="metric-value">{{ wordpress_version or '—' }}</div><div class="metric-caption">PHP 8.3 · MySQL</div></article>{% endif %}
@@ -97,7 +125,8 @@
         <input type="hidden" name="target_dir" value="{{ current_dir }}">
         <div class="service-meta">{% if current_language == 'en' %}Upload target:{% else %}Папка завантаження:{% endif %} /{{ current_dir or '' }}</div>
         <input type="file" name="files" multiple required>
-        <button type="submit">{% if current_language == 'en' %}Upload / unzip ZIP{% else %}Завантажити / розпакувати ZIP{% endif %}</button>
+        <label class="checkbox-row"><input type="checkbox" name="extract_zip" value="1"> {% if current_language == 'en' %}Safely extract ZIP after upload{% else %}Безпечно розпакувати ZIP після завантаження{% endif %}</label>
+        <button type="submit">{% if current_language == 'en' %}Upload files{% else %}Завантажити файли{% endif %}</button>
       </form>
       {% else %}
       <p class="empty-state">{% if current_language == 'en' %}You don't have permission to upload files.{% else %}У вас немає дозволу на завантаження файлів.{% endif %}</p>
@@ -231,6 +260,7 @@
           <a class="link-btn" href="{{ url_for('manage_site', folder_name=site.folder_name, dir=current_dir, edit=file.path) }}">{% if current_language == 'en' %}Edit{% else %}Редагувати{% endif %}</a>
           {% endif %}
           {% if 'files.download' in permissions %}<a class="ghost-btn" href="{{ url_for('download_site_file', site_id=site.id, path=file.path) }}">{% if current_language == 'en' %}Download{% else %}Скачати{% endif %}</a>{% endif %}
+          {% if file.name.lower().endswith('.zip') and 'files.extract' in permissions %}<form method="POST" class="rename-form" data-confirm="Розпакувати архів у поточну папку?"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="extract"><input type="hidden" name="current_dir" value="{{ current_dir }}"><input type="hidden" name="file_path" value="{{ file.path }}"><label class="checkbox-row"><input type="checkbox" name="flatten_root" value="1"> Перемістити в корінь</label><button class="tiny-btn" type="submit">Розпакувати архів</button></form>{% endif %}
           {% if 'files.rename' in permissions %}<form method="POST" class="rename-form"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="move"><input type="hidden" name="current_dir" value="{{ current_dir }}"><input type="hidden" name="file_path" value="{{ file.path }}"><input name="destination" placeholder="folder/{{ file.name }}" required><button class="tiny-btn" type="submit">{% if current_language == 'en' %}Move{% else %}Перемістити{% endif %}</button></form>{% endif %}
           {% if 'files.create' in permissions %}<form method="POST" class="rename-form"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="copy"><input type="hidden" name="current_dir" value="{{ current_dir }}"><input type="hidden" name="file_path" value="{{ file.path }}"><input name="destination" placeholder="copy/{{ file.name }}" required><button class="tiny-btn" type="submit">{% if current_language == 'en' %}Copy{% else %}Копіювати{% endif %}</button></form>{% endif %}
           <a class="ghost-btn" href="{{ url_for('view_site', folder_name=site.folder_name, subpath=file.path) }}" target="_blank" rel="noopener">{% if current_language == 'en' %}Open{% else %}Відкрити{% endif %}</a>
