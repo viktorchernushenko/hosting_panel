@@ -6,6 +6,14 @@ Customer backups use logical `mysqldump`, a temporary mode-0600 client option fi
 
 Every application receives a unique database and least-privilege database account. Containers connect through `hosting-databases`; bridge ICC is disabled to prevent lateral container traffic. Logical backups are written below `/srv/backups/mysql/<owner>/<resource>` and restore operations are audited by the panel.
 
+## Database Studio
+
+The native Studio is reached through `/databases/<resource>/studio`. Browser requests pass through MyH authentication and resource ownership checks; the backend then connects with that resource's write-only tenant credential. It never uses the MySQL root or provisioner account for table, row or SQL operations.
+
+Studio provides overview metadata, lazy table/structure/data APIs, pagination/search/sort, row and schema mutation APIs, a single-statement SQL editor, `.sql`/`.sql.gz` import, structure/data/full export, checksum backups, connection help and credential reset. SQL results are capped at 200 rows and 1 MiB, execution is limited to five seconds where MySQL supports `MAX_EXECUTION_TIME`, and server-level statements are blocked in addition to tenant grants.
+
+PostgreSQL follows the same engine/service boundary but remains unavailable because no private listener, provisioner or full lifecycle implementation exists. Supabase, generated APIs, application auth, storage and realtime remain future services rather than dependencies of Studio.
+
 The customer UI discovers MySQL health and version from the backend. PostgreSQL is shown as unavailable because no provisioner or private listener exists on this host; it must not be advertised as working until create, connect, tenant-isolation, backup, restore, reset and delete pass end to end.
 
 ## Advanced services

@@ -2,6 +2,31 @@
 
 MyH follows Semantic Versioning. Entries below are reconstructed from the actual Git history, code, configuration, UI and recorded tests; they do not create synthetic historical commits or tags.
 
+## [2.5.0] - 2026-08-13
+
+### Added
+
+- Added native Database Studio with Overview, Tables, SQL, Import/Export, Backups, Connection and Settings areas.
+- Added tenant-authorized APIs for table metadata, structure, paginated data, row CRUD, table creation and controlled schema changes.
+- Added a bounded single-statement SQL editor with result/response limits, destructive confirmation, server-level statement blocking and privacy-preserving audit history.
+- Added `.sql` and `.sql.gz` import plus structure-only, data-only and full logical exports without exposing passwords in process arguments.
+
+### Changed
+
+- Made Database Studio the primary database action in the global database list and site workspace.
+- Reused existing checksum backup/restore and write-only credential reset workflows inside Studio.
+
+### Security
+
+- Studio connects with the individual application's database role, never MySQL root or the provisioning identity.
+- Added resource ownership checks to every Studio route, identifier quoting/type allowlists, query limits and cross-tenant regression coverage.
+
+### Known limitations
+
+- PostgreSQL remains unavailable until a private provisioner and complete Studio lifecycle pass E2E.
+- Query cancellation is deferred; bounded MySQL query execution and socket timeouts are enforced instead.
+- Structured row/schema mutation APIs are present; the initial UI emphasizes browsing and SQL for advanced mutations.
+
 ## [2.4.0] - 2026-08-13
 
 ### Removed

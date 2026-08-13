@@ -1,11 +1,11 @@
-# MyH 2.4.0 release notes
+# MyH 2.5.0 release notes
 
 Released: 2026-08-13
 
-MyH 2.4.0 removes the low-usage inference integration and replaces its useful runtime and log assistance with deterministic diagnostics. Create Site detects project markers through the existing runtime registry, and Logs classifies a small set of known failures with direct next steps.
+MyH 2.5.0 introduces the native Database Studio. Users can open an assigned MySQL database from the database list or site workspace and manage tables, data, SQL, imports, exports, backups and connection settings without leaving MyH or using a server-global database login.
 
-The hosting panel no longer exposes assistant pages, contextual inference controls, provider APIs, AI configuration, model credentials, port `11435`, or an inference service. Historical `ai.*` audit events are retained in the shared audit log; there was no dedicated AI table to migrate.
+Every Studio request is authenticated and checked against resource ownership. Database operations use the database's restricted application credential. SQL is single-statement and bounded by execution, row and response limits; server-level operations remain blocked by application policy and MySQL grants.
 
-The production audit measured two lifetime runtime-recommendation events and no site/log diagnostic use. Removing the local model and service frees their measured disk and memory footprint without changing core hosting workflows.
+The production E2E created two disposable tenants and verified provisioning, table and row operations, logical backup/checksum/restore, password reset and cross-tenant denial before deleting all disposable resources. PostgreSQL remains honestly unavailable pending its own private provisioner and complete lifecycle.
 
-See [CHANGELOG.md](CHANGELOG.md) for verified changes and [OPERATIONS.md](OPERATIONS.md) for production details.
+See [DATABASES.md](DATABASES.md), [CHANGELOG.md](CHANGELOG.md) and [OPERATIONS.md](OPERATIONS.md).

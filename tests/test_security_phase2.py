@@ -105,10 +105,55 @@ class SecurityPhase2Tests(unittest.TestCase):
         self._auth_session(client, user_a.id)
         self.assertEqual(client.get(f'/api/sites/{site_b.id}/status').status_code, 403)
         self.assertIn(client.get(f'/api/databases/{database_b.id}').status_code, {403, 404})
+        self.assertEqual(client.get(f'/databases/{database_b.id}/studio').status_code, 404)
+        self.assertEqual(client.get(f'/api/databases/{database_b.id}/tables').status_code, 404)
         self.assertEqual(client.get(f'/site/{site_b.folder_name}').status_code, 403)
         self.assertEqual(client.get(f'/site/{site_b.id}/backup/20260812-120000.zip/download').status_code, 403)
         self.assertEqual(client.get('/developer/infrastructure').status_code, 403)
         self.assertEqual(client.get('/api/docker/containers').status_code, 403)
+
+    def test_database_studio_blocks_server_level_sql_before_connection(self):
+        owner = self._create_user('studio-owner')
+        site = self._create_site(owner, name='studio')
+        resource = panel_app.DatabaseResource(
+            application_id=site.id, display_name='studio', database_name='tenant_studio',
+            database_user='tenant_studio_user', secret_ref='/not-used', created_by=owner.id,
+        )
+        panel_app.db.session.add(resource); panel_app.db.session.commit()
+        client = self.app.test_client(); self._auth_session(client, owner.id)
+        response = client.post(f'/api/databases/{resource.id}/sql', json={'sql': 'DROP DATABASE tenant_studio'},
+                               headers={'X-CSRF-Token': 'csrf-token'})
+        self.assertEqual(response.status_code, 403)
+
+    def test_database_studio_identifier_quoting_and_type_allowlist(self):
+        self.assertEqual(panel_app.quote_mysql_identifier('order-items'), '`order-items`')
+        self.assertEqual(panel_app.quote_mysql_identifier('a`b'), '`a``b`')
+        with self.assertRaises(ValueError): panel_app.quote_mysql_identifier('')
+        self.assertTrue(panel_app.STUDIO_COLUMN_TYPE.fullmatch('VARCHAR(255)'))
+        self.assertFalse(panel_app.STUDIO_COLUMN_TYPE.fullmatch('VARCHAR(20); DROP TABLE users'))
+
+    def test_database_studio_page_renders_native_tabs(self):
+        owner = self._create_user('studio-render')
+        site = self._create_site(owner, name='studio-render')
+        resource = panel_app.DatabaseResource(
+            application_id=site.id, display_name='catalog', database_name='tenant_catalog',
+            database_user='tenant_catalog_user', secret_ref='/mocked', created_by=owner.id,
+        )
+        panel_app.db.session.add(resource); panel_app.db.session.commit()
+        connection = mock.MagicMock(); connection.__enter__.return_value = connection
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = {'version': '8.4.6'}
+        cursor.fetchall.return_value = [{'name': 'products', 'row_count': 2, 'size_bytes': 4096, 'engine': 'InnoDB', 'updated': None}]
+        client = self.app.test_client(); self._auth_session(client, owner.id)
+        with tempfile.TemporaryDirectory() as backup_dir, \
+             mock.patch.object(panel_app, 'mysql_tenant_connection', return_value=connection), \
+             mock.patch.object(panel_app, 'database_size_bytes', return_value=4096), \
+             mock.patch.object(panel_app, 'database_backup_directory', return_value=backup_dir):
+            response = client.get(f'/databases/{resource.id}/studio')
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        for label in ('Database Studio', 'Таблиці', 'Імпорт / Експорт', 'Резервні копії', 'Підключення'):
+            self.assertIn(label, body)
 
     def test_database_page_localizes_uk_and_reports_backend_engine_state(self):
         owner = self._create_user('database-owner')

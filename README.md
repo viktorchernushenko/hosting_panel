@@ -1,6 +1,6 @@
 # MyH
 
-MyH is a production-oriented, multi-user Flask hosting platform. Current release: **2.4.0**. The canonical version is stored in [`VERSION`](VERSION).
+MyH is a production-oriented, multi-user Flask hosting platform. Current release: **2.5.0**. The canonical version is stored in [`VERSION`](VERSION).
 
 ## Verified capabilities
 
@@ -10,7 +10,7 @@ MyH is a production-oriented, multi-user Flask hosting platform. Current release
 - ZIP/upload and Git deployment workflows, signed GitHub webhooks and deployment history.
 - File upload/download/edit/create/rename/move/delete with traversal, symlink and tenant-isolation protections.
 - Chrooted `internal-sftp` accounts without shell or forwarding.
-- MySQL 8.4 customer databases with per-application credentials, logical backup/checksum/restore; SQLite retained for internal MyH metadata.
+- Native Database Studio for tenant-scoped MySQL table/data/SQL/import/export/backup workflows; SQLite remains internal MyH metadata.
 - Cloudflare Tunnel ingress, DNS/SSL status and Cloudflare-managed edge certificate renewal.
 - Verified local backups, optional encrypted off-server copy, provider-based alerts and operations monitoring.
 - Deterministic runtime detection and common log-error guidance without an inference dependency.

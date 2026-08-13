@@ -52,7 +52,7 @@
     <article class="panel-card" id="database">
       <div class="panel-head"><h3>Databases</h3><span class="status-pill">{{ site.database_resources|length }}</span></div>
       <form action="{{ url_for('site_database_create', site_id=site.id) }}" method="POST"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><input name="database_name" required maxlength="80" placeholder="Database name"><button type="submit">Create isolated MySQL database</button></form>
-      <div class="backup-list">{% for database in site.database_resources %}<div class="backup-row"><span><strong>{{ database.database_name }}</strong><small>{{ database.database_user }}@{{ database.host }}:{{ database.port }} · {{ database.status }}</small></span></div>{% endfor %}</div>
+      <div class="backup-list">{% for database in site.database_resources %}<div class="backup-row"><span><strong>{{ database.display_name }}</strong><small>{{ database.engine|capitalize }} · {{ database.status }}</small></span><a class="tiny-btn" href="{{ url_for('database_studio', resource_id=database.id) }}">{% if current_language == 'en' %}Open Database Studio{% else %}Відкрити Database Studio{% endif %}</a></div>{% endfor %}</div>
     </article>
   </section>
 

@@ -2,7 +2,7 @@
 
 ## Production identity
 
-- Release: `2.4.0`, sourced from [`VERSION`](VERSION).
+- Release: `2.5.0`, sourced from [`VERSION`](VERSION).
 - Repository and service working directory: `/home/myserver/hosting_panel`.
 - Release branch: `platform/universal-hosting-upgrade`.
 - Service: `myh-guru.service`, Gunicorn on loopback ports 5000/5001.
@@ -18,6 +18,7 @@ Administrators additionally receive users, applications, infrastructure, contain
 
 - Runtime-aware site creation and five-runtime lifecycle management.
 - Tenant-scoped file, backup, log, database and SFTP workflows.
+- Native Database Studio using each application's restricted database credential rather than a server-global account.
 - Upload/ZIP and Git deployments with history and signed GitHub webhook support.
 - Cloudflare DNS and edge TLS status.
 - SQLite internal metadata health and isolated MySQL customer resources.

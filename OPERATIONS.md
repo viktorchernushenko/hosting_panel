@@ -1,6 +1,6 @@
 # MyH operations
 
-Current application release: `2.4.0`. The repository-root `VERSION` file is canonical; `/api/public-status` and the UI receive the value from the running backend.
+Current application release: `2.5.0`. The repository-root `VERSION` file is canonical; `/api/public-status` and the UI receive the value from the running backend.
 
 ## Canonical production
 

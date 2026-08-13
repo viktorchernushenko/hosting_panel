@@ -1,6 +1,6 @@
 # MyH product audit
 
-Audit checkpoint: release `2.4.0`. Pre-change recovery set: `/srv/backups/platform-audit/20260812-143254` (root-only, SHA-256 verified).
+Audit checkpoint: release `2.5.0`. Pre-change recovery set: `/srv/backups/platform-audit/20260812-143254` (root-only, SHA-256 verified).
 
 ## Control reality map
 
@@ -14,6 +14,7 @@ Audit checkpoint: release `2.4.0`. Pre-change recovery set: `/srv/backups/platfo
 | DNS/TLS check | `/domains` | resolver + verified TLS handshake | live DNS, certificate state and expiry | WORKING |
 | Create/reset/delete database | `/databases` | restricted MySQL provisioner | isolated MySQL resource | WORKING |
 | Database backup/download/restore/delete | `/databases` | logical SQL dump/import | resource-scoped backup lifecycle | WORKING |
+| Database Studio | `/databases/<id>/studio` | tenant DB credential + ownership checks | bounded metadata/data/SQL/import/export workflows | WORKING |
 | SFTP enable/reset | `/dashboard/sftp-access` | queued OpenSSH provisioner | chrooted internal-sftp account | WORKING |
 | Site backup/download/restore/delete | Site workspace, `/backups` | ZIP lifecycle + safe extraction | tested restore point | WORKING |
 | Git/GitHub deploy | Deployments | validated repository + scoped secret | deployment event and logs | WORKING |

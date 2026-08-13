@@ -1,4 +1,4 @@
-from flask import Flask, Response, render_template, request, redirect, url_for, session, send_from_directory, send_file, abort, flash, jsonify, g, has_request_context
+from flask import Flask, Response, render_template, request, redirect, url_for, session, send_from_directory, send_file, abort, flash, jsonify, g, has_request_context, after_this_request
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -10,6 +10,7 @@ import json
 import psutil
 import os
 import zipfile
+import gzip
 import subprocess
 import re
 import secrets
@@ -2715,6 +2716,84 @@ def database_owner_or_404(resource_id, user):
     return resource
 
 
+def mysql_tenant_connection(resource, dictionary=False):
+    if resource.engine != 'mysql':
+        raise RuntimeError('Database engine is not available in Studio.')
+    password = read_application_secret(resource.secret_ref, resource.application_id)
+    if not password:
+        raise RuntimeError('Database credential is unavailable.')
+    return pymysql.connect(
+        host=resource.host, port=resource.port, user=resource.database_user, password=password,
+        database=resource.database_name, ssl={'check_hostname': False}, connect_timeout=5,
+        read_timeout=8, write_timeout=8, autocommit=False,
+        cursorclass=pymysql.cursors.DictCursor if dictionary else pymysql.cursors.Cursor,
+    )
+
+
+def quote_mysql_identifier(value):
+    value = str(value or '')
+    if not value or len(value) > 64 or '\x00' in value:
+        raise ValueError('Invalid SQL identifier.')
+    return '`' + value.replace('`', '``') + '`'
+
+
+def mysql_table_names(resource, connection=None):
+    owned = connection is None
+    connection = connection or mysql_tenant_connection(resource, dictionary=True)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT table_name AS name FROM information_schema.tables WHERE table_schema=%s", (resource.database_name,))
+            rows = cursor.fetchall()
+            return {row['name'] if isinstance(row, dict) else row[0] for row in rows}
+    finally:
+        if owned: connection.close()
+
+
+def require_mysql_table(resource, table_name, connection=None):
+    if table_name not in mysql_table_names(resource, connection):
+        abort(404)
+    return table_name
+
+
+def json_database_value(value):
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, bytes):
+        return f'<binary {len(value)} bytes>'
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    return str(value)
+
+
+def mysql_table_structure(resource, table_name, connection=None):
+    owned = connection is None
+    connection = connection or mysql_tenant_connection(resource, dictionary=True)
+    try:
+        require_mysql_table(resource, table_name, connection)
+        with connection.cursor() as cursor:
+            cursor.execute("""SELECT column_name,column_type,is_nullable,column_default,column_key,extra
+                              FROM information_schema.columns WHERE table_schema=%s AND table_name=%s
+                              ORDER BY ordinal_position""", (resource.database_name, table_name))
+            columns = cursor.fetchall()
+            cursor.execute("""SELECT index_name,non_unique,GROUP_CONCAT(column_name ORDER BY seq_in_index) AS columns_list
+                              FROM information_schema.statistics WHERE table_schema=%s AND table_name=%s
+                              GROUP BY index_name,non_unique ORDER BY index_name""", (resource.database_name, table_name))
+            indexes = cursor.fetchall()
+            cursor.execute("""SELECT constraint_name,column_name,referenced_table_name,referenced_column_name
+                              FROM information_schema.key_column_usage
+                              WHERE table_schema=%s AND table_name=%s AND referenced_table_name IS NOT NULL""",
+                           (resource.database_name, table_name))
+            foreign_keys = cursor.fetchall()
+        return {'columns': columns, 'indexes': indexes, 'foreignKeys': foreign_keys}
+    finally:
+        if owned: connection.close()
+
+
+STUDIO_COLUMN_TYPE = re.compile(r'^(?:TINYINT|SMALLINT|MEDIUMINT|INT|BIGINT|DECIMAL\([0-9]{1,2},[0-9]{1,2}\)|VARCHAR\([1-9][0-9]{0,3}\)|CHAR\([1-9][0-9]{0,2}\)|TEXT|MEDIUMTEXT|LONGTEXT|DATE|DATETIME|TIMESTAMP|BOOLEAN|JSON|BLOB)$', re.I)
+STUDIO_BLOCKED_SQL = re.compile(r'\b(?:USE|GRANT|REVOKE|CREATE\s+USER|ALTER\s+USER|DROP\s+USER|CREATE\s+DATABASE|DROP\s+DATABASE|SET\s+GLOBAL|SHUTDOWN|KILL|LOAD\s+DATA|INTO\s+OUTFILE|INTO\s+DUMPFILE)\b', re.I)
+STUDIO_DESTRUCTIVE_SQL = re.compile(r'^\s*(?:DROP\s+TABLE|TRUNCATE\s+TABLE|ALTER\s+TABLE\b.*\bDROP\b)', re.I | re.S)
+
+
 def database_size_bytes(resource):
     password = read_application_secret(resource.secret_ref, resource.application_id)
     if not password:
@@ -4585,6 +4664,223 @@ def user_databases_index():
                            database_backups=backups, database_engines=database_engines)
 
 
+@app.route('/databases/<int:resource_id>/studio')
+def database_studio(resource_id):
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id']); resource = database_owner_or_404(resource_id, user)
+    tables = []
+    version = None
+    try:
+        with mysql_tenant_connection(resource, dictionary=True) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT VERSION() AS version')
+                version = cursor.fetchone()['version'].split('-', 1)[0]
+                cursor.execute("""SELECT table_name AS name,table_rows AS row_count,
+                                  data_length+index_length AS size_bytes,engine,update_time AS updated
+                                  FROM information_schema.tables WHERE table_schema=%s ORDER BY table_name""",
+                               (resource.database_name,))
+                tables = cursor.fetchall()
+    except (pymysql.MySQLError, RuntimeError):
+        resource.status = 'error'
+    backup_rows = []
+    path = database_backup_directory(resource)
+    for name in sorted((item for item in os.listdir(path) if re.fullmatch(r'\d{8}-\d{6}\.sql', item)), reverse=True):
+        backup_path = os.path.join(path, name)
+        checksum_path = backup_path + '.sha256'
+        backup_rows.append({'name': name, 'size': os.path.getsize(backup_path), 'checksum': os.path.isfile(checksum_path),
+                            'created': datetime.fromtimestamp(os.path.getmtime(backup_path))})
+    try: size_bytes = database_size_bytes(resource)
+    except (pymysql.MySQLError, RuntimeError): size_bytes = 0
+    sql_history = AuditLog.query.filter(AuditLog.user_id == user.id, AuditLog.action.in_(['sql.execute', 'sql.execute.failed']),
+                                        AuditLog.detail.like(f'database={resource.id};%')).order_by(AuditLog.created_at.desc()).limit(10).all()
+    return render_template('database_studio.html', resource=resource, tables=tables, version=version,
+                           size_bytes=size_bytes, backups=backup_rows, sql_history=sql_history)
+
+
+@app.route('/api/databases/<int:resource_id>/tables')
+def api_database_tables(resource_id):
+    if 'user_id' not in session: abort(401)
+    user = db.session.get(User, session['user_id']); resource = database_owner_or_404(resource_id, user)
+    with mysql_tenant_connection(resource, dictionary=True) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("""SELECT table_name AS name,table_rows AS rowCount,data_length+index_length AS sizeBytes,
+                              engine,update_time AS updatedAt FROM information_schema.tables
+                              WHERE table_schema=%s ORDER BY table_name""", (resource.database_name,))
+            rows = cursor.fetchall()
+    for row in rows: row['updatedAt'] = json_database_value(row['updatedAt'])
+    return jsonify({'tables': rows, 'requestId': g.request_id})
+
+
+@app.route('/api/databases/<int:resource_id>/tables', methods=['POST'])
+def api_database_table_create(resource_id):
+    if 'user_id' not in session: abort(401)
+    user = db.session.get(User, session['user_id']); resource = database_owner_or_404(resource_id, user)
+    payload = request.get_json(silent=True) or {}; table_name = quote_mysql_identifier(payload.get('name'))
+    columns = payload.get('columns') if isinstance(payload.get('columns'), list) else []
+    definitions = []
+    for item in columns[:50]:
+        if not isinstance(item, dict): abort(400, 'Invalid column definition.')
+        column_type = str(item.get('type') or '').upper()
+        if not STUDIO_COLUMN_TYPE.fullmatch(column_type): abort(400, 'Unsupported column type.')
+        definition = f'{quote_mysql_identifier(item.get("name"))} {column_type} {"NULL" if item.get("nullable", True) else "NOT NULL"}'
+        if item.get('primary'): definition += ' PRIMARY KEY'
+        if item.get('autoIncrement') and re.search(r'INT', column_type): definition += ' AUTO_INCREMENT'
+        definitions.append(definition)
+    if not definitions: abort(400, 'At least one column is required.')
+    with mysql_tenant_connection(resource) as connection:
+        with connection.cursor() as cursor: cursor.execute(f'CREATE TABLE {table_name} ({",".join(definitions)})')
+        connection.commit()
+    log_action('table.create', f'database={resource.id}; table={payload.get("name")}')
+    return jsonify({'ok': True, 'requestId': g.request_id}), 201
+
+
+@app.route('/api/databases/<int:resource_id>/tables/<table_name>/structure')
+def api_database_table_structure(resource_id, table_name):
+    if 'user_id' not in session: abort(401)
+    user = db.session.get(User, session['user_id']); resource = database_owner_or_404(resource_id, user)
+    return jsonify({**mysql_table_structure(resource, table_name), 'requestId': g.request_id})
+
+
+@app.route('/api/databases/<int:resource_id>/tables/<table_name>/data')
+def api_database_table_data(resource_id, table_name):
+    if 'user_id' not in session: abort(401)
+    user = db.session.get(User, session['user_id']); resource = database_owner_or_404(resource_id, user)
+    page = max(1, request.args.get('page', 1, type=int)); per_page = max(10, min(request.args.get('perPage', 50, type=int), 100))
+    search = (request.args.get('search') or '').strip()[:120]
+    with mysql_tenant_connection(resource, dictionary=True) as connection:
+        require_mysql_table(resource, table_name, connection)
+        structure = mysql_table_structure(resource, table_name, connection)
+        column_names = [row['column_name'] for row in structure['columns']]
+        sort = request.args.get('sort') if request.args.get('sort') in column_names else (column_names[0] if column_names else None)
+        direction = 'DESC' if request.args.get('direction', '').lower() == 'desc' else 'ASC'
+        searchable = [row['column_name'] for row in structure['columns'] if any(t in row['column_type'].lower() for t in ('char', 'text'))][:8]
+        where_sql = ''; params = []
+        if search and searchable:
+            where_sql = ' WHERE ' + ' OR '.join(f'CAST({quote_mysql_identifier(name)} AS CHAR) LIKE %s' for name in searchable)
+            params = [f'%{search}%'] * len(searchable)
+        with connection.cursor() as cursor:
+            cursor.execute(f'SELECT COUNT(*) AS count FROM {quote_mysql_identifier(table_name)}{where_sql}', params)
+            total = int(cursor.fetchone()['count'])
+            order_sql = f' ORDER BY {quote_mysql_identifier(sort)} {direction}' if sort else ''
+            cursor.execute(f'SELECT * FROM {quote_mysql_identifier(table_name)}{where_sql}{order_sql} LIMIT %s OFFSET %s',
+                           params + [per_page, (page - 1) * per_page])
+            rows = [{key: json_database_value(value) for key, value in row.items()} for row in cursor.fetchall()]
+    return jsonify({'columns': column_names, 'rows': rows, 'page': page, 'perPage': per_page, 'total': total,
+                    'primaryKey': [row['column_name'] for row in structure['columns'] if row['column_key'] == 'PRI'],
+                    'requestId': g.request_id})
+
+
+@app.route('/api/databases/<int:resource_id>/sql', methods=['POST'])
+def api_database_sql(resource_id):
+    if 'user_id' not in session: abort(401)
+    user = db.session.get(User, session['user_id']); resource = database_owner_or_404(resource_id, user)
+    payload = request.get_json(silent=True) or {}; statement = str(payload.get('sql') or '').strip()
+    if not statement or len(statement) > 20000: abort(400, 'SQL statement is required and must be at most 20,000 characters.')
+    trimmed = statement.rstrip().rstrip(';')
+    if ';' in trimmed: abort(400, 'Run one SQL statement at a time.')
+    if STUDIO_BLOCKED_SQL.search(trimmed): abort(403, 'Server-level SQL is not allowed in Database Studio.')
+    dangerous = bool(STUDIO_DESTRUCTIVE_SQL.search(trimmed))
+    if dangerous and payload.get('confirmDangerous') is not True:
+        return jsonify({'error': {'code': 'CONFIRMATION_REQUIRED', 'message': 'Confirm this destructive SQL statement.', 'requestId': g.request_id}}), 409
+    started = time.monotonic()
+    try:
+        with mysql_tenant_connection(resource, dictionary=True) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute('SET SESSION MAX_EXECUTION_TIME=5000')
+                cursor.execute(trimmed)
+                columns = [item[0] for item in cursor.description] if cursor.description else []
+                result_rows = cursor.fetchmany(201) if columns else []
+                truncated = len(result_rows) > 200
+                result_rows = result_rows[:200]
+                serialized = [{key: json_database_value(value) for key, value in row.items()} for row in result_rows]
+                if len(json.dumps(serialized, ensure_ascii=False)) > 1024 * 1024:
+                    serialized = serialized[:25]; truncated = True
+                affected = cursor.rowcount
+            connection.commit()
+    except pymysql.MySQLError as exc:
+        log_action('sql.execute.failed', f'database={resource.id}; class={exc.__class__.__name__}')
+        return jsonify({'error': {'code': 'SQL_EXECUTION_FAILED', 'message': 'Не вдалося виконати SQL-запит.',
+                                  'details': mask_sensitive_text(str(exc))[:300], 'requestId': g.request_id}}), 400
+    elapsed = round((time.monotonic() - started) * 1000, 1)
+    log_action('sql.execute', f'database={resource.id}; kind={trimmed.split(None, 1)[0].upper()}; affected={affected}; ms={elapsed}')
+    return jsonify({'columns': columns, 'rows': serialized, 'affectedRows': affected, 'executionMs': elapsed,
+                    'truncated': truncated, 'requestId': g.request_id})
+
+
+@app.route('/api/databases/<int:resource_id>/tables/<table_name>/rows', methods=['POST', 'PATCH', 'DELETE'])
+def api_database_table_rows(resource_id, table_name):
+    if 'user_id' not in session: abort(401)
+    user = db.session.get(User, session['user_id']); resource = database_owner_or_404(resource_id, user)
+    payload = request.get_json(silent=True) or {}
+    with mysql_tenant_connection(resource, dictionary=True) as connection:
+        require_mysql_table(resource, table_name, connection)
+        structure = mysql_table_structure(resource, table_name, connection)
+        columns = {row['column_name'] for row in structure['columns']}
+        primary = [row['column_name'] for row in structure['columns'] if row['column_key'] == 'PRI']
+        values = payload.get('values') if isinstance(payload.get('values'), dict) else {}
+        clean_values = {key: value for key, value in values.items() if key in columns}
+        with connection.cursor() as cursor:
+            if request.method == 'POST':
+                if not clean_values: abort(400, 'At least one column value is required.')
+                names = list(clean_values); cursor.execute(
+                    f'INSERT INTO {quote_mysql_identifier(table_name)} ({",".join(quote_mysql_identifier(n) for n in names)}) VALUES ({",".join(["%s"] * len(names))})',
+                    [clean_values[name] for name in names])
+                action = 'insert'; affected = cursor.rowcount
+            else:
+                key_values = payload.get('primaryKey') if isinstance(payload.get('primaryKey'), dict) else {}
+                if not primary or any(name not in key_values for name in primary): abort(409, 'A complete primary key is required.')
+                where = ' AND '.join(f'{quote_mysql_identifier(name)}=%s' for name in primary)
+                where_values = [key_values[name] for name in primary]
+                if request.method == 'PATCH':
+                    if not clean_values: abort(400, 'At least one column value is required.')
+                    names = list(clean_values); cursor.execute(
+                        f'UPDATE {quote_mysql_identifier(table_name)} SET {",".join(f"{quote_mysql_identifier(n)}=%s" for n in names)} WHERE {where} LIMIT 1',
+                        [clean_values[name] for name in names] + where_values)
+                    action = 'edit'; affected = cursor.rowcount
+                else:
+                    if payload.get('confirm') is not True: abort(409, 'Row deletion requires confirmation.')
+                    cursor.execute(f'DELETE FROM {quote_mysql_identifier(table_name)} WHERE {where} LIMIT 1', where_values)
+                    action = 'delete'; affected = cursor.rowcount
+        connection.commit()
+    log_action(f'table.row.{action}', f'database={resource.id}; table={table_name}; affected={affected}')
+    return jsonify({'affectedRows': affected, 'requestId': g.request_id})
+
+
+@app.route('/api/databases/<int:resource_id>/tables/<table_name>/structure', methods=['POST', 'PATCH', 'DELETE'])
+def api_database_table_structure_change(resource_id, table_name):
+    if 'user_id' not in session: abort(401)
+    user = db.session.get(User, session['user_id']); resource = database_owner_or_404(resource_id, user)
+    payload = request.get_json(silent=True) or {}; action = str(payload.get('action') or '')
+    if action in {'drop_column', 'drop_table'} and payload.get('confirm') is not True: abort(409, 'Destructive structure changes require confirmation.')
+    with mysql_tenant_connection(resource, dictionary=True) as connection:
+        require_mysql_table(resource, table_name, connection)
+        with connection.cursor() as cursor:
+            if action == 'add_column':
+                column = quote_mysql_identifier(payload.get('name')); column_type = str(payload.get('type') or '').upper()
+                if not STUDIO_COLUMN_TYPE.fullmatch(column_type): abort(400, 'Unsupported column type.')
+                nullable = 'NULL' if payload.get('nullable', True) else 'NOT NULL'
+                cursor.execute(f'ALTER TABLE {quote_mysql_identifier(table_name)} ADD COLUMN {column} {column_type} {nullable}')
+            elif action == 'edit_column':
+                old_name = quote_mysql_identifier(payload.get('oldName')); new_name = quote_mysql_identifier(payload.get('name'))
+                column_type = str(payload.get('type') or '').upper()
+                if not STUDIO_COLUMN_TYPE.fullmatch(column_type): abort(400, 'Unsupported column type.')
+                nullable = 'NULL' if payload.get('nullable', True) else 'NOT NULL'
+                cursor.execute(f'ALTER TABLE {quote_mysql_identifier(table_name)} CHANGE COLUMN {old_name} {new_name} {column_type} {nullable}')
+            elif action == 'drop_column':
+                cursor.execute(f'ALTER TABLE {quote_mysql_identifier(table_name)} DROP COLUMN {quote_mysql_identifier(payload.get("name"))}')
+            elif action == 'create_index':
+                names = payload.get('columns') if isinstance(payload.get('columns'), list) else []
+                structure = mysql_table_structure(resource, table_name, connection); allowed = {row['column_name'] for row in structure['columns']}
+                if not names or any(name not in allowed for name in names): abort(400, 'Invalid index columns.')
+                cursor.execute(f'CREATE INDEX {quote_mysql_identifier(payload.get("name"))} ON {quote_mysql_identifier(table_name)} ({",".join(quote_mysql_identifier(n) for n in names)})')
+            elif action == 'drop_table':
+                cursor.execute(f'DROP TABLE {quote_mysql_identifier(table_name)}')
+            else: abort(400, 'Unsupported structure action.')
+        connection.commit()
+    log_action('table.delete' if action == 'drop_table' else 'table.alter', f'database={resource.id}; table={table_name}; action={action}')
+    return jsonify({'ok': True, 'requestId': g.request_id})
+
+
 @app.route('/databases/create', methods=['POST'])
 def database_create():
     if 'user_id' not in session: return redirect(url_for('login'))
@@ -4665,6 +4961,73 @@ def database_backup_restore(resource_id, backup_name):
     flash('Database restored.', 'success'); return redirect(url_for('user_databases_index'))
 
 
+@app.route('/databases/<int:resource_id>/import', methods=['POST'])
+def database_studio_import(resource_id):
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id']); resource = database_owner_or_404(resource_id, user)
+    uploaded = request.files.get('database_file')
+    if not uploaded or not uploaded.filename: abort(400, 'SQL import file is required.')
+    filename = secure_filename(uploaded.filename); is_gzip = filename.lower().endswith('.sql.gz')
+    if not (filename.lower().endswith('.sql') or is_gzip): abort(400, 'Only .sql and .sql.gz files are supported.')
+    temporary = tempfile.NamedTemporaryFile(prefix='myh-db-import-', suffix='.sql', delete=False)
+    total = 0
+    try:
+        source = gzip.GzipFile(fileobj=uploaded.stream, mode='rb') if is_gzip else uploaded.stream
+        with temporary:
+            while True:
+                chunk = source.read(1024 * 1024)
+                if not chunk: break
+                total += len(chunk)
+                if total > 32 * 1024 * 1024: abort(413, 'Expanded SQL import exceeds 32 MB.')
+                temporary.write(chunk)
+        defaults = database_client_defaults(resource)
+        try:
+            with open(temporary.name, 'rb') as input_file:
+                process = subprocess.run(['mysql', f'--defaults-extra-file={defaults}', resource.database_name],
+                                         stdin=input_file, stderr=subprocess.PIPE, timeout=300, check=False)
+            if process.returncode: raise RuntimeError('Database import failed.')
+        finally:
+            os.unlink(defaults)
+        log_action('database.import', f'database={resource.id}; bytes={total}')
+        flash('Database import completed.', 'success')
+    except (OSError, EOFError, gzip.BadGzipFile, subprocess.TimeoutExpired, RuntimeError):
+        flash('Не вдалося імпортувати базу даних.', 'error')
+    finally:
+        try: os.unlink(temporary.name)
+        except FileNotFoundError: pass
+    return redirect(url_for('database_studio', resource_id=resource.id) + '#import-export')
+
+
+@app.route('/databases/<int:resource_id>/export')
+def database_studio_export(resource_id):
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = db.session.get(User, session['user_id']); resource = database_owner_or_404(resource_id, user)
+    export_type = request.args.get('type', 'all')
+    options = {'structure': ['--no-data'], 'data': ['--no-create-info'], 'all': []}
+    if export_type not in options: abort(400, 'Invalid export type.')
+    destination = tempfile.NamedTemporaryFile(prefix='myh-db-export-', suffix='.sql', delete=False)
+    destination.close(); defaults = database_client_defaults(resource)
+    try:
+        with open(destination.name, 'wb') as output:
+            process = subprocess.run(['mysqldump', f'--defaults-extra-file={defaults}', '--single-transaction',
+                                      '--triggers', '--no-tablespaces', *options[export_type], resource.database_name],
+                                     stdout=output, stderr=subprocess.PIPE, timeout=300, check=False)
+        if process.returncode: raise RuntimeError('Database export failed.')
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        try: os.unlink(destination.name)
+        except FileNotFoundError: pass
+        abort(500, 'Не вдалося експортувати базу даних.')
+    finally:
+        os.unlink(defaults)
+    @after_this_request
+    def cleanup_export(response):
+        try: os.unlink(destination.name)
+        except FileNotFoundError: pass
+        return response
+    log_action('database.export', f'database={resource.id}; type={export_type}')
+    return send_file(destination.name, as_attachment=True, download_name=f'{resource.display_name}-{export_type}.sql')
+
+
 @app.route('/api/databases')
 def api_databases():
     if 'user_id' not in session: abort(401)
@@ -4698,6 +5061,25 @@ def api_mysql_health():
         except pymysql.MySQLError:
             MYSQL_HEALTH_CACHE.update(checked_at=now, ok=False)
     return jsonify({'service': 'mysql', 'ok': MYSQL_HEALTH_CACHE['ok']}), (200 if MYSQL_HEALTH_CACHE['ok'] else 503)
+
+
+@app.route('/developer/databases')
+@admin_required
+def developer_databases():
+    mysql_status = {'available': False, 'version': None, 'connections': None, 'resources': DatabaseResource.query.filter_by(engine='mysql').count(), 'size': 0}
+    try:
+        with mysql_provision_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT VERSION()')
+                mysql_status['version'] = str(cursor.fetchone()[0]).split('-', 1)[0]
+                cursor.execute("SHOW STATUS LIKE 'Threads_connected'")
+                mysql_status['connections'] = int(cursor.fetchone()[1])
+        mysql_status['available'] = True
+        mysql_status['size'] = sum(database_size_bytes(item) for item in DatabaseResource.query.filter_by(engine='mysql').all())
+    except (pymysql.MySQLError, RuntimeError):
+        pass
+    return render_template('developer_databases.html', mysql_status=mysql_status,
+                           postgres_status={'available': False, 'version': None, 'connections': None, 'resources': 0, 'size': 0})
 
 
 @app.route('/backups')
