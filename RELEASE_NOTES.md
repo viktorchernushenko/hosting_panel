@@ -1,9 +1,7 @@
-# MyH 2.10.0 release notes
+# MyH 2.10.1 release notes
 
-MyH 2.10.0 closes the remaining managed WordPress lifecycle gaps. Full manual and assisted browser installers now transition from `needs_setup` to a working WordPress front controller without regenerating Nginx configuration. The official WordPress ZIP fits within guarded archive limits.
+MyH 2.10.1 is a focused WordPress installation-mode fix. The create form, POST route, Site model, stack metadata and provisioner continue to use one canonical `automatic`/`manual` value. An automatic failure now remains automatic and is shown as an automatic installation failure rather than a manual setup workflow.
 
-Managed WordPress cron runs per site through the existing Job Queue every 15 minutes with a 90-second timeout. It invokes WP-CLI inside the site's isolated runtime and never calls the public Flask proxy.
+Automatic retry accepts fresh WordPress administrator credentials, reconciles the existing runtime/database without duplicates, and reruns the WP-CLI installation. Successful automatic sites continue directly to installed/ready and never show the setup checklist.
 
-Restore permission reconciliation now happens after safe extraction. Production disposable E2E verified files and SQL sidecars, checksums, post/media deletion, destructive restore, and working HTTP afterward. Media, plugin, theme, permalink and core-update mechanisms were also exercised in disposable isolated environments.
-
-Administrators receive a read-only orphan-directory inventory. No legacy directory is attached or deleted automatically.
+Production validation created Auto A, Manual B and Auto C through the normal `/sites/create` form route. A/C installed WordPress with isolated databases and valid HTTPS homepage/admin/login responses; B retained an empty root, no database and `needs_setup`. All disposable resources were removed through the normal site deletion flow.

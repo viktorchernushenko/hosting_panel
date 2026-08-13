@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.10.1] - 2026-08-13
+
+### Fixed
+
+- Made incomplete WordPress workspace messaging depend on persisted `installation_mode`, preventing failed automatic installs from being presented as manual sites.
+- Added an explicit `failed_install` provisioning phase without changing automatic sites to manual mode.
+- Automatic retry now accepts fresh administrator credentials and reruns the WP-CLI installation after idempotent runtime reconciliation.
+
 ## [2.10.0] - 2026-08-13
 
 ### Added

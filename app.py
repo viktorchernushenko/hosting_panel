@@ -4705,10 +4705,10 @@ def create_site_wizard():
                     wordpress_password = ''
                     new_site.runtime_status = 'error'
                     new_site.deployment_status = 'failed'
-                    new_site.provisioning_phase = 'failed_wordpress_files'
+                    new_site.provisioning_phase = 'failed_install'
                     db.session.commit()
                     log_action('wordpress.install.failed', f'site={new_site.id}; phase=core_install')
-                    flash('WordPress files and database are ready, but installation failed. Retry from the site workspace or use the standard installer.', 'error')
+                    flash('Автоматичне встановлення WordPress не вдалося. Режим automatic збережено; перегляньте логи та повторіть provisioning.', 'error')
             elif site_type == 'wordpress':
                 new_site.provisioning_phase = 'needs_setup'; db.session.commit()
             elif check.get('ok'):
@@ -6541,8 +6541,23 @@ def retry_wordpress_provisioning(site_id):
         flash('PHP-середовище створено, але web health check не пройдено.', 'error')
     else:
         state = detect_wordpress_state(site, access)
+        if site.installation_mode == 'automatic' and state.get('code') != 'installed':
+            try:
+                install_wordpress_one_click(
+                    site, access, (request.form.get('wordpress_title') or site.name).strip(),
+                    (request.form.get('wordpress_admin') or '').strip(),
+                    (request.form.get('wordpress_email') or '').strip(),
+                    request.form.get('wordpress_password') or '',
+                    (request.form.get('wordpress_language') or 'uk').strip(),
+                )
+                state = detect_wordpress_state(site, access)
+            except (RuntimeError, ValueError, subprocess.SubprocessError):
+                site.provisioning_phase = 'failed_install'; site.runtime_status = 'error'; site.deployment_status = 'failed'; db.session.commit()
+                log_action('wordpress.provision.retry.failed', f'site={site.id}; phase=install')
+                flash('Автоматичне встановлення не вдалося. Перевірте параметри адміністратора та runtime logs.', 'error')
+                return redirect(url_for('manage_site', folder_name=site.folder_name) + '#wordpress-setup')
         site.runtime_status = 'running'; site.deployment_status = 'success'; site.last_restart_at = datetime.now()
-        site.provisioning_phase = 'ready' if state.get('code') == 'installed' else 'needs_setup'; db.session.commit()
+        site.provisioning_phase = 'ready' if state.get('code') == 'installed' else ('failed_install' if site.installation_mode == 'automatic' else 'needs_setup'); db.session.commit()
         log_action('wordpress.provision.retry.success', f'site={site.id}; state={state.get("code")}')
         flash('WordPress infrastructure reconciled without duplicating site or database resources.', 'success')
     return redirect(url_for('manage_site', folder_name=site.folder_name) + '#wordpress-setup')

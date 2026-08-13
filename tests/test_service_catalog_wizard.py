@@ -187,6 +187,8 @@ class ServiceCatalogWizardTests(unittest.TestCase):
         self.assertEqual(site.runtime_type, 'php')
         self.assertEqual(site.runtime_version, '8.3')
         self.assertEqual(site.application_type, 'wordpress')
+        self.assertEqual(site.installation_mode, 'automatic')
+        self.assertEqual(site.provisioning_phase, 'ready')
         self.assertEqual(len(site.database_resources), 1)
         self.assertTrue(install.called)
         self.assertNotIn(secret, '\n'.join(row.detail for row in panel_app.AuditLog.query.all()))
@@ -201,6 +203,34 @@ class ServiceCatalogWizardTests(unittest.TestCase):
         }, follow_redirects=False)
         self.assertEqual(response.status_code, 302)
         self.assertIsNone(panel_app.Site.query.filter_by(name='weakwp').first())
+
+    def test_failed_automatic_install_preserves_mode_and_uses_automatic_failure_ui(self):
+        client = self.app.test_client(); self._auth_session(client, self.admin.id, role='admin')
+        metadata = {'runtime': 'wordpress', 'version': '6-php8.3-fpm-alpine', 'port': 23459}
+        def prepare_stack(stack_root, source_root, _port):
+            os.makedirs(stack_root, exist_ok=True); os.makedirs(source_root, exist_ok=True); return metadata
+        with mock.patch.object(panel_app, 'prepare_wordpress_runtime', side_effect=prepare_stack), \
+             mock.patch.object(panel_app, 'provision_mysql_database'), \
+             mock.patch.object(panel_app, 'write_application_secret', return_value='/safe/database-secret'), \
+             mock.patch.object(panel_app, 'sync_runtime_environment'), \
+             mock.patch.object(panel_app, 'install_wordpress_one_click', side_effect=RuntimeError('install failed')):
+            response = client.post('/sites/create', data={
+                '_csrf_token': 'csrf-token', 'site_name': 'failedauto', 'site_type': 'wordpress',
+                'source_mode': 'upload', 'wordpress_mode': 'automatic', 'wordpress_title': 'Failed Auto',
+                'wordpress_admin': 'wp_owner', 'wordpress_email': 'owner@example.test',
+                'wordpress_password': 'Strong-Test-Password-123!', 'wordpress_language': 'uk',
+            }, follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        site = panel_app.Site.query.filter_by(name='failedauto').first()
+        self.assertEqual(site.installation_mode, 'automatic')
+        self.assertEqual(site.provisioning_phase, 'failed_install')
+        domain_state = {'dns': 'unknown', 'ssl': 'unknown', 'detail': '', 'valid_until': None}
+        with mock.patch.object(panel_app, 'probe_domain_status', return_value=domain_state), \
+             mock.patch.object(panel_app, 'actual_site_runtime_status', return_value='error'), \
+             mock.patch.object(panel_app, 'application_runtime_metrics', return_value={'containers': [], 'limits': {}}):
+            html = client.get(f'/site/{site.folder_name}').get_data(as_text=True)
+        self.assertIn('Автоматичне встановлення WordPress', html)
+        self.assertNotIn('Ручне встановлення WordPress', html)
 
     def test_wordpress_manual_creates_empty_runtime_without_forcing_database(self):
         client = self.app.test_client(); self._auth_session(client, self.admin.id, role='admin')
