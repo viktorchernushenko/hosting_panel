@@ -71,6 +71,23 @@
       <p id="php-runtime-result" class="service-meta"></p>
     </div>
 
+    <div id="wordpress-settings-block" class="advanced-settings-body" {% if selected_type != 'wordpress' %}style="display:none;"{% endif %}>
+      <h2>{% if current_language == 'en' %}WordPress setup{% else %}Налаштування WordPress{% endif %}</h2>
+      <p class="field-help">{% if current_language == 'en' %}MyH creates an isolated PHP environment and MySQL database. Database credentials are generated automatically.{% else %}MyH створить ізольоване PHP-середовище та MySQL-базу. Дані доступу до бази генеруються автоматично.{% endif %}</p>
+      <label for="wordpress_mode">{% if current_language == 'en' %}Installation mode{% else %}Режим встановлення{% endif %}</label>
+      <select id="wordpress_mode" name="wordpress_mode"><option value="one_click">One-click</option><option value="standard">{% if current_language == 'en' %}Standard WordPress installer{% else %}Стандартне встановлення WordPress{% endif %}</option></select>
+      <div id="wordpress-one-click-fields" class="stack-form">
+        <label for="wordpress_title">{% if current_language == 'en' %}Site title{% else %}Назва сайту WordPress{% endif %}</label><input id="wordpress_title" name="wordpress_title" maxlength="120">
+        <label for="wordpress_admin">{% if current_language == 'en' %}Administrator username{% else %}Ім’я адміністратора{% endif %}</label><input id="wordpress_admin" name="wordpress_admin" minlength="3" maxlength="60" autocomplete="username">
+        <label for="wordpress_email">Email</label><input id="wordpress_email" name="wordpress_email" type="email" autocomplete="email">
+        <label for="wordpress_password">{% if current_language == 'en' %}Administrator password{% else %}Пароль адміністратора{% endif %}</label>
+        <div class="action-group"><input id="wordpress_password" name="wordpress_password" type="password" minlength="16" maxlength="200" autocomplete="new-password"><button id="wordpress-generate-password" class="ghost-btn" type="button">{% if current_language == 'en' %}Generate secure password{% else %}Згенерувати надійний пароль{% endif %}</button></div>
+        <p class="field-help">{% if current_language == 'en' %}Copy the password before creation. MyH does not store or show it afterward.{% else %}Скопіюйте пароль до створення. MyH не зберігає та не показує його після цього.{% endif %}</p>
+      </div>
+      <label for="wordpress_language">{% if current_language == 'en' %}Language{% else %}Мова{% endif %}</label><select id="wordpress_language" name="wordpress_language"><option value="uk">Українська</option><option value="en_US">English (US)</option></select>
+      <p class="field-help">PHP 8.3 · MySQL · WP-CLI</p>
+    </div>
+
     <h2 class="form-step-title"><span>3</span>{% if current_language == 'en' %}Project source{% else %}Джерело проєкту{% endif %}</h2>
     <label for="source_mode">{% if current_language == 'en' %}How will you add files?{% else %}Як ви додасте файли?{% endif %}</label>
     <select id="source_mode" name="source_mode" required>
@@ -108,6 +125,11 @@
     var createButton = document.getElementById('create-site-submit');
     var staticBlock = document.getElementById('static-settings-block');
     var dockerBlock = document.getElementById('docker-settings-block');
+    var wordpressBlock = document.getElementById('wordpress-settings-block');
+    var wordpressMode = document.getElementById('wordpress_mode');
+    var wordpressFields = document.getElementById('wordpress-one-click-fields');
+    var wordpressPassword = document.getElementById('wordpress_password');
+    var wordpressGenerate = document.getElementById('wordpress-generate-password');
     var siteNameInput = document.getElementById('site_name');
     var sourceSelect = document.getElementById('source_mode');
     var domainInput = document.getElementById('domain');
@@ -127,7 +149,15 @@
       commandShell.style.display = ['node', 'python'].indexOf(value) >= 0 ? '' : 'none';
       staticBlock.style.display = value === 'static' ? '' : 'none';
       dockerBlock.style.display = value === 'docker' ? '' : 'none';
+      wordpressBlock.style.display = value === 'wordpress' ? '' : 'none';
+      syncWordPressMode();
       syncReview();
+    }
+
+    function syncWordPressMode() {
+      var oneClick = selectedType() === 'wordpress' && wordpressMode.value === 'one_click';
+      wordpressFields.style.display = oneClick ? '' : 'none';
+      wordpressFields.querySelectorAll('input').forEach(function (input) { input.required = oneClick; });
     }
 
     function syncReview() {
@@ -141,6 +171,13 @@
     typeInputs.forEach(function (input) { input.addEventListener('change', syncPhpRuntimeVisibility); });
     [siteNameInput, domainInput].forEach(function (input) { input.addEventListener('input', syncReview); });
     sourceSelect.addEventListener('change', syncReview);
+    wordpressMode.addEventListener('change', syncWordPressMode);
+    wordpressGenerate.addEventListener('click', function () {
+      var alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*_-+=';
+      var values = new Uint32Array(24); window.crypto.getRandomValues(values);
+      wordpressPassword.value = Array.from(values, function (value) { return alphabet[value % alphabet.length]; }).join('');
+      wordpressPassword.type = 'text'; wordpressPassword.focus(); wordpressPassword.select();
+    });
     syncPhpRuntimeVisibility();
 
     if (runtimeDetectButton && projectFiles && runtimeDetectResult && csrfInput) {

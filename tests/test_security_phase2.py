@@ -431,7 +431,7 @@ class SecurityPhase2Tests(unittest.TestCase):
         response = self.app.test_client().get('/api/runtimes')
         self.assertEqual(response.status_code, 200)
         runtimes = response.get_json()['runtimes']
-        self.assertEqual([item['id'] for item in runtimes], ['static', 'php', 'node', 'python', 'docker'])
+        self.assertEqual([item['id'] for item in runtimes], ['static', 'php', 'wordpress', 'node', 'python', 'docker'])
         self.assertTrue(all(item['available'] for item in runtimes))
         self.assertTrue(all('template' not in item and 'detail' not in item for item in runtimes))
 
@@ -457,8 +457,9 @@ class SecurityPhase2Tests(unittest.TestCase):
         self._auth_session(client, owner.id)
         html = client.get('/sites/create').get_data(as_text=True)
         self.assertIn('class="runtime-card-grid"', html)
-        self.assertEqual(html.count('<input type="radio" name="site_type"'), 5)
-        self.assertNotIn('value="wordpress"', html)
+        self.assertEqual(html.count('<input type="radio" name="site_type"'), 6)
+        self.assertIn('value="wordpress"', html)
+        self.assertIn('id="wordpress-settings-block"', html)
         self.assertIn('name="spa_enabled"', html)
 
     def test_sites_index_has_real_filters_and_deployment_state(self):

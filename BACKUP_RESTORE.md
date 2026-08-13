@@ -1,5 +1,7 @@
 # Backup and restore
 
+Managed WordPress site backups include the normal ZIP plus `.wordpress.sql` and `.wordpress.sql.sha256` sidecars. Restore validates the dump before destructive file replacement, then restores files and the isolated database together; retention and deletion remove all artifacts.
+
 MyH has two deliberately separate stages:
 
 1. A consistent local backup under `/srv/backups/myh/<UTC backup id>`.

@@ -1,5 +1,7 @@
 # MyH runtime architecture
 
+Managed WordPress is a catalog application choice backed by PHP 8.3 and private MySQL. It uses the hardened compose template and lifecycle in [WORDPRESS.md](WORDPRESS.md); it is not a new arbitrary customer runtime.
+
 `runtime_registry.py` is the user-visible source of truth. A runtime is `AVAILABLE` only when its configured image or engine exists, it is enabled by the administrator, and `instance/runtime_health.json` contains a successful full lifecycle result. Merely having an image or a running process is not sufficient.
 
 The administrator can run the same verification from **Admin → Runtimes → Run full verification**. The underlying reproducible command is:

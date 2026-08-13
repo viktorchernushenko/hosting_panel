@@ -2,6 +2,21 @@
 
 MyH follows Semantic Versioning. Entries below are reconstructed from the actual Git history, code, configuration, UI and recorded tests; they do not create synthetic historical commits or tags.
 
+## [2.8.0] - 2026-08-13
+
+### Added
+
+- Added WordPress as a first-class Create Site choice implemented as a managed application template over PHP 8.3 and an isolated private MySQL database.
+- Added one-click and standard browser installation paths, fixed-argv WP-CLI management, WordPress Admin access, version reporting and permalink setup.
+- Added WordPress-aware backup and restore covering both files and a checksummed logical database dump.
+- Added a disposable WordPress lifecycle smoke test covering installation, public/admin HTTP, posts, media, plugins, themes and database isolation.
+
+### Security
+
+- Pinned the official WordPress runtime and WP-CLI images by digest, passed the administrator password over stdin, and kept credentials out of audit output.
+- Disabled dashboard file editing, directory listing, direct `wp-config.php` access and PHP execution under uploads; applied bounded PHP upload, memory and execution limits.
+- Kept each WordPress database/user least-privilege and reachable only over the private database network.
+
 ## [2.7.1] - 2026-08-13
 
 ### Changed

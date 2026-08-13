@@ -161,6 +161,47 @@ class ServiceCatalogWizardTests(unittest.TestCase):
         self.assertTrue(os.path.isdir(stack_root))
         self.assertTrue(os.path.exists(os.path.join(stack_root, 'panel-metadata.json')))
 
+    def test_wordpress_one_click_uses_php_application_type_and_does_not_log_password(self):
+        client = self.app.test_client()
+        self._auth_session(client, self.admin.id, role='admin')
+        secret = 'Wp-Test-Password-That-Must-Not-Leak-123!'
+        metadata = {'runtime': 'wordpress', 'version': '6-php8.3-fpm-alpine', 'port': 23456}
+        def prepare_stack(stack_root, _source_root, _port):
+            os.makedirs(stack_root, exist_ok=True)
+            return metadata
+        with (
+            mock.patch.object(panel_app, 'prepare_wordpress_runtime', side_effect=prepare_stack),
+            mock.patch.object(panel_app, 'provision_mysql_database'),
+            mock.patch.object(panel_app, 'write_application_secret', return_value='/safe/database-secret'),
+            mock.patch.object(panel_app, 'sync_runtime_environment'),
+            mock.patch.object(panel_app, 'install_wordpress_one_click') as install,
+        ):
+            response = client.post('/sites/create', data={
+                '_csrf_token': 'csrf-token', 'site_name': 'managedwp', 'site_type': 'wordpress',
+                'source_mode': 'upload', 'wordpress_mode': 'one_click', 'wordpress_title': 'Managed WP',
+                'wordpress_admin': 'wp_owner', 'wordpress_email': 'owner@example.test',
+                'wordpress_password': secret, 'wordpress_language': 'uk',
+            }, follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        site = panel_app.Site.query.filter_by(name='managedwp').first()
+        self.assertEqual(site.runtime_type, 'php')
+        self.assertEqual(site.runtime_version, '8.3')
+        self.assertEqual(site.application_type, 'wordpress')
+        self.assertEqual(len(site.database_resources), 1)
+        self.assertTrue(install.called)
+        self.assertNotIn(secret, '\n'.join(row.detail for row in panel_app.AuditLog.query.all()))
+
+    def test_wordpress_one_click_rejects_weak_admin_password(self):
+        client = self.app.test_client()
+        self._auth_session(client, self.admin.id, role='admin')
+        response = client.post('/sites/create', data={
+            '_csrf_token': 'csrf-token', 'site_name': 'weakwp', 'site_type': 'wordpress',
+            'source_mode': 'upload', 'wordpress_mode': 'one_click', 'wordpress_admin': 'owner',
+            'wordpress_email': 'owner@example.test', 'wordpress_password': 'short', 'wordpress_language': 'uk',
+        }, follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNone(panel_app.Site.query.filter_by(name='weakwp').first())
+
     @mock.patch.object(panel_app, 'healthcheck', return_value={'ok': True})
     @mock.patch.object(panel_app, 'compose_action', return_value=(0, 'started'))
     @mock.patch.object(panel_app, 'sync_runtime_environment')

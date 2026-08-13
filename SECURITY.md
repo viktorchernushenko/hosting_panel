@@ -1,5 +1,7 @@
 # MyH production security
 
+Managed WordPress uses digest-pinned official runtime/CLI images, fixed-argv WP-CLI calls, stdin delivery for the initial administrator password, isolated database credentials and private networking. Nginx denies hidden files, `wp-config.php`, directory listing and uploaded PHP execution; dashboard file editing is disabled. See [WORDPRESS.md](WORDPRESS.md).
+
 ## Network and service boundary
 
 - Public web traffic enters through Cloudflare Tunnel; Gunicorn and customer HTTP runtimes bind only to loopback.

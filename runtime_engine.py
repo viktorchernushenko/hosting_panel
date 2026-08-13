@@ -196,7 +196,32 @@ def prepare_wordpress_runtime(stack_root: str, source_root: str, port: int | Non
     source.chmod(0o2770); source_gid = source.stat().st_gid; port = int(port or allocate_loopback_port()); project = safe_project_name(stack.name)
     env_file = stack / 'env.list'
     if not env_file.exists(): _write(env_file, '', 0o600)
-    _write(stack / 'nginx.conf', 'server { listen 8080; root /var/www/html; index index.php index.html; client_max_body_size 64m; location / { try_files $uri $uri/ /index.php?$args; } location ~ \\.php$ { include fastcgi_params; fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; fastcgi_pass wordpress:9000; } }\n', 0o644)
+    _write(stack / 'nginx.conf', '''server {
+  listen 8080;
+  root /var/www/html;
+  index index.php index.html;
+  autoindex off;
+  client_max_body_size 64m;
+  location / { try_files $uri $uri/ /index.php?$args; }
+  location = /wp-config.php { deny all; }
+  location ~ /\\. { deny all; }
+  location ~* ^/wp-content/uploads/.*\\.php$ { deny all; }
+  location ~ \\.php$ {
+    try_files $uri =404;
+    include fastcgi_params;
+    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+    fastcgi_param HTTP_X_FORWARDED_PROTO $http_x_forwarded_proto;
+    fastcgi_pass wordpress:9000;
+  }
+}
+''', 0o644)
+    _write(stack / 'wordpress.ini', '''memory_limit=256M
+upload_max_filesize=64M
+post_max_size=64M
+max_execution_time=120
+expose_php=Off
+cgi.fix_pathinfo=0
+''', 0o644)
     compose = f'''services:
   web:
     image: nginx:1.27-alpine
@@ -215,7 +240,7 @@ def prepare_wordpress_runtime(stack_root: str, source_root: str, port: int | Non
     pids_limit: 128
     depends_on: [wordpress]
   wordpress:
-    image: wordpress:6-php8.3-fpm-alpine
+    image: wordpress:6-php8.3-fpm-alpine@sha256:b0062e171b9c8a24e28acdd25cb8ea67e95e60ca0b3c982f88faf93217b0e1a9
     user: "82:82"
     restart: unless-stopped
     networks: [app-internal, hosting-databases]
@@ -223,10 +248,23 @@ def prepare_wordpress_runtime(stack_root: str, source_root: str, port: int | Non
     cap_drop: [ALL]
     group_add: ["{source_gid}", "33"]
     env_file: ["{env_file}"]
-    volumes: ["{source}:/var/www/html"]
+    volumes: ["{source}:/var/www/html", "{stack / 'wordpress.ini'}:/usr/local/etc/php/conf.d/myh-wordpress.ini:ro"]
     mem_limit: 384m
     cpus: 0.75
     pids_limit: 128
+  wordpress-cli:
+    image: wordpress:cli-2.12.0-php8.3@sha256:2b5e9d4d3e51909dca1aaa4732e9f5e5bf0377c2114dbd8ff39f060bff202586
+    user: "82:82"
+    profiles: [cli]
+    networks: [app-internal, hosting-databases]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    group_add: ["{source_gid}", "33"]
+    env_file: ["{env_file}"]
+    volumes: ["{source}:/var/www/html"]
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 96
 networks:
   app-internal: {{driver: bridge}}
   hosting-databases: {{external: true}}

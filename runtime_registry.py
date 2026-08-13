@@ -26,6 +26,14 @@ RUNTIME_DEFINITIONS = (
         "recommendedFor": ["WordPress*", "Laravel*", "Symfony*", "Custom PHP"],
     },
     {
+        "id": "wordpress", "displayName": {"uk": "WordPress", "en": "WordPress"},
+        "description": {"uk": "WordPress-сайт з автоматично налаштованою базою даних.", "en": "A WordPress site with an automatically configured database."},
+        "version": "6-php8.3-fpm-alpine", "template": "wordpress:6-php8.3-fpm-alpine", "category": "managed", "icon": "globe",
+        "supportsBuild": False, "supportsDatabase": True, "supportsEnvironmentVariables": True,
+        "supportsCustomStartCommand": False, "supportsSpa": False, "advanced": False,
+        "recommendedFor": ["Blog", "Business site", "CMS", "WooCommerce*"],
+    },
+    {
         "id": "node", "displayName": {"uk": "Node.js", "en": "Node.js"},
         "description": {"uk": "Серверні JavaScript та TypeScript застосунки.", "en": "Server-side JavaScript and TypeScript applications."},
         "version": "22", "template": "node:22-alpine", "category": "core", "icon": "code",
