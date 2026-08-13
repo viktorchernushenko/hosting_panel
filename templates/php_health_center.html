@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card">
+    <div>
+      <p class="eyebrow">PHP diagnostics</p>
+      <h2>{% if current_language == 'en' %}PHP Health Center{% else %}PHP Health Center{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}Run runtime and bootstrap checks for assigned PHP sites.{% else %}Перевірка runtime та bootstrap для призначених PHP сайтів.{% endif %}</p>
+    </div>
+    <div class="hero-actions">
+      <a class="ghost-btn" href="{{ url_for('service_catalog') }}">{% if current_language == 'en' %}Service Catalog{% else %}Каталог сервісів{% endif %}</a>
+      <a class="ghost-btn" href="{{ url_for('dashboard') }}">{% if current_language == 'en' %}Back to dashboard{% else %}До дашборду{% endif %}</a>
+    </div>
+  </header>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}PHP sites{% else %}PHP сайти{% endif %}</h3>
+      <span class="status-pill">{{ php_sites|length }}</span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Site</th>
+            <th>Health status</th>
+            <th>Runtime</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for site in php_sites %}
+          <tr data-site-id="{{ site.id }}">
+            <td>
+              <strong>{{ site.name }}</strong>
+              <div class="service-meta">{{ site.folder_name }}</div>
+            </td>
+            <td>
+              <span class="status-badge" data-health-status="{{ site.id }}">pending</span>
+            </td>
+            <td>
+              <span class="service-meta" data-runtime-info="{{ site.id }}">-</span>
+            </td>
+            <td>
+              <div class="action-btns">
+                <button type="button" class="tiny-btn" data-check-site="{{ site.id }}">Run check</button>
+                <a class="ghost-btn" href="{{ url_for('manage_site', folder_name=site.folder_name) }}">Open site</a>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="4" class="empty-state">{% if current_language == 'en' %}No PHP sites assigned.{% else %}PHP сайти не знайдено.{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script nonce="{{ csp_nonce }}">
+  (function () {
+    function updateSiteHealth(siteId) {
+      var statusNode = document.querySelector('[data-health-status="' + siteId + '"]');
+      var runtimeNode = document.querySelector('[data-runtime-info="' + siteId + '"]');
+      if (!statusNode || !runtimeNode) return;
+      statusNode.textContent = 'checking';
+      statusNode.className = 'status-badge';
+
+      fetch('/api/sites/' + siteId + '/php-health', { credentials: 'same-origin' })
+        .then(function (response) { return response.json().then(function (payload) { return { code: response.status, payload: payload }; }); })
+        .then(function (result) {
+          var payload = result.payload || {};
+          if (result.code === 200 && payload.ok) {
+            statusNode.textContent = 'ok';
+            statusNode.className = 'status-badge success';
+          } else {
+            statusNode.textContent = 'failed';
+            statusNode.className = 'status-badge danger';
+          }
+          var runtimeText = payload.runtime_version || 'unknown';
+          var phpLine = payload.php_binary_version_line || '';
+          runtimeNode.textContent = 'runtime=' + runtimeText + (phpLine ? ' | ' + phpLine : '');
+        })
+        .catch(function () {
+          statusNode.textContent = 'error';
+          statusNode.className = 'status-badge danger';
+          runtimeNode.textContent = 'request failed';
+        });
+    }
+
+    document.querySelectorAll('[data-check-site]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        updateSiteHealth(button.getAttribute('data-check-site'));
+      });
+    });
+  })();
+</script>
+{% endblock %}

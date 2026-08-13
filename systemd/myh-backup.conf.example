@@ -1,0 +1,17 @@
+# Store the real file as root:root 0600 at /etc/myh-backup.conf.
+BACKUP_LOCAL_ROOT=/srv/backups/myh
+BACKUP_STATUS_PATH=/var/lib/myh-backup/status.json
+BACKUP_RETENTION_DAYS=14
+
+# none | local_mount | sftp
+BACKUP_REMOTE_TYPE=none
+BACKUP_REMOTE_TARGET=
+
+# Required for every configured remote target. This is a public GPG recipient,
+# while the private recovery key must be escrowed away from this server.
+BACKUP_GPG_RECIPIENT=
+
+# SFTP only. Use key authentication and a pinned host key in root known_hosts.
+BACKUP_REMOTE_HOST=
+BACKUP_REMOTE_PORT=22
+BACKUP_SSH_IDENTITY_FILE=/etc/myh-backup/id_ed25519

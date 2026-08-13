@@ -1,0 +1,23 @@
+[Unit]
+Description=myh SFTP OpenSSH Provision Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+StateDirectory=myh-sftp-provision
+RuntimeDirectory=myh-sftp-provision
+RuntimeDirectoryMode=0750
+Environment=HOSTING_PANEL_SFTP_PROVISION_QUEUE_FILE=/home/myserver/hosting_panel/instance/sftp_provision_queue.jsonl
+Environment=HOSTING_PANEL_SFTP_PROVISION_RESULT_FILE=/home/myserver/hosting_panel/instance/sftp_provision_result.jsonl
+ExecStart=/usr/local/sbin/myh-sftp-provision-worker.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=off
+ProtectHome=off
+ReadWritePaths=/home/myserver/hosting_panel/instance /home/myserver/hosting_panel/user_sites /srv/apps /etc /var/log /var/mail /var/lib/myh-sftp-provision /run/myh-sftp-provision
+
+[Install]
+WantedBy=multi-user.target

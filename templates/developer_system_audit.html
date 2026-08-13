@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card">
+    <div>
+      <p class="eyebrow">{% if current_language == 'en' %}Read-only audit{% else %}Тільки для читання{% endif %}</p>
+      <h2>{% if current_language == 'en' %}Server audit and readiness{% else %}Аудит сервера та readiness{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}A non-destructive snapshot of the current host, Docker, proxy, and service posture.{% else %}Ненагальний знімок поточного стану хоста, Docker, проксі та служб.{% endif %}</p>
+    </div>
+    <div class="hero-actions">
+      <a class="ghost-btn" href="{{ url_for('developer_dashboard') }}">{% if current_language == 'en' %}← Back to panel{% else %}← До панелі{% endif %}</a>
+    </div>
+  </header>
+
+  <section class="metrics-grid">
+    <article class="card-widget">
+      <div class="widget-title">Hostname</div>
+      <div class="widget-value">{{ audit.hostname }}</div>
+      <div class="widget-caption">{{ audit.os_name }}</div>
+    </article>
+    <article class="card-widget">
+      <div class="widget-title">Public IP</div>
+      <div class="widget-value">{{ audit.public_ip or '—' }}</div>
+      <div class="widget-caption">LAN: {{ audit.host_ips|join(', ') if audit.host_ips else '—' }}</div>
+    </article>
+    <article class="card-widget">
+      <div class="widget-title">Docker</div>
+      <div class="widget-value">{{ audit.containers|length }}</div>
+      <div class="widget-caption">{{ audit.containers|selectattr('state', 'equalto', 'running')|list|length }} running, {{ audit.restarting|length }} restarting</div>
+    </article>
+    <article class="card-widget">
+      <div class="widget-title">Firewall</div>
+      <div class="widget-value">{{ 'OK' if 'ALLOW' in audit.ufw_status else 'WARN' }}</div>
+      <div class="widget-caption">LAN-only SSH/Samba/CUPS preserved</div>
+    </article>
+  </section>
+
+  <section class="panel-grid">
+    <article class="panel-card">
+      <div class="panel-head">
+        <h3>{% if current_language == 'en' %}Host summary{% else %}Зведення хоста{% endif %}</h3>
+        <span class="status-pill online">{{ audit.uptime }}</span>
+      </div>
+      <div class="service-list">
+        <div class="service-row"><strong>Kernel</strong><span>{{ audit.kernel }}</span></div>
+        <div class="service-row"><strong>CPU cores</strong><span>{{ audit.cpu_cores }}</span></div>
+        <div class="service-row"><strong>Load average</strong><span>{{ audit.load_avg }}</span></div>
+        <div class="service-row"><strong>Memory</strong><span>{{ audit.memory_used_gb }} / {{ audit.memory_total_gb }} GB ({{ audit.memory_percent }}%)</span></div>
+        <div class="service-row"><strong>Swap</strong><span>{{ audit.swap_used_gb }} / {{ audit.swap_total_gb }} GB ({{ audit.swap_percent }}%)</span></div>
+        <div class="service-row"><strong>Disk</strong><span>{{ audit.disk_used_gb }} / {{ audit.disk_total_gb }} GB ({{ audit.disk_percent }}%)</span></div>
+        <div class="service-row"><strong>Default route</strong><span>{{ audit.default_route or '—' }}</span></div>
+      </div>
+    </article>
+
+    <article class="panel-card">
+      <div class="panel-head">
+        <h3>{% if current_language == 'en' %}Services and risk{% else %}Сервіси та ризики{% endif %}</h3>
+        <span class="status-pill online">{{ audit.services|length }} tracked</span>
+      </div>
+      <div class="service-list">
+        {% for name, service in audit.services.items() %}
+        <div class="service-row">
+          <div>
+            <strong>{{ name }}</strong>
+            <div class="service-meta">{{ service.detail }}</div>
+          </div>
+          <span class="status-badge {{ 'success' if service.active else 'danger' }}">{{ 'active' if service.active else 'inactive' }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% if audit.problems %}
+      <div style="margin-top: 14px;" class="service-list">
+        {% for problem in audit.problems %}
+        <div class="alert-card warning">{{ problem }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </article>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}Readiness matrix{% else %}Матриця готовності{% endif %}</h3>
+      <span class="status-pill online">{{ audit.readiness|length }} checks</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Capability</th><th>Status</th><th>Notes</th></tr></thead>
+        <tbody>
+          {% for row in audit.readiness %}
+          <tr>
+            <td><strong>{{ row.name }}</strong></td>
+            <td><span class="status-badge {{ 'success' if row.status == 'READY' else 'danger' if row.status == 'NOT READY' else 'warning' }}">{{ row.status }}</span></td>
+            <td>{{ row.detail }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel-grid">
+    <article class="panel-card">
+      <div class="panel-head"><h3>{% if current_language == 'en' %}Docker inventory{% else %}Docker inventory{% endif %}</h3><span class="status-pill online">{{ audit.docker_compose|length }} compose projects</span></div>
+      <div class="service-list">
+        <div class="service-row"><strong>Networks</strong><span>{{ audit.docker_networks|join(', ') if audit.docker_networks else '—' }}</span></div>
+        <div class="service-row"><strong>Volumes</strong><span>{{ audit.docker_volumes|join(', ') if audit.docker_volumes else '—' }}</span></div>
+      </div>
+      <div class="table-wrap" style="margin-top: 12px;">
+        <table class="data-table">
+          <thead><tr><th>Name</th><th>Status</th><th>Image</th><th>Ports</th></tr></thead>
+          <tbody>
+            {% for container in audit.containers %}
+            <tr>
+              <td>{{ container.name }}</td>
+              <td><span class="status-badge {{ 'success' if container.state == 'running' else 'danger' }}">{{ container.status }}</span></td>
+              <td>{{ container.image }}</td>
+              <td>{{ container.ports or '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </article>
+
+    <article class="panel-card">
+      <div class="panel-head"><h3>{% if current_language == 'en' %}Network and listeners{% else %}Мережа та listeners{% endif %}</h3><span class="status-pill online">{{ audit.listeners|length }} lines</span></div>
+      <div class="service-list">
+        <div class="service-row"><strong>resolvectl</strong><span>{{ audit.resolvectl|length }} lines</span></div>
+      </div>
+      <pre class="console-output" style="margin-top: 12px; max-height: 420px;">{% for line in audit.listeners %}{{ line }}
+{% endfor %}</pre>
+    </article>
+  </section>
+</div>
+{% endblock %}

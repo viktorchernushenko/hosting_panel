@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card"><div><p class="eyebrow">MyH</p><h2>{% if current_language == 'en' %}Supported technologies{% else %}Підтримувані технології{% endif %}</h2><p class="subtitle">{% if current_language == 'en' %}Runtime availability comes from the latest full platform verification.{% else %}Доступність середовищ визначається останньою повною перевіркою платформи.{% endif %}</p></div><a class="ghost-btn" href="{{ url_for('index') }}">← {% if current_language == 'en' %}Home{% else %}Головна{% endif %}</a></header>
+  <section class="runtime-card-grid">
+    {% for runtime in runtimes %}
+    <article class="panel-card runtime-choice {{ 'unavailable' if not runtime.available else '' }}">
+      <span class="runtime-choice-head"><strong>{{ runtime.name }}</strong>{% if runtime.advanced %}<span class="status-pill">Advanced</span>{% endif %}</span>
+      <p>{{ runtime.description }}</p>
+      <small>{{ runtime.recommendedFor|join(' · ') }}</small>
+      <span class="runtime-availability {{ 'online' if runtime.available else '' }}">{{ '✓ ' if runtime.available else '' }}{% if runtime.available %}{% if current_language == 'en' %}Available{% else %}Доступно{% endif %}{% else %}{% if current_language == 'en' %}Temporarily unavailable{% else %}Тимчасово недоступно{% endif %}{% endif %}</span>
+    </article>
+    {% endfor %}
+  </section>
+  <p class="service-meta">* {% if current_language == 'en' %}Framework compatibility depends on project configuration. React, Vue and similar tools are frameworks or build sources, not separate server runtimes.{% else %}Сумісність framework залежить від конфігурації проєкту. React, Vue та подібні інструменти є framework або джерелом build, а не окремими server runtime.{% endif %}</p>
+</div>
+{% endblock %}

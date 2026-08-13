@@ -1,25 +1,57 @@
 {% extends 'base.html' %}
+{% block page_context %}{% if current_language == 'en' %}Notifications{% else %}Сповіщення{% endif %}{% endblock %}
 {% block content %}
-<div class="stack">
-  <div class="card">
-    <div class="card-header">
-      <h2>{% if current_language == 'en' %}Notifications & Webhooks{% else %}Сповіщення та вебхуки{% endif %}</h2>
-      <p>{% if current_language == 'en' %}Send alerts to Telegram or email and trigger notifications from external systems.{% else %}Надсилайте сповіщення в Telegram або email і запускайте повідомлення з зовнішніх систем.{% endif %}</p>
-    </div>
-    <form method="post" class="stack">
-      <label>{% if current_language == 'en' %}Message{% else %}Повідомлення{% endif %}
-        <textarea name="message" rows="4" placeholder="{% if current_language == 'en' %}Deployment finished successfully{% else %}Розгортання успішно завершено{% endif %}"></textarea>
-      </label>
-      <button class="btn" type="submit">{% if current_language == 'en' %}Send alert{% else %}Надіслати сповіщення{% endif %}</button>
-    </form>
-  </div>
+{% set labels_uk = {'NOT_CONFIGURED': 'Не налаштовано', 'CONFIGURED': 'Налаштовано', 'ERROR': 'Помилка / не перевірено', 'DISABLED': 'Вимкнено'} %}
+{% set labels_en = {'NOT_CONFIGURED': 'Not configured', 'CONFIGURED': 'Configured', 'ERROR': 'Error / not verified', 'DISABLED': 'Disabled'} %}
+<div class="dashboard-shell">
+  <header class="hero-card"><div><p class="eyebrow">Admin</p><h2>{% if current_language == 'en' %}Notifications{% else %}Сповіщення{% endif %}</h2><p class="subtitle">{% if current_language == 'en' %}Configure and verify operational alert delivery without editing server files.{% else %}Налаштовуйте та перевіряйте доставку операційних сповіщень без редагування файлів сервера.{% endif %}</p></div></header>
 
-  <div class="card">
-    <div class="card-header">
-      <h3>{% if current_language == 'en' %}Webhook endpoint{% else %}Webhook endpoint{% endif %}</h3>
-      <p>{% if current_language == 'en' %}Send a POST request with a JSON payload to trigger the same notification.{% else %}Надішліть POST-запит із JSON-пayload, щоб відправити те саме сповіщення.{% endif %}</p>
-    </div>
-    <code>POST /api/webhook/notify<br>{"message":"Deployment completed"}</code>
-  </div>
+  <section class="panel-grid">
+    {% for provider in provider_statuses %}
+    <article class="panel-card" id="provider-{{ provider.provider }}">
+      <div class="panel-head">
+        <h3>{{ 'Telegram' if provider.provider == 'telegram' else 'Email / SMTP' }}</h3>
+        <span class="status-badge {{ 'success' if provider.status == 'CONFIGURED' else ('danger' if provider.status == 'ERROR' else 'warning') }}">{{ labels_en[provider.status] if current_language == 'en' else labels_uk[provider.status] }}</span>
+      </div>
+      {% if provider.provider == 'telegram' %}
+      <p class="subtitle">{% if provider.credentials_saved %}{% if current_language == 'en' %}Saved Chat ID: {{ provider.chat_id_masked }}. The bot token is never returned to the browser.{% else %}Збережений Chat ID: {{ provider.chat_id_masked }}. Bot Token ніколи не повертається у браузер.{% endif %}{% else %}{% if current_language == 'en' %}Telegram has not been configured yet.{% else %}Telegram ще не налаштовано.{% endif %}{% endif %}</p>
+      <form method="post" action="{{ url_for('api_notification_configure', provider='telegram') }}" class="stack-form" autocomplete="off">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <label for="telegram-token">Bot Token</label>
+        <input id="telegram-token" name="bot_token" type="password" value="" placeholder="{{ 'Leave blank to keep current token' if current_language == 'en' else 'Залиште порожнім, щоб не змінювати' }}" autocomplete="new-password" {{ '' if provider.credentials_saved else 'required' }}>
+        <label for="telegram-chat">Chat ID</label>
+        <input id="telegram-chat" name="chat_id" value="" placeholder="-1001234567890 або @channel" required autocomplete="off">
+        <label class="service-row" style="justify-content:flex-start;gap:10px"><input type="checkbox" name="enabled" value="1" {{ 'checked' if provider.enabled else '' }}> {% if current_language == 'en' %}Provider enabled{% else %}Provider увімкнено{% endif %}</label>
+        <button type="submit">{% if current_language == 'en' %}Save Telegram settings{% else %}Зберегти Telegram{% endif %}</button>
+      </form>
+      {% else %}
+      <p class="subtitle">{% if provider.credentials_saved %}{{ provider.host }}:{{ provider.port }} · {{ provider.sender }}{% else %}{% if current_language == 'en' %}Email delivery has not been configured yet.{% else %}Email / SMTP ще не налаштовано.{% endif %}{% endif %}</p>
+      <form method="post" action="{{ url_for('api_notification_configure', provider='smtp') }}" class="stack-form" autocomplete="off">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <div class="form-grid">
+          <label>SMTP Host<input name="host" value="{{ provider.host or '' }}" placeholder="smtp.example.com" required></label>
+          <label>Port<input name="port" type="number" min="1" max="65535" value="{{ provider.port or 587 }}" required></label>
+          <label>Username<input name="username" value="{{ provider.username or '' }}" autocomplete="off"></label>
+          <label>{% if current_language == 'en' %}Password{% else %}Пароль{% endif %}<input name="password" type="password" value="" placeholder="{{ 'Leave blank to keep current password' if current_language == 'en' else 'Залиште порожнім, щоб не змінювати' }}" autocomplete="new-password"></label>
+          <label>From Email<input name="sender" type="email" value="{{ provider.sender or '' }}" required></label>
+          <label>{% if current_language == 'en' %}Recipients{% else %}Отримувачі{% endif %}<input name="recipients" value="{{ provider.recipients or '' }}" placeholder="admin@example.com" required></label>
+          <label>{% if current_language == 'en' %}Encryption{% else %}Шифрування{% endif %}<select name="encryption"><option value="tls" {{ 'selected' if provider.encryption == 'tls' else '' }}>TLS (STARTTLS)</option><option value="ssl" {{ 'selected' if provider.encryption == 'ssl' else '' }}>SSL</option><option value="none" {{ 'selected' if provider.encryption == 'none' else '' }}>None</option></select></label>
+        </div>
+        <label class="service-row" style="justify-content:flex-start;gap:10px"><input type="checkbox" name="enabled" value="1" {{ 'checked' if provider.enabled else '' }}> {% if current_language == 'en' %}Provider enabled{% else %}Provider увімкнено{% endif %}</label>
+        <button type="submit">{% if current_language == 'en' %}Save SMTP settings{% else %}Зберегти SMTP{% endif %}</button>
+      </form>
+      {% endif %}
+
+      <div class="action-group utility-gap-top">
+        <form method="post" action="{{ url_for('api_notification_test', provider=provider.provider) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button class="tiny-btn" type="submit" {{ 'disabled' if not provider.credentials_saved else '' }}>{% if provider.provider == 'telegram' %}{% if current_language == 'en' %}Send Telegram test{% else %}Надіслати тест у Telegram{% endif %}{% else %}{% if current_language == 'en' %}Send test email{% else %}Надіслати тестовий email{% endif %}{% endif %}</button></form>
+        {% if provider.credentials_saved %}<form method="post" action="{{ url_for('api_notification_toggle', provider=provider.provider) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><input type="hidden" name="enabled" value="{{ '0' if provider.enabled else '1' }}"><button class="ghost-btn" type="submit">{% if provider.enabled %}{% if current_language == 'en' %}Disable{% else %}Вимкнути{% endif %}{% else %}{% if current_language == 'en' %}Enable{% else %}Увімкнути{% endif %}{% endif %}</button></form>{% endif %}
+      </div>
+      {% if not provider.credentials_saved %}<p class="field-help">{% if current_language == 'en' %}Save provider settings before sending a test.{% else %}Спочатку збережіть налаштування provider-а.{% endif %}</p>{% endif %}
+      {% if provider.last_test_at %}<p class="field-help">{% if current_language == 'en' %}Last connection test{% else %}Остання перевірка підключення{% endif %}: {{ provider.last_test_at }}</p>{% endif %}
+    </article>
+    {% endfor %}
+  </section>
+
+  <section class="panel-card full-width"><div class="panel-head"><h3>{% if current_language == 'en' %}Security{% else %}Безпека{% endif %}</h3></div><p class="subtitle">{% if current_language == 'en' %}Secrets are encrypted and stored only on the server. Saved bot tokens and SMTP passwords are never rendered, logged, or returned by the settings API.{% else %}Secrets шифруються та зберігаються лише на сервері. Збережені Bot Token і SMTP password ніколи не відображаються, не журналюються та не повертаються settings API.{% endif %}</p></section>
 </div>
 {% endblock %}

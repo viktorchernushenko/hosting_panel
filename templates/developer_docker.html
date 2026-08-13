@@ -5,7 +5,7 @@
     <div>
       <p class="eyebrow">{% if current_language == 'en' %}Docker control plane{% else %}Docker control plane{% endif %}</p>
       <h2>{% if current_language == 'en' %}Container manager{% else %}Менеджер контейнерів{% endif %}</h2>
-      <p class="subtitle">{% if current_language == 'en' %}Start, stop, and restart Docker containers directly from the panel.{% else %}Запускайте, зупиняйте й перезапускайте Docker-контейнери прямо з панелі.{% endif %}</p>
+      <p class="subtitle">{% if current_language == 'en' %}Container visibility is scoped to role permissions and assigned applications.{% else %}Видимість контейнерів обмежена роллю та призначеними застосунками.{% endif %}</p>
     </div>
     <div class="hero-actions">
       <a class="ghost-btn" href="{{ url_for('developer_dashboard') }}">← {% if current_language == 'en' %}Back to panel{% else %}До панелі{% endif %}</a>
@@ -17,6 +17,9 @@
       <h3>🐳 {% if current_language == 'en' %}Containers{% else %}Контейнери{% endif %}</h3>
       <span class="status-pill online">{{ containers|length }} {% if current_language == 'en' %}records{% else %}записів{% endif %}</span>
     </div>
+    {% if not can_manage_docker %}
+    <p class="service-meta" style="margin-bottom: 12px;">{% if current_language == 'en' %}Management actions are available only for administrators. Developers can view only scoped containers.{% else %}Керувальні дії доступні лише адміністраторам. Розробники бачать лише scoped-контейнери.{% endif %}</p>
+    {% endif %}
     <div class="table-wrap">
       <table class="data-table">
         <thead><tr><th>{% if current_language == 'en' %}Name{% else %}Назва{% endif %}</th><th>{% if current_language == 'en' %}Status{% else %}Статус{% endif %}</th><th>{% if current_language == 'en' %}Image{% else %}Image{% endif %}</th><th>{% if current_language == 'en' %}Ports{% else %}Порти{% endif %}</th><th>{% if current_language == 'en' %}Actions{% else %}Дії{% endif %}</th></tr></thead>
@@ -28,11 +31,15 @@
             <td>{{ container.image }}</td>
             <td>{{ container.ports or '—' }}</td>
             <td>
+              {% if can_manage_docker %}
               <div class="site-actions">
                 <button class="tiny-btn" type="button" data-docker-action="start" data-container-name="{{ container.name }}">{% if current_language == 'en' %}Start{% else %}Старт{% endif %}</button>
                 <button class="tiny-btn" type="button" data-docker-action="stop" data-container-name="{{ container.name }}">{% if current_language == 'en' %}Stop{% else %}Стоп{% endif %}</button>
                 <button class="tiny-btn" type="button" data-docker-action="restart" data-container-name="{{ container.name }}">{% if current_language == 'en' %}Restart{% else %}Рестарт{% endif %}</button>
               </div>
+              {% else %}
+              <span class="service-meta">{% if current_language == 'en' %}Read-only{% else %}Лише перегляд{% endif %}</span>
+              {% endif %}
             </td>
           </tr>
           {% else %}
@@ -44,6 +51,9 @@
   </section>
 </div>
 <script nonce="{{ csp_nonce }}">
+  if (!{{ 'true' if can_manage_docker else 'false' }}) {
+    // No action listeners in read-only mode.
+  }
   document.querySelectorAll('[data-docker-action]').forEach((button) => {
     button.addEventListener('click', async () => {
       const action = button.dataset.dockerAction;

@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch myh SFTP provisioning queue
+
+[Path]
+PathChanged=/home/myserver/hosting_panel/instance/sftp_provision_queue.jsonl
+Unit=myh-sftp-provision.service
+
+[Install]
+WantedBy=multi-user.target

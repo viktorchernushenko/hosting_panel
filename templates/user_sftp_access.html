@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card">
+    <div>
+      <p class="eyebrow">SFTP</p>
+      <h2>{% if current_language == 'en' %}SFTP access{% else %}SFTP доступ{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}Use FileZilla via OpenSSH SFTP only. Plain FTP is disabled.{% else %}Використовуйте FileZilla лише через OpenSSH SFTP. Plain FTP вимкнено.{% endif %}</p>
+    </div>
+    <a class="ghost-btn" href="{{ url_for('dashboard') }}">← {% if current_language == 'en' %}Back to panel{% else %}До панелі{% endif %}</a>
+  </header>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}FileZilla connection{% else %}Підключення через FileZilla{% endif %}</h3>
+      <span class="status-pill">SFTP :{{ sftp_self.port }}</span>
+    </div>
+
+    {% if sftp_self.connection_mode == 'cloudflare' %}
+    <div class="alert-card" role="note">
+      <strong>{% if current_language == 'en' %}Start the secure connector first{% else %}Спочатку запустіть захищений connector{% endif %}</strong>
+      <p class="service-meta">{% if current_language == 'en' %}Your network uses CGNAT, so direct connections to the public IP cannot reach this server. Run this command on your computer and keep it open while using FileZilla.{% else %}Мережа використовує CGNAT, тому пряме підключення до публічної IP не доходить до сервера. Запустіть цю команду на своєму комп’ютері й не закривайте вікно під час роботи FileZilla.{% endif %}</p>
+      <div class="copy-row"><span class="copy-label">PowerShell</span><code class="copy-value">cloudflared access tcp --hostname {{ sftp_self.tunnel_host }} --url localhost:{{ sftp_self.port }}</code><button type="button" class="icon-btn" data-copy="cloudflared access tcp --hostname {{ sftp_self.tunnel_host }} --url localhost:{{ sftp_self.port }}" data-copied="{% if current_language == 'en' %}Command copied{% else %}Команду скопійовано{% endif %}" aria-label="{% if current_language == 'en' %}Copy connector command{% else %}Скопіювати команду connector{% endif %}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#copy"/></svg></button></div>
+    </div>
+    {% endif %}
+    <div class="action-group" style="margin-bottom:12px;">
+      <form method="POST" action="{{ url_for('user_sftp_toggle_access') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="desired_state" value="enable">
+        <button type="submit" class="tiny-btn" {% if sftp_self.enabled %}disabled{% endif %}>{% if current_language == 'en' %}Open access{% else %}Відкрити доступ{% endif %}</button>
+      </form>
+      <form method="POST" action="{{ url_for('user_sftp_toggle_access') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="desired_state" value="disable">
+        <button type="submit" class="danger-btn" {% if not sftp_self.enabled %}disabled{% endif %}>{% if current_language == 'en' %}Close access{% else %}Закрити доступ{% endif %}</button>
+      </form>
+      {% if sftp_self.enabled %}<form method="POST" action="{{ url_for('user_sftp_reset_password') }}" data-confirm="{% if current_language == 'en' %}Generate a new SFTP password? The current SFTP password will stop working.{% else %}Створити новий SFTP пароль? Поточний SFTP пароль перестане працювати.{% endif %}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><button type="submit" class="ghost-btn">{% if current_language == 'en' %}Reset SFTP password{% else %}Скинути SFTP пароль{% endif %}</button></form>{% endif %}
+      <span class="status-badge {{ 'success' if sftp_self.enabled else 'warning' }}">{% if current_language == 'en' %}{{ 'Active' if sftp_self.enabled else 'Setup required' }}{% else %}{{ 'Активний' if sftp_self.enabled else 'Потрібне налаштування' }}{% endif %}</span>
+    </div>
+
+    {% if not sftp_self.has_sites %}
+    <div class="alert-card warning" role="status">
+      <strong>{% if current_language == 'en' %}Create a site before enabling SFTP{% else %}Спочатку створіть сайт{% endif %}</strong>
+      <p class="service-meta">{% if current_language == 'en' %}SFTP provides access to website files. There is no application directory to assign to this account yet.{% else %}SFTP надає доступ до файлів сайтів. Для цього акаунта ще немає каталогу застосунку, який можна призначити.{% endif %}</p>
+      {% if can_create_site %}<a class="tiny-btn utility-gap-top" href="{{ url_for('create_site_wizard') }}">{% if current_language == 'en' %}Create your first site{% else %}Створити перший сайт{% endif %}</a>{% endif %}
+    </div>
+    {% endif %}
+
+    <div aria-label="{% if current_language == 'en' %}SFTP connection details{% else %}Параметри SFTP-підключення{% endif %}">
+      {% for label, value in [
+        (('Host' if current_language == 'en' else 'Сервер'), sftp_self.host),
+        (('Port' if current_language == 'en' else 'Порт'), sftp_self.port),
+        (('Username' if current_language == 'en' else 'Логін'), sftp_self.username),
+        (('Root directory' if current_language == 'en' else 'Кореневий каталог'), '/')
+      ] %}
+      <div class="copy-row"><span class="copy-label">{{ label }}</span><strong class="copy-value">{{ value }}</strong><button type="button" class="icon-btn" data-copy="{{ value }}" data-copied="{% if current_language == 'en' %}Copied{% else %}Скопійовано{% endif %}" title="{% if current_language == 'en' %}Copy {{ label }}{% else %}Скопіювати: {{ label }}{% endif %}" aria-label="{% if current_language == 'en' %}Copy {{ label }}{% else %}Скопіювати {{ label }}{% endif %}"><svg class="ui-icon" aria-hidden="true"><use href="{{ url_for('static', filename='icons.svg') }}#copy"/></svg></button></div>
+      {% endfor %}
+    </div>
+    <p class="field-help">{% if current_language == 'en' %}In FileZilla choose SFTP and use the host and port shown above. Passwords are shown only after creation or reset.{% else %}У FileZilla виберіть SFTP та використайте сервер і порт, показані вище. Пароль показується лише після створення або скидання.{% endif %}</p>
+
+    <div class="backup-list">
+      {% for item in sftp_connections %}
+      <div class="backup-row">
+        <span>
+          <strong>{{ item.username }}</strong>
+          <small>Protocol: {{ item.protocol }} | Host: {{ item.host }} | Port: {{ item.port }}</small>
+          <small>Root: {{ item.root }}</small>
+          <small>{% if current_language == 'en' %}Authentication{% else %}Автентифікація{% endif %}: {{ item.auth_type }}</small>
+        </span>
+      </div>
+      {% else %}
+      <div class="empty-state"><strong>{% if current_language == 'en' %}SFTP is not active{% else %}SFTP ще не активний{% endif %}</strong><p>{% if sftp_self.has_sites %}{% if current_language == 'en' %}Use “Open access” to create your secure connection profile.{% else %}Натисніть «Відкрити доступ», щоб створити захищений профіль підключення.{% endif %}{% else %}{% if current_language == 'en' %}Create a site first; its files will then become available here.{% else %}Спочатку створіть сайт — після цього його файли стануть доступні тут.{% endif %}{% endif %}</p></div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head">
+      <h3>{% if current_language == 'en' %}Assigned resources{% else %}Призначені ресурси{% endif %}</h3>
+      <span class="status-pill">{{ sites|length }}</span>
+    </div>
+    <div class="site-list">
+      {% for site in sites %}
+      <div class="site-row">
+        <div>
+          <strong>{{ site.name }}</strong>
+          <div class="site-meta">/{{ site.folder_name }}</div>
+        </div>
+        <a class="link-btn" href="{{ url_for('manage_site', folder_name=site.folder_name) }}">{% if current_language == 'en' %}Files{% else %}Файли{% endif %}</a>
+      </div>
+      {% else %}
+      <div class="empty-state"><strong>{% if current_language == 'en' %}No websites assigned{% else %}Немає призначених сайтів{% endif %}</strong><p>{% if current_language == 'en' %}Create a website or ask an administrator to assign one to your account.{% else %}Створіть сайт або попросіть адміністратора призначити його вашому акаунту.{% endif %}</p>{% if can_create_site %}<a class="tiny-btn" href="{{ url_for('create_site_wizard') }}">{% if current_language == 'en' %}Create site{% else %}Створити сайт{% endif %}</a>{% endif %}</div>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

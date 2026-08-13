@@ -7,7 +7,12 @@
       <h2>{% if current_language == 'en' %}Users and sites{% else %}Користувачі та сайти{% endif %}</h2>
       <p class="subtitle">{% if current_language == 'en' %}Access management without system privileges.{% else %}Керування доступом без системних прав.{% endif %}</p>
     </div>
-    <a href="{{ url_for('dashboard') }}" class="ghost-btn">{% if current_language == 'en' %}← Back to panel{% else %}← До панелі{% endif %}</a>
+    <div class="hero-actions">
+      <a href="{{ url_for('dashboard') }}" class="ghost-btn">{% if current_language == 'en' %}← Back to panel{% else %}← До панелі{% endif %}</a>
+      <a href="{{ url_for('developer_sftp_users') }}" class="ghost-btn">SFTP Users</a>
+      <a href="{{ url_for('developer_upload_history') }}" class="ghost-btn">Upload History</a>
+      <a href="{{ url_for('developer_sftp_access') }}" class="ghost-btn">SFTP Access</a>
+    </div>
   </header>
 
   <section class="panel-card full-width">
@@ -20,6 +25,11 @@
         <input name="first_name" placeholder="{% if current_language == 'en' %}First name{% else %}Ім’я{% endif %}" required>
         <input name="last_name" placeholder="{% if current_language == 'en' %}Last name{% else %}Прізвище{% endif %}" required>
         <input name="quota_mb" type="number" min="64" max="51200" value="51200" aria-label="{% if current_language == 'en' %}Quota in megabytes{% else %}Квота у мегабайтах{% endif %}" required>
+        <select name="role">
+          <option value="user">USER</option>
+          <option value="developer">DEVELOPER</option>
+          <option value="admin">ADMIN</option>
+        </select>
       </div>
       <input name="password" type="password" minlength="12" placeholder="{% if current_language == 'en' %}Temporary password — minimum 12 characters{% else %}Тимчасовий пароль — мінімум 12 символів{% endif %}" required>
       <button type="submit">{% if current_language == 'en' %}Create user{% else %}Створити користувача{% endif %}</button>
@@ -68,17 +78,22 @@
                   <input name="last_name" value="{{ user.last_name }}" required>
                   <input name="email" type="email" value="{{ user.email }}" required>
                   <input name="quota_mb" type="number" min="64" max="51200" value="{{ user.quota_mb }}" required>
+                  <select name="role">
+                    <option value="user" {{ 'selected' if (user.role or 'user') == 'user' else '' }}>USER</option>
+                    <option value="developer" {{ 'selected' if (user.role or '') == 'developer' else '' }}>DEVELOPER</option>
+                    <option value="admin" {{ 'selected' if user.is_admin or (user.role or '') == 'admin' else '' }}>ADMIN</option>
+                  </select>
                   <select name="must_change_password">
                     <option value="0" {{ '' if user.must_change_password else 'selected' }}>{% if current_language == 'en' %}No password change enforcement{% else %}Без примусу зміни пароля{% endif %}</option>
                     <option value="1" {{ 'selected' if user.must_change_password else '' }}>{% if current_language == 'en' %}Force password change{% else %}Примусити зміну пароля{% endif %}</option>
                   </select>
                   <button class="tiny-btn" type="submit">{% if current_language == 'en' %}Update{% else %}Оновити{% endif %}</button>
                 </form>
-                <form action="{{ url_for('developer_reset_password', user_id=user.id) }}" method="POST" onsubmit="return confirm('{% if current_language == 'en' %}Reset the password for this user?{% else %}Скинути пароль цьому користувачу?{% endif %}');">
+                <form action="{{ url_for('developer_reset_password', user_id=user.id) }}" method="POST" data-confirm="{% if current_language == 'en' %}Reset the password for this user?{% else %}Скинути пароль цьому користувачу?{% endif %}">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                   <button class="ghost-btn" type="submit">{% if current_language == 'en' %}Reset password{% else %}Скинути пароль{% endif %}</button>
                 </form>
-                <form action="{{ url_for('developer_toggle_admin', user_id=user.id) }}" method="POST" onsubmit="return confirm('{% if current_language == 'en' %}Change this user\'s role?{% else %}Змінити роль користувача?{% endif %}');">
+                <form action="{{ url_for('developer_toggle_admin', user_id=user.id) }}" method="POST" data-confirm="{% if current_language == 'en' %}Change this user's role?{% else %}Змінити роль користувача?{% endif %}">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                   <button class="tiny-btn" type="submit">{{ 'Remove admin' if user.is_admin else 'Make admin' if current_language == 'en' else 'Зняти admin' if user.is_admin else 'Зробити admin' }}</button>
                 </form>
@@ -87,7 +102,7 @@
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                   <button class="{{ 'tiny-btn' if user.is_banned else 'danger-btn' }}" type="submit">{{ 'Unblock' if user.is_banned else 'Block' if current_language == 'en' else 'Розблокувати' if user.is_banned else 'Заблокувати' }}</button>
                 </form>
-                <form action="{{ url_for('delete_user', user_id=user.id) }}" method="POST" onsubmit="return confirm('{% if current_language == 'en' %}Delete this user and all their sites?{% else %}Видалити користувача та всі його сайти?{% endif %}');">
+                <form action="{{ url_for('delete_user', user_id=user.id) }}" method="POST" data-confirm="{% if current_language == 'en' %}Delete this user and all their sites?{% else %}Видалити користувача та всі його сайти?{% endif %}">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                   <button class="danger-btn" type="submit">{% if current_language == 'en' %}Delete{% else %}Видалити{% endif %}</button>
                 </form>
@@ -106,7 +121,7 @@
       <h3>{% if current_language == 'en' %}Bulk site operations{% else %}Bulk-операції по сайтах{% endif %}</h3>
       <span class="status-pill">{{ sites|length }} {% if current_language == 'en' %}sites{% else %}сайтів{% endif %}</span>
     </div>
-    <form action="{{ url_for('developer_bulk_sites') }}" method="POST" class="stack-form" onsubmit="return confirm('{% if current_language == 'en' %}Run a bulk operation for the selected sites?{% else %}Виконати bulk-операцію для вибраних сайтів?{% endif %}');">
+    <form action="{{ url_for('developer_bulk_sites') }}" method="POST" class="stack-form" data-confirm="{% if current_language == 'en' %}Run a bulk operation for the selected sites?{% else %}Виконати bulk-операцію для вибраних сайтів?{% endif %}">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
       <div class="action-group">
         <select name="action" required>

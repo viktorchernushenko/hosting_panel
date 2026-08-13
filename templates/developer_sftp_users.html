@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card">
+    <div>
+      <p class="eyebrow">Admin</p>
+      <h2>SFTP users</h2>
+      <p class="subtitle">OpenSSH SFTP only. Plain FTP is not supported.</p>
+    </div>
+    <div class="hero-actions">
+      <form method="POST" action="{{ url_for('developer_sftp_run_provisioner') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <button class="tiny-btn" type="submit">{% if current_language == 'en' %}Run provisioner{% else %}Запустити provisioner{% endif %}</button>
+      </form>
+      <a class="ghost-btn" href="{{ url_for('developer_users') }}">← {% if current_language == 'en' %}Back{% else %}Назад{% endif %}</a>
+    </div>
+  </header>
+
+  <section class="panel-card full-width">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}Create SFTP account{% else %}Створити SFTP акаунт{% endif %}</h3><span class="status-pill">SFTP :22</span></div>
+    <form method="POST" action="{{ url_for('developer_sftp_users_create') }}" class="stack-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+      <div class="form-grid">
+        <input name="username" placeholder="client_site_a" required>
+        <select name="role" required>
+          <option value="user">USER</option>
+          <option value="developer">DEVELOPER</option>
+        </select>
+        <select name="assigned_user_id">
+          <option value="">{% if current_language == 'en' %}No linked panel user{% else %}Без прив'язки до панелі{% endif %}</option>
+          {% for user in users %}
+          <option value="{{ user.id }}">{{ user.username }} ({{ user.role or ('admin' if user.is_admin else 'user') }})</option>
+          {% endfor %}
+        </select>
+        <select name="auth_type" required>
+          <option value="password">Password</option>
+          <option value="key">SSH key</option>
+          <option value="both">Password + key</option>
+        </select>
+        <input name="chroot_directory" placeholder="/srv/apps/client-site-a/">
+      </div>
+      <label>{% if current_language == 'en' %}Assigned applications{% else %}Призначені застосунки{% endif %}</label>
+      <select name="assigned_site_ids" multiple size="6">
+        {% for site in sites %}
+        <option value="{{ site.id }}">{{ site.name }} ({{ site.owner.username if site.owner else '—' }})</option>
+        {% endfor %}
+      </select>
+      <button type="submit">{% if current_language == 'en' %}Create{% else %}Створити{% endif %}</button>
+    </form>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}System account inventory{% else %}Інвентар системних акаунтів{% endif %}</h3><span class="status-badge warning">{% if current_language == 'en' %}Review required{% else %}Потрібна перевірка{% endif %}</span></div>
+    <p class="subtitle">{% if current_language == 'en' %}Panel-linked accounts are production. Unlinked system accounts remain Unknown until a privileged dependency review proves otherwise. Names alone never authorize deletion.{% else %}Пов’язані з панеллю акаунти є production. Інші системні акаунти залишаються Unknown, доки privileged dependency review не доведе інше. Саме ім’я ніколи не є підставою для видалення.{% endif %}</p>
+    <div class="data-table-wrap"><table class="data-table responsive-table"><thead><tr><th>User / UID</th><th>Group</th><th>Chroot</th><th>Sites</th><th>Panel owner</th><th>Last activity</th><th>Classification</th><th>Safe to remove?</th></tr></thead><tbody>
+      {% for row in system_accounts %}<tr><td data-label="User / UID"><strong>{{ row.username }}</strong><div class="service-meta">UID {{ row.uid }} · keys {{ row.authorized_keys }}</div></td><td data-label="Group">{{ row.group }}</td><td data-label="Chroot"><code>{{ row.chroot }}</code></td><td data-label="Sites">{{ row.sites|join(', ') or '—' }}</td><td data-label="Panel owner">{{ row.panel_owner or '—' }}</td><td data-label="Last activity">{{ row.last_activity.strftime('%Y-%m-%d %H:%M') if row.last_activity else 'Unknown' }}</td><td data-label="Classification"><span class="status-badge {{ 'success' if row.classification == 'PRODUCTION' else 'warning' }}">{{ row.classification }}</span></td><td data-label="Safe to remove?">{{ 'YES' if row.safe_to_remove else 'NO' }}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}SFTP accounts{% else %}SFTP акаунти{% endif %}</h3><span class="status-pill">{{ accounts|length }}</span></div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr><th>Username</th><th>Role</th><th>Status</th><th>{% if current_language == 'en' %}Assignments{% else %}Призначення{% endif %}</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          {% for account in accounts %}
+          <tr>
+            <td>
+              <strong>{{ account.username }}</strong>
+              <div class="service-meta">{{ account.chroot_directory }}</div>
+              <div class="service-meta">Auth: {{ account.auth_type }}</div>
+            </td>
+            <td>{{ account.role|upper }}</td>
+            <td>
+              <span class="status-badge {{ 'success' if account.enabled else 'danger' }}">{{ 'Enabled' if account.enabled else 'Disabled' }}</span>
+              <div class="service-meta">System: {{ account.system_state }}</div>
+            </td>
+            <td>
+              <form method="POST" action="{{ url_for('developer_sftp_users_assign', account_id=account.id) }}" class="stack-form">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <select name="assigned_user_id">
+                  <option value="">{% if current_language == 'en' %}No linked user{% else %}Без прив'язаного користувача{% endif %}</option>
+                  {% for user in users %}
+                  <option value="{{ user.id }}" {{ 'selected' if account.assigned_user_id == user.id else '' }}>{{ user.username }}</option>
+                  {% endfor %}
+                </select>
+                <select name="assigned_site_ids" multiple size="4">
+                  {% for site in sites %}
+                  <option value="{{ site.id }}" {{ 'selected' if site.id in account_assignments.get(account.id, []) else '' }}>{{ site.name }}</option>
+                  {% endfor %}
+                </select>
+                <button class="tiny-btn" type="submit">{% if current_language == 'en' %}Save assignments{% else %}Зберегти призначення{% endif %}</button>
+              </form>
+            </td>
+            <td>
+              <div class="action-group">
+                <form method="POST" action="{{ url_for('developer_sftp_users_toggle', account_id=account.id) }}">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                  <button class="ghost-btn" type="submit">{{ 'Disable' if account.enabled else 'Enable' }}</button>
+                </form>
+                <form method="POST" action="{{ url_for('developer_sftp_users_reset_password', account_id=account.id) }}">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                  <button class="tiny-btn" type="submit">{% if current_language == 'en' %}Reset credentials{% else %}Скинути доступ{% endif %}</button>
+                </form>
+                <form method="POST" action="{{ url_for('developer_sftp_users_add_key', account_id=account.id) }}" class="stack-form">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                  <input name="public_key" placeholder="ssh-ed25519 AAAA..." required>
+                  <button class="link-btn" type="submit">{% if current_language == 'en' %}Add SSH key{% else %}Додати SSH ключ{% endif %}</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="empty-state">{% if current_language == 'en' %}No SFTP accounts yet.{% else %}SFTP акаунтів ще немає.{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel-card full-width">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}SFTP audit log{% else %}SFTP журнал{% endif %}</h3></div>
+    <div class="audit-list">
+      {% for row in audit_rows %}
+      <div class="audit-row">
+        <time>{{ row.created_at.strftime('%d.%m %H:%M') }}</time>
+        <strong>{{ row.username or '—' }}</strong>
+        <code>{{ row.action }}</code>
+        <span>{{ row.status }}</span>
+        <small>{{ row.detail or '—' }}</small>
+      </div>
+      {% else %}
+      <p class="empty-state">{% if current_language == 'en' %}No SFTP events yet.{% else %}SFTP подій поки немає.{% endif %}</p>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

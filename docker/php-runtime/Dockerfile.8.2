@@ -1,0 +1,6 @@
+FROM php:8.2-fpm-alpine
+RUN apk add --no-cache icu-libs libzip libpng libjpeg-turbo freetype libxml2 curl oniguruma \
+ && apk add --no-cache --virtual .build-deps $PHPIZE_DEPS icu-dev libzip-dev libpng-dev libjpeg-turbo-dev freetype-dev libxml2-dev curl-dev oniguruma-dev \
+ && docker-php-ext-configure gd --with-freetype --with-jpeg \
+ && docker-php-ext-install -j1 mysqli pdo_mysql mbstring curl xml zip gd intl \
+ && apk del .build-deps

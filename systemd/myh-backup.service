@@ -1,8 +1,18 @@
 [Unit]
-Description=Backup myh.guru data to an external disk
+Description=Create verified local and off-server MyH backups
+After=local-fs.target network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/myh-backup
+SuccessExitStatus=2
+EnvironmentFile=-/etc/myh-backup.conf
 Nice=10
 IOSchedulingClass=idle
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/srv/backups/myh /var/lib/myh-backup -/mnt/myh-backup

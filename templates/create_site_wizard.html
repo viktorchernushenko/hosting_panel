@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-shell">
+  <header class="page-header">
+    <p class="eyebrow">Hosting / Sites</p>
+    <h1>{% if current_language == 'en' %}Create site{% else %}Створити сайт{% endif %}</h1>
+    <p>{% if current_language == 'en' %}Choose the technology and how you want to add your project.{% else %}Оберіть технологію та спосіб додавання проєкту.{% endif %}</p>
+  </header>
+
+  <form method="post" class="card form-card" id="create-site-form">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+
+    {% if user.is_admin %}
+      <label for="owner_id">{% if current_language == 'en' %}Owner{% else %}Власник{% endif %}</label>
+      <select id="owner_id" name="owner_id" required>
+        {% for owner in owners %}
+          <option value="{{ owner.id }}">{{ owner.username }}</option>
+        {% endfor %}
+      </select>
+    {% endif %}
+
+    <h2 class="form-step-title"><span>1</span>{% if current_language == 'en' %}Name{% else %}Назва{% endif %}</h2>
+    <label for="site_name">{% if current_language == 'en' %}Site name{% else %}Назва сайту{% endif %}</label>
+    <input id="site_name" name="site_name" type="text" required placeholder="example-site">
+
+    <fieldset class="runtime-fieldset">
+      <legend class="form-step-title"><span>2</span>{% if current_language == 'en' %}Execution environment{% else %}Середовище виконання{% endif %}</legend>
+      <p class="service-meta">{% if current_language == 'en' %}Choose the technology your site uses.{% else %}Оберіть технологію, на якій працює ваш сайт.{% endif %}</p>
+      <div class="runtime-card-grid">
+        {% for runtime in runtime_options %}
+        <label class="runtime-choice {{ 'unavailable' if not runtime.available else '' }}" data-runtime-card="{{ runtime.id }}">
+          <input type="radio" name="site_type" value="{{ runtime.id }}" {% if selected_type == runtime.id %}checked{% endif %} {% if not runtime.available %}disabled{% endif %} required>
+          <span class="runtime-choice-head"><strong>{{ runtime.name }}</strong>{% if runtime.advanced %}<span class="status-pill">Advanced</span>{% endif %}</span>
+          <span>{{ runtime.description }}</span>
+          <small>{{ runtime.recommendedFor|join(' · ') }}</small>
+          <span class="runtime-availability {{ 'online' if runtime.available else '' }}">{% if runtime.available %}✓ {% if current_language == 'en' %}Available{% else %}Доступно{% endif %}{% else %}{% if current_language == 'en' %}Temporarily unavailable{% else %}Тимчасово недоступно{% endif %}{% endif %}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <details class="runtime-help"><summary>{% if current_language == 'en' %}Not sure what to choose?{% else %}Не знаєте, що обрати?{% endif %}</summary><p class="service-meta">HTML/CSS/JS або готовий React/Vue/Vite build → Static. <code>index.php</code> / <code>composer.json</code> → PHP. Серверний <code>package.json</code> → Node.js. <code>requirements.txt</code> / <code>pyproject.toml</code> → Python. <code>Dockerfile</code> → Docker. Остаточний вибір завжди підтверджуєте ви.</p><div class="stack-form utility-gap-top"><label for="project-files">{% if current_language == 'en' %}List the key project files{% else %}Вкажіть ключові файли проєкту{% endif %}</label><textarea id="project-files" maxlength="500" rows="3" placeholder="Dockerfile, package.json, requirements.txt…"></textarea><button type="button" class="ghost-btn" id="runtime-detect-button">{% if current_language == 'en' %}Detect environment{% else %}Визначити середовище{% endif %}</button><p id="runtime-detect-result" class="service-meta" aria-live="polite"></p></div></details>
+
+    <details class="advanced-settings" id="process-command-shell"><summary>{% if current_language == 'en' %}Advanced runtime settings{% else %}Розширені налаштування runtime{% endif %}</summary><div id="process-command-block" class="advanced-settings-body">
+      <label for="install_command">Install command</label><input id="install_command" name="install_command" placeholder="npm ci / pip install --target /tmp/deps -r requirements.txt">
+      <label for="build_command">Build command</label><input id="build_command" name="build_command" placeholder="npm run build">
+      <label for="start_command">Start command</label><input id="start_command" name="start_command" placeholder="npm start / gunicorn app:app --bind 0.0.0.0:8080">
+      <p class="service-meta">Commands execute inside the isolated application container. Port must be 8080.</p>
+    </div></details>
+
+    <div id="static-settings-block" class="advanced-settings-body">
+      <label class="runtime-toggle"><input type="checkbox" name="spa_enabled" value="1"> <span>{% if current_language == 'en' %}Single Page Application fallback{% else %}Fallback для Single Page Application (SPA){% endif %}</span></label>
+      <p class="service-meta">{% if current_language == 'en' %}Enable only for client-side routers that must fall back to index.html.{% else %}Вмикайте лише для клієнтських router, яким потрібен fallback на index.html.{% endif %}</p>
+    </div>
+
+    <div id="docker-settings-block" class="advanced-settings-body" style="display:none">
+      <p class="service-meta">Dockerfile: <code>Dockerfile</code> · container port: <code>8080</code>. Public ports, privileged mode, host namespaces, devices and host mounts are rejected.</p>
+    </div>
+
+    <div id="php-runtime-block" {% if selected_type != 'php' %}style="display:none;"{% endif %}>
+      <label for="php_runtime">{% if current_language == 'en' %}PHP runtime{% else %}PHP runtime{% endif %}</label>
+      <select id="php_runtime" name="php_runtime">
+        {% for version in allowed_php_versions %}
+          <option value="{{ version }}" {% if selected_php_version == version %}selected{% endif %}>PHP {{ version }}</option>
+        {% endfor %}
+      </select>
+      <div class="action-group" style="margin-top:8px;">
+        <button type="button" id="php-runtime-check" class="ghost-btn">{% if current_language == 'en' %}Test runtime{% else %}Перевірити runtime{% endif %}</button>
+      </div>
+      <p id="php-runtime-result" class="service-meta"></p>
+    </div>
+
+    <div id="wordpress-settings-block" class="advanced-settings-body" {% if selected_type != 'wordpress' %}style="display:none;"{% endif %}>
+      <h2>{% if current_language == 'en' %}WordPress setup{% else %}Налаштування WordPress{% endif %}</h2>
+      <p class="field-help">{% if current_language == 'en' %}MyH creates an isolated PHP environment and MySQL database. Database credentials are generated automatically.{% else %}MyH створить ізольоване PHP-середовище та MySQL-базу. Дані доступу до бази генеруються автоматично.{% endif %}</p>
+      <label for="wordpress_mode">{% if current_language == 'en' %}Installation mode{% else %}Режим встановлення{% endif %}</label>
+      <select id="wordpress_mode" name="wordpress_mode"><option value="automatic">{% if current_language == 'en' %}Automatic installation (recommended){% else %}Автоматичне встановлення (рекомендовано){% endif %}</option><option value="manual">{% if current_language == 'en' %}Manual installation{% else %}Ручне встановлення{% endif %}</option></select>
+      <p class="field-help">{% if current_language == 'en' %}Automatic: MyH configures WordPress and the database. Manual: upload your own package and complete the standard installer.{% else %}Автоматично: MyH налаштує WordPress і базу. Вручну: завантажте власний пакет і пройдіть стандартний майстер.{% endif %}</p>
+      <div id="wordpress-one-click-fields" class="stack-form">
+        <label for="wordpress_title">{% if current_language == 'en' %}Site title{% else %}Назва сайту WordPress{% endif %}</label><input id="wordpress_title" name="wordpress_title" maxlength="120">
+        <label for="wordpress_admin">{% if current_language == 'en' %}Administrator username{% else %}Ім’я адміністратора{% endif %}</label><input id="wordpress_admin" name="wordpress_admin" minlength="3" maxlength="60" autocomplete="username">
+        <label for="wordpress_email">Email</label><input id="wordpress_email" name="wordpress_email" type="email" autocomplete="email">
+        <label for="wordpress_password">{% if current_language == 'en' %}Administrator password{% else %}Пароль адміністратора{% endif %}</label>
+        <div class="action-group"><input id="wordpress_password" name="wordpress_password" type="password" minlength="16" maxlength="200" autocomplete="new-password"><button id="wordpress-generate-password" class="ghost-btn" type="button">{% if current_language == 'en' %}Generate secure password{% else %}Згенерувати надійний пароль{% endif %}</button></div>
+        <p class="field-help">{% if current_language == 'en' %}Copy the password before creation. MyH does not store or show it afterward.{% else %}Скопіюйте пароль до створення. MyH не зберігає та не показує його після цього.{% endif %}</p>
+      </div>
+      <label class="checkbox-row"><input type="checkbox" name="wordpress_create_database" value="1" checked> {% if current_language == 'en' %}Create an isolated database automatically{% else %}Створити ізольовану базу автоматично{% endif %}</label>
+      <label for="wordpress_language">{% if current_language == 'en' %}Language{% else %}Мова{% endif %}</label><select id="wordpress_language" name="wordpress_language"><option value="uk">Українська</option><option value="en_US">English (US)</option></select>
+      <p class="field-help">PHP 8.3 · MySQL · WP-CLI</p>
+    </div>
+
+    <h2 class="form-step-title"><span>3</span>{% if current_language == 'en' %}Project source{% else %}Джерело проєкту{% endif %}</h2>
+    <label for="source_mode">{% if current_language == 'en' %}How will you add files?{% else %}Як ви додасте файли?{% endif %}</label>
+    <select id="source_mode" name="source_mode" required>
+      {% for source in source_modes %}
+        <option value="{{ source }}" {% if selected_source == source %}selected{% endif %}>{% if source == 'upload' %}{% if current_language == 'en' %}Upload files after creation{% else %}Завантажити файли після створення{% endif %}{% elif source == 'git' %}Git repository{% else %}{% if current_language == 'en' %}SFTP / add later{% else %}SFTP / додати пізніше{% endif %}{% endif %}</option>
+      {% endfor %}
+    </select>
+
+    <h2 class="form-step-title"><span>4</span>Domain</h2>
+    <label for="domain">{% if current_language == 'en' %}Custom domain (optional){% else %}Власний домен (необов'язково){% endif %}</label>
+    <input id="domain" name="domain" type="text" placeholder="example.com">
+    <p class="field-help">{% if current_language == 'en' %}You can add this later. MyH will guide you through DNS and HTTPS.{% else %}Це можна додати пізніше. MyH допоможе налаштувати DNS і HTTPS.{% endif %}</p>
+    <h2 class="form-step-title"><span>5</span>{% if current_language == 'en' %}Review{% else %}Перевірка{% endif %}</h2>
+    <dl class="review-list" aria-live="polite">
+      <div><dt>{% if current_language == 'en' %}Name{% else %}Назва{% endif %}</dt><dd data-review-name>—</dd></div>
+      <div><dt>Runtime</dt><dd data-review-runtime>—</dd></div>
+      <div><dt>{% if current_language == 'en' %}Source{% else %}Джерело{% endif %}</dt><dd data-review-source>—</dd></div>
+      <div><dt>Domain</dt><dd data-review-domain>{% if current_language == 'en' %}Add later{% else %}Додати пізніше{% endif %}</dd></div>
+    </dl>
+    <button type="submit" class="btn btn-primary" id="create-site-submit">{% if current_language == 'en' %}Create site{% else %}Створити сайт{% endif %}</button>
+  </form>
+</section>
+
+<script nonce="{{ csp_nonce }}">
+  (function () {
+    var typeInputs = Array.prototype.slice.call(document.querySelectorAll('input[name="site_type"]'));
+    var runtimeBlock = document.getElementById('php-runtime-block');
+    var runtimeSelect = document.getElementById('php_runtime');
+    var runtimeButton = document.getElementById('php-runtime-check');
+    var runtimeResult = document.getElementById('php-runtime-result');
+    var commandBlock = document.getElementById('process-command-block');
+    var commandShell = document.getElementById('process-command-shell');
+    var csrfInput = document.querySelector('input[name="_csrf_token"]');
+    var createForm = document.getElementById('create-site-form');
+    var createButton = document.getElementById('create-site-submit');
+    var staticBlock = document.getElementById('static-settings-block');
+    var dockerBlock = document.getElementById('docker-settings-block');
+    var wordpressBlock = document.getElementById('wordpress-settings-block');
+    var wordpressMode = document.getElementById('wordpress_mode');
+    var wordpressFields = document.getElementById('wordpress-one-click-fields');
+    var wordpressPassword = document.getElementById('wordpress_password');
+    var wordpressGenerate = document.getElementById('wordpress-generate-password');
+    var siteNameInput = document.getElementById('site_name');
+    var sourceSelect = document.getElementById('source_mode');
+    var domainInput = document.getElementById('domain');
+    var runtimeDetectButton = document.getElementById('runtime-detect-button');
+    var projectFiles = document.getElementById('project-files');
+    var runtimeDetectResult = document.getElementById('runtime-detect-result');
+    if (!typeInputs.length || !runtimeBlock) return;
+
+    function selectedType() {
+      var selected = typeInputs.find(function (input) { return input.checked; });
+      return selected ? selected.value : '';
+    }
+
+    function syncPhpRuntimeVisibility() {
+      var value = selectedType();
+      runtimeBlock.style.display = value === 'php' ? '' : 'none';
+      commandShell.style.display = ['node', 'python'].indexOf(value) >= 0 ? '' : 'none';
+      staticBlock.style.display = value === 'static' ? '' : 'none';
+      dockerBlock.style.display = value === 'docker' ? '' : 'none';
+      wordpressBlock.style.display = value === 'wordpress' ? '' : 'none';
+      syncWordPressMode();
+      syncReview();
+    }
+
+    function syncWordPressMode() {
+      var oneClick = selectedType() === 'wordpress' && wordpressMode.value === 'automatic';
+      wordpressFields.style.display = oneClick ? '' : 'none';
+      wordpressFields.querySelectorAll('input').forEach(function (input) { input.required = oneClick; });
+    }
+
+    function syncReview() {
+      var runtime = selectedType();
+      document.querySelector('[data-review-name]').textContent = siteNameInput.value.trim() || '—';
+      document.querySelector('[data-review-runtime]').textContent = runtime ? runtime.toUpperCase() : '—';
+      document.querySelector('[data-review-source]').textContent = sourceSelect.options[sourceSelect.selectedIndex].text;
+      document.querySelector('[data-review-domain]').textContent = domainInput.value.trim() || {{ ('Add later' if current_language == 'en' else 'Додати пізніше')|tojson }};
+    }
+
+    typeInputs.forEach(function (input) { input.addEventListener('change', syncPhpRuntimeVisibility); });
+    [siteNameInput, domainInput].forEach(function (input) { input.addEventListener('input', syncReview); });
+    sourceSelect.addEventListener('change', syncReview);
+    wordpressMode.addEventListener('change', syncWordPressMode);
+    wordpressGenerate.addEventListener('click', function () {
+      var alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*_-+=';
+      var values = new Uint32Array(24); window.crypto.getRandomValues(values);
+      wordpressPassword.value = Array.from(values, function (value) { return alphabet[value % alphabet.length]; }).join('');
+      wordpressPassword.type = 'text'; wordpressPassword.focus(); wordpressPassword.select();
+    });
+    syncPhpRuntimeVisibility();
+
+    if (runtimeDetectButton && projectFiles && runtimeDetectResult && csrfInput) {
+      runtimeDetectButton.addEventListener('click', function () {
+        runtimeDetectButton.disabled = true;
+        runtimeDetectResult.textContent = {{ ('Checking project markers…' if current_language == 'en' else 'Перевірка маркерів проєкту…')|tojson }};
+        var files = projectFiles.value.split(/[\s,;]+/).filter(Boolean);
+        fetch('{{ url_for('api_runtime_detect') }}', {
+          method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfInput.value},
+          body: JSON.stringify({files: files})
+        }).then(function (response) { return response.json().then(function (data) { return {ok: response.ok, data: data}; }); })
+          .then(function (result) {
+            if (!result.ok) throw new Error((result.data.error && result.data.error.message) || 'Detection failed');
+            var detection = result.data.detection;
+            if (!detection.recommended) throw new Error({{ ('Not enough project markers to recommend an environment.' if current_language == 'en' else 'Недостатньо маркерів проєкту для рекомендації середовища.')|tojson }});
+            var input = document.querySelector('input[name="site_type"][value="' + detection.recommended + '"]');
+            if (input && !input.disabled) { input.checked = true; syncPhpRuntimeVisibility(); }
+            runtimeDetectResult.textContent = {{ ('Recommended environment: ' if current_language == 'en' else 'Рекомендоване середовище: ')|tojson }} + detection.recommended.toUpperCase() + '. ' + detection.reason;
+          }).catch(function (error) { runtimeDetectResult.textContent = error.message; })
+          .finally(function () { runtimeDetectButton.disabled = false; });
+      });
+    }
+
+    if (createForm && createButton) {
+      createForm.addEventListener('submit', function () {
+        createButton.disabled = true;
+        createButton.textContent = {{ ('Creating…' if current_language == 'en' else 'Створення…')|tojson }};
+      });
+    }
+
+    if (runtimeButton && runtimeSelect && runtimeResult && csrfInput) {
+      runtimeButton.addEventListener('click', function () {
+        runtimeResult.textContent = 'Checking...';
+        fetch('{{ url_for('api_php_runtime_check') }}', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfInput.value
+          },
+          body: JSON.stringify({ php_runtime: runtimeSelect.value })
+        })
+          .then(function (response) { return response.json(); })
+          .then(function (payload) {
+            if (!payload.success) {
+              runtimeResult.textContent = 'Runtime check failed: ' + (payload.error || 'unknown error');
+              return;
+            }
+            if (!payload.php_available) {
+              runtimeResult.textContent = 'PHP binary is not available on server.';
+              return;
+            }
+            var compatibility = payload.compatible ? 'compatible' : 'not compatible';
+            runtimeResult.textContent = 'Server PHP ' + (payload.installed_version || 'unknown') + ' is ' + compatibility + ' with selected ' + payload.selected_version + '.';
+          })
+          .catch(function () {
+            runtimeResult.textContent = 'Runtime check request failed.';
+          });
+      });
+    }
+  })();
+</script>
+{% endblock %}

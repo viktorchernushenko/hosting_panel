@@ -3,9 +3,9 @@
 <div class="dashboard-shell">
   <header class="hero-card">
     <div>
-      <p class="eyebrow">myh.guru · server</p>
-      <h2>{% if current_language == 'en' %}Hosting control center{% else %}Центр керування хостингом{% endif %}</h2>
-      <p class="subtitle">{% if current_language == 'en' %}Fast access to the panel, deployment workflows, and server status.{% else %}Швидкий доступ до панелі, робочих процесів розгортання та статусу сервера.{% endif %}</p>
+      <p class="eyebrow">myh.guru</p>
+      <h2>{% if current_language == 'en' %}Hosting for your web projects{% else %}Хостинг для ваших вебпроєктів{% endif %}</h2>
+      <p class="subtitle">{% if current_language == 'en' %}Deploy sites and applications, and manage domains, files, databases and backups from one panel.{% else %}Розміщуйте сайти та застосунки, керуйте доменами, файлами, базами даних і резервними копіями з однієї панелі.{% endif %}</p>
     </div>
     <div class="hero-actions">
       <a class="ghost-btn" href="https://t.me/viktor_chernushenko" target="_blank" rel="noopener">{% if current_language == 'en' %}Message in Telegram{% else %}Написати в Telegram{% endif %}</a>
@@ -13,25 +13,14 @@
     </div>
   </header>
 
-  <section class="panel-grid">
+  <section class="panel-grid" id="features">
     <article class="panel-card">
       <div class="panel-head">
-        <h3>{% if current_language == 'en' %}Server overview{% else %}Огляд сервера{% endif %}</h3>
+        <h3>{% if current_language == 'en' %}Platform status{% else %}Стан платформи{% endif %}</h3>
         <span class="status-pill online">{% if current_language == 'en' %}Version{% else %}Версія{% endif %}: v{{ app_version }}</span>
       </div>
-      <div class="metrics-grid">
-        <article class="card-widget" id="home-cpu-card">
-          <div class="widget-title">CPU</div>
-          <div class="widget-value" id="cpu-val">--</div>
-          <div class="widget-caption" id="cpu-caption">{% if current_language == 'en' %}Loading...{% else %}Завантаження...{% endif %}</div>
-        </article>
-        <article class="card-widget" id="home-ram-card">
-          <div class="widget-title">RAM</div>
-          <div class="widget-value" id="ram-val">--</div>
-          <div class="widget-caption" id="ram-caption">{% if current_language == 'en' %}Loading...{% else %}Завантаження...{% endif %}</div>
-        </article>
-      </div>
-      <div class="service-meta" style="margin-top: 12px;">{% if current_language == 'en' %}The panel is ready for deployment and file management.{% else %}Панель готова до розгортання та керування файлами.{% endif %}</div>
+      <div class="service-row"><strong>{% if current_language == 'en' %}MyH is online{% else %}MyH працює{% endif %}</strong><span class="status-pill online">Online</span></div>
+      <div class="service-meta" style="margin-top: 12px;">{% if current_language == 'en' %}Detailed server statistics are available to administrators after sign-in.{% else %}Детальна статистика сервера доступна адміністраторам після входу.{% endif %}</div>
     </article>
 
     <article class="panel-card">
@@ -40,74 +29,30 @@
         <span class="status-pill online">{% if current_language == 'en' %}Ready{% else %}Готово{% endif %}</span>
       </div>
       <div class="service-list">
-        <div class="service-row"><strong>{% if current_language == 'en' %}Create sites{% else %}Створювати сайти{% endif %}</strong><span class="chip">static</span></div>
-        <div class="service-row"><strong>{% if current_language == 'en' %}Upload files{% else %}Завантажувати файли{% endif %}</strong><span class="chip">files</span></div>
-        <div class="service-row"><strong>{% if current_language == 'en' %}Create backups{% else %}Створювати резервні копії{% endif %}</strong><span class="chip">backup</span></div>
-        <div class="service-row"><strong>{% if current_language == 'en' %}Manage DNS & SSL{% else %}Керувати DNS &amp; SSL{% endif %}</strong><span class="chip">cloudflare</span></div>
+        <div class="service-row"><strong>{% if current_language == 'en' %}Create websites{% else %}Створювати сайти{% endif %}</strong><span class="chip">{% if current_language == 'en' %}Websites{% else %}Сайти{% endif %}</span></div>
+        <div class="service-row"><strong>{% if current_language == 'en' %}Upload files{% else %}Завантажувати файли{% endif %}</strong><span class="chip">{% if current_language == 'en' %}File manager{% else %}Файловий менеджер{% endif %}</span></div>
+        <div class="service-row"><strong>{% if current_language == 'en' %}Create backups{% else %}Створювати резервні копії{% endif %}</strong><span class="chip">{% if current_language == 'en' %}Backups{% else %}Резервні копії{% endif %}</span></div>
+        <div class="service-row"><strong>{% if current_language == 'en' %}Connect domains and HTTPS{% else %}Підключати домени та HTTPS{% endif %}</strong><span class="chip">{% if current_language == 'en' %}Domains{% else %}Домени{% endif %}</span></div>
       </div>
     </article>
   </section>
+
+  <section class="panel-card full-width" id="security">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}Security by default{% else %}Безпека за замовчуванням{% endif %}</h3></div>
+    <p class="subtitle">{% if current_language == 'en' %}Projects are isolated, credentials are write-only, HTTPS is verified, and sensitive operations require authorization and confirmation.{% else %}Проєкти ізольовані, секрети не відображаються повторно, HTTPS перевіряється, а чутливі операції потребують авторизації та підтвердження.{% endif %}</p>
+  </section>
+
+  {% if runtimes %}
+  <section class="panel-card full-width">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}Hosting for different web projects{% else %}Хостинг для різних типів вебпроєктів{% endif %}</h3><a class="ghost-btn" href="{{ url_for('supported_technologies') }}">{% if current_language == 'en' %}Details{% else %}Детальніше{% endif %}</a></div>
+    <p class="subtitle">{% if current_language == 'en' %}Only environments that passed a complete lifecycle test are listed here.{% else %}Тут показані лише середовища, які пройшли повний lifecycle test.{% endif %}</p>
+    <div class="runtime-card-grid">
+      {% for runtime in runtimes %}
+      <article class="runtime-choice"><span class="runtime-choice-head"><strong>{{ runtime.name }}</strong>{% if runtime.advanced %}<span class="status-pill">Advanced</span>{% endif %}</span><span>{{ runtime.description }}</span><small>{{ runtime.recommendedFor|join(' · ') }}</small><span class="runtime-availability online">✓ {% if current_language == 'en' %}Available{% else %}Доступно{% endif %}</span></article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
 </div>
 
-<script nonce="{{ csp_nonce }}">
-  const homePrefs = {
-    showCpu: true,
-    showRam: true,
-    privateMode: false,
-  };
-
-  let latestHomeMetrics = {
-    cpu: null,
-    ram: null,
-    timestamp: null,
-  };
-
-  function applyHomePrefs() {
-    const isEnglish = '{{ current_language }}' === 'en';
-    const cpuCard = document.getElementById('home-cpu-card');
-    const ramCard = document.getElementById('home-ram-card');
-    const cpuValue = document.getElementById('cpu-val');
-    const ramValue = document.getElementById('ram-val');
-    const cpuCaption = document.getElementById('cpu-caption');
-    const ramCaption = document.getElementById('ram-caption');
-
-    if (cpuCard) cpuCard.style.display = homePrefs.showCpu ? '' : 'none';
-    if (ramCard) ramCard.style.display = homePrefs.showRam ? '' : 'none';
-
-    if (homePrefs.privateMode) {
-      if (cpuValue) cpuValue.textContent = isEnglish ? 'private' : 'приватно';
-      if (ramValue) ramValue.textContent = isEnglish ? 'private' : 'приватно';
-      if (cpuCaption) cpuCaption.textContent = isEnglish ? 'Load is private' : 'Навантаження приватне';
-      if (ramCaption) ramCaption.textContent = isEnglish ? 'Memory usage is private' : 'Використання пам’яті приватне';
-      return;
-    }
-
-    if (cpuValue) cpuValue.textContent = latestHomeMetrics.cpu != null ? `${latestHomeMetrics.cpu}%` : '--';
-    if (ramValue) ramValue.textContent = latestHomeMetrics.ram != null ? `${latestHomeMetrics.ram}%` : '--';
-    if (cpuCaption) cpuCaption.textContent = isEnglish ? `Updated: ${latestHomeMetrics.timestamp || 'now'}` : `Оновлено: ${latestHomeMetrics.timestamp || 'зараз'}`;
-    if (ramCaption) ramCaption.textContent = isEnglish ? 'Live memory usage' : 'Поточне використання пам’яті';
-  }
-
-  async function refresh() {
-    try {
-      const response = await fetch('/api/public-status');
-      if (!response.ok) return;
-      const data = await response.json();
-      const prefs = data.prefs || {};
-      homePrefs.showCpu = prefs.show_cpu !== false;
-      homePrefs.showRam = prefs.show_ram !== false;
-      homePrefs.privateMode = prefs.private_mode === true;
-      latestHomeMetrics.cpu = data.cpu;
-      latestHomeMetrics.ram = data.ram_percent;
-      latestHomeMetrics.timestamp = data.timestamp;
-      applyHomePrefs();
-    } catch (error) {
-      console.log(error);
-    }
-  }
-
-  applyHomePrefs();
-  refresh();
-  setInterval(refresh, 3000);
-</script>
 {% endblock %}

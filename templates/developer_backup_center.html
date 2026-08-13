@@ -14,6 +14,17 @@
     </div>
   </header>
 
+  <section class="panel-card full-width">
+    <div class="panel-head"><h3>{% if current_language == 'en' %}Platform disaster recovery{% else %}Disaster recovery платформи{% endif %}</h3><span class="status-badge {{ 'success' if platform_backup.remote_status == 'verified' else 'danger' }}">{{ 'Remote verified' if platform_backup.remote_status == 'verified' else 'Off-server backup required' }}</span></div>
+    <div class="metrics-grid">
+      <div class="metric-tile"><div class="metric-label">Local backup</div><div class="metric-value">{{ platform_backup.local_status|replace('_',' ')|title }}</div><div class="metric-caption">{{ platform_backup.timestamp or 'Never' }}</div></div>
+      <div class="metric-tile"><div class="metric-label">Off-server backup</div><div class="metric-value">{{ platform_backup.remote_status|replace('_',' ')|title }}</div><div class="metric-caption">Target: {{ platform_backup.remote_type or 'none' }}</div></div>
+      <div class="metric-tile"><div class="metric-label">Remote verification</div><div class="metric-value">{{ 'Verified' if platform_backup.remote_status == 'verified' else 'Not available' }}</div><div class="metric-caption">SHA-256 after encrypted copy</div></div>
+      <div class="metric-tile"><div class="metric-label">Restore test</div><div class="metric-value">{{ platform_backup.last_restore_test.status|title if platform_backup.last_restore_test else 'Not run' }}</div><div class="metric-caption">{{ platform_backup.last_restore_test.timestamp if platform_backup.last_restore_test else '—' }}</div></div>
+    </div>
+    {% if platform_backup.remote_status != 'verified' %}<div class="flash error utility-gap-top">P0: {% if current_language == 'en' %}Local backup is verified, but no verified copy exists outside this server. Configure `/etc/myh-backup.conf` with external storage and a GPG recipient.{% else %}Локальну копію перевірено, але за межами цього сервера немає підтвердженої копії. Налаштуйте `/etc/myh-backup.conf`, зовнішнє сховище та GPG recipient.{% endif %}</div>{% endif %}
+  </section>
+
   <section class="metrics-grid">
     <article class="card-widget"><div class="widget-title">{% if current_language == 'en' %}Backups{% else %}Резервні копії{% endif %}</div><div class="widget-value">{{ summary.total_backups }}</div><div class="widget-caption">{% if current_language == 'en' %}total archives{% else %}усього архівів{% endif %}</div></article>
     <article class="card-widget"><div class="widget-title">{% if current_language == 'en' %}Sites with backups{% else %}Сайти з backup{% endif %}</div><div class="widget-value">{{ summary.sites_with_backups }}</div><div class="widget-caption">{% if current_language == 'en' %}with backup copies{% else %}з резервними копіями{% endif %}</div></article>
@@ -28,7 +39,7 @@
     </div>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>Site</th><th>Owner</th><th>Backup count</th><th>Latest</th><th>Size</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Site</th><th>Owner</th><th>Backup count</th><th>Latest</th><th>Size</th><th>App quota</th><th>Backup quota</th><th>Actions</th></tr></thead>
         <tbody>
           {% for row in backup_rows %}
           <tr>
@@ -38,13 +49,21 @@
             <td>{{ row.latest.name if row.latest else '—' }}</td>
             <td>{{ '%.1f'|format(row.size / 1024) }} KB</td>
             <td>
+              {{ row.access.application_quota_mb }} MB
+              <div class="service-meta">{{ row.quotas.application_ratio }}%</div>
+            </td>
+            <td>
+              {{ row.access.backup_quota_mb }} MB
+              <div class="service-meta">{{ row.quotas.backup_ratio }}%</div>
+            </td>
+            <td>
               <div class="site-actions">
                 <form action="{{ url_for('queue_site_backup', site_id=row.site.id) }}" method="POST">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                   <button class="tiny-btn" type="submit">Queue backup</button>
                 </form>
                 {% if row.latest %}
-                <form action="{{ url_for('queue_restore_site_backup', site_id=row.site.id, backup_name=row.latest.name) }}" method="POST" onsubmit="return confirm('Queue restore останньої копії?');">
+                <form action="{{ url_for('queue_restore_site_backup', site_id=row.site.id, backup_name=row.latest.name) }}" method="POST" data-confirm="Поставити відновлення останньої копії в чергу?">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                   <button class="ghost-btn" type="submit">Queue restore latest</button>
                 </form>
@@ -53,7 +72,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="6" class="empty-state">{% if current_language == 'en' %}Backups not found.{% else %}Резервні копії не знайдено.{% endif %}</td></tr>
+          <tr><td colspan="8" class="empty-state">{% if current_language == 'en' %}Backups not found.{% else %}Резервні копії не знайдено.{% endif %}</td></tr>
           {% endfor %}
         </tbody>
       </table>

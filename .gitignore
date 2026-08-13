@@ -29,6 +29,14 @@ tunnel.log
 .pytest_cache/
 coverage.xml
 htmlcov/
+.cache/
+tmp/
+*.dump
+*.bak
+*.tar
+*.tar.gz
+*.tgz
+*.zip
 
 # Secrets / local env
 .env

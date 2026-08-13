@@ -1,0 +1,18 @@
+[mysqld]
+# MyH host MySQL: host backend plus the private hosting-databases bridge only.
+bind-address = 172.23.0.1
+mysqlx-bind-address = 127.0.0.1
+
+character-set-server = utf8mb4
+collation-server = utf8mb4_0900_ai_ci
+
+# Conservative sizing for a shared 3.4 GiB hosting host.
+innodb-buffer-pool-size = 384M
+max-connections = 80
+table-open-cache = 1200
+tmp-table-size = 16M
+max-heap-table-size = 16M
+
+# Preserve modern strict defaults. Slow logging stays off until workload data
+# justifies it; the Ubuntu package rotates the error log daily.
+slow-query-log = OFF

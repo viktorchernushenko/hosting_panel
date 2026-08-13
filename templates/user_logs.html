@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block page_context %}{% if current_language == 'en' %}Logs{% else %}Логи{% endif %}{% endblock %}
+{% block content %}
+<div class="dashboard-shell">
+  <header class="hero-card"><div><p class="eyebrow">{% if current_language == 'en' %}Operations{% else %}Операції{% endif %}</p><h2>{% if current_language == 'en' %}Application logs{% else %}Логи застосунків{% endif %}</h2><p class="subtitle">{% if current_language == 'en' %}Recent deployment and application activity for your sites.{% else %}Останні події розгортання та роботи ваших сайтів.{% endif %}</p></div></header>
+  {% if log_issues %}<section class="panel-card"><div class="panel-head"><h3>{% if current_language == 'en' %}Detected issues{% else %}Виявлені проблеми{% endif %}</h3><span class="status-badge warning">{{ log_issues|length }}</span></div><div class="service-list">{% for issue in log_issues %}<div class="attention-row"><div><strong>{{ issue.summary }}</strong><p>{{ issue.next_step }}</p></div><code>{{ issue.code }}</code></div>{% endfor %}</div><p class="field-help">{% if current_language == 'en' %}These hints come from fixed error patterns; review the original log before making changes.{% else %}Ці підказки сформовано за фіксованими шаблонами помилок; перед змінами перевірте оригінальний лог.{% endif %}</p></section>{% endif %}
+  <section class="panel-card"><div class="list-toolbar"><label class="field" for="log-search"><span class="field-label">{% if current_language == 'en' %}Search logs{% else %}Пошук у логах{% endif %}</span><input id="log-search" type="search" data-log-search></label><button class="ghost-btn" type="button" data-copy-log>{% if current_language == 'en' %}Copy visible logs{% else %}Копіювати видимі логи{% endif %}</button></div><pre class="console-output log-viewer" data-log-viewer>{% for line in log_lines %}<span class="log-line">{{ line }}</span>
+{% else %}{% if current_language == 'en' %}No application logs yet.{% else %}Логів застосунків ще немає.{% endif %}{% endfor %}</pre></section>
+</div>
+{% endblock %}
