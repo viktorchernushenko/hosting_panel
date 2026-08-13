@@ -33,6 +33,7 @@ import shutil
 import tempfile
 import pymysql
 from notification_service import NotificationService
+from notification_config import NotificationConfigError, NotificationConfigStore
 from runtime_engine import RUNTIME_VERSIONS, SUPPORTED_RUNTIMES, compose_action, detect_file_names, detect_stack, healthcheck, infer_runtime_commands, prepare_custom_docker, prepare_runtime, prepare_wordpress_runtime, recommend_runtime, validate_runtime_commands
 from runtime_registry import public_runtime, runtime_catalog
 from collections import defaultdict, deque
@@ -62,6 +63,7 @@ db = SQLAlchemy(app)
 APPLICATION_PORT_LOCK = threading.Lock()
 login_attempts = defaultdict(deque)
 webhook_attempts = defaultdict(deque)
+notification_test_attempts = defaultdict(deque)
 LOGIN_WINDOW_SECONDS = 300
 LOGIN_MAX_IP_ATTEMPTS = 10
 LOGIN_MAX_ACCOUNT_ATTEMPTS = 6
@@ -1058,6 +1060,18 @@ def external_webhook_rate_allowed(kind):
     while attempts and now - attempts[0] > WEBHOOK_RATE_WINDOW_SECONDS:
         attempts.popleft()
     if len(attempts) >= WEBHOOK_RATE_MAX_REQUESTS:
+        return False
+    attempts.append(now)
+    return True
+
+
+def notification_test_rate_allowed(provider):
+    key = f"{session.get('user_id', 'anonymous')}:{provider}:{request.remote_addr or 'unknown'}"
+    now = time.monotonic()
+    attempts = notification_test_attempts[key]
+    while attempts and now - attempts[0] > 600:
+        attempts.popleft()
+    if len(attempts) >= 5:
         return False
     attempts.append(now)
     return True
@@ -3331,13 +3345,65 @@ def list_failed_services():
 
 
 def send_notification(message, level='info', alert_key=None, resolved=False):
-    service = NotificationService.from_env(os.path.join(app.instance_path, 'notification_state.json'))
+    service = notification_service()
     return service.send(message, level=level, alert_key=alert_key, resolved=resolved)
 
 
+def notification_config_store():
+    return NotificationConfigStore(os.path.join(app.instance_path, 'notification_config.enc'), panel_secret)
+
+
+def notification_settings():
+    return notification_config_store().load().get('providers', {})
+
+
+def notification_service():
+    return NotificationService.from_env(
+        os.path.join(app.instance_path, 'notification_state.json'), stored_settings=notification_settings()
+    )
+
+
+def mask_identifier(value, visible=3):
+    value = str(value or '')
+    if not value:
+        return ''
+    if len(value) <= visible * 2:
+        return '•' * len(value)
+    return value[:visible] + '•' * (len(value) - visible * 2) + value[-visible:]
+
+
 def notification_statuses():
-    service = NotificationService.from_env(os.path.join(app.instance_path, 'notification_state.json'))
-    return service.statuses()
+    stored = notification_settings()
+    service = notification_service()
+    rows = []
+    for provider in service.providers:
+        values = stored.get(provider.name) or {}
+        enabled = bool(provider.enabled)
+        complete = bool(provider.configured or (not enabled and (
+            (provider.name == 'telegram' and provider.token and provider.chat_id) or
+            (provider.name == 'smtp' and provider.host and provider.sender and provider.recipients)
+        )))
+        if not complete:
+            status = 'NOT_CONFIGURED'
+        elif not enabled:
+            status = 'DISABLED'
+        elif values.get('last_test_ok') is True:
+            status = 'CONFIGURED'
+        else:
+            status = 'ERROR'
+        row = {
+            'provider': provider.name, 'status': status, 'enabled': enabled,
+            'configured': status == 'CONFIGURED', 'credentials_saved': complete,
+            'last_test_at': values.get('last_test_at'),
+        }
+        if provider.name == 'telegram':
+            row['chat_id_masked'] = mask_identifier(provider.chat_id)
+        else:
+            row.update(host=provider.host, port=provider.port, username=provider.username,
+                       sender=provider.sender, recipients=', '.join(provider.recipients),
+                       encryption=provider.encryption)
+        rows.append(row)
+    return rows
 
 
 def collect_health_alerts():
@@ -6588,27 +6654,118 @@ def developer_docker():
     return render_template('developer_docker.html', containers=containers, can_manage_docker=can_manage_docker)
 
 
-@app.route('/developer/notifications', methods=['GET', 'POST'])
-@developer_required
+@app.route('/developer/notifications')
+@admin_required
 def developer_notifications():
-    user = db.session.get(User, session['user_id'])
-    require_role_permission(user, 'integration.manage')
-    if request.method == 'POST':
-        message = (request.form.get('message') or '').strip()
-        if message:
-            result = NotificationService.from_env(os.path.join(app.instance_path, 'notification_state.json')).send(
-                message, level='test', alert_key='manual-test', force=True
-            )
-            if result['delivered']:
-                flash('Test notification delivered.', 'success')
-            elif any(item['configured'] for item in result['results']):
-                flash('Test notification failed. Review provider configuration.', 'error')
-            else:
-                flash('Notification providers are not configured.', 'error')
-        else:
-            flash('Message is required.', 'error')
-        return redirect(url_for('developer_notifications'))
     return render_template('developer_notifications.html', provider_statuses=notification_statuses())
+
+
+def notification_response(message, success=True, status_code=200):
+    if request.is_json:
+        return jsonify({'success': success, 'message': message}), status_code
+    flash(message, 'success' if success else 'error')
+    return redirect(url_for('developer_notifications'))
+
+
+def valid_notification_email(value):
+    return bool(re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', value or '')) and len(value) <= 254
+
+
+@app.route('/api/admin/notifications/settings')
+@admin_required
+def api_notification_settings():
+    return jsonify({'providers': notification_statuses()})
+
+
+@app.route('/api/admin/notifications/<provider>/configure', methods=['POST'])
+@admin_required
+def api_notification_configure(provider):
+    if provider not in {'telegram', 'smtp'}:
+        abort(404)
+    payload = request.get_json(silent=True) if request.is_json else request.form
+    payload = payload or {}
+    existing = notification_settings().get(provider) or {}
+    try:
+        if provider == 'telegram':
+            token = str(payload.get('bot_token') or '').strip()
+            chat_id = str(payload.get('chat_id') or '').strip()
+            effective_token = token or existing.get('bot_token') or os.environ.get('TELEGRAM_BOT_TOKEN', '')
+            if not re.fullmatch(r'\d{5,15}:[A-Za-z0-9_-]{20,}', effective_token):
+                return notification_response('Bot Token має некоректний формат.', False, 400)
+            if not re.fullmatch(r'(?:-?\d{5,20}|@[A-Za-z0-9_]{5,32})', chat_id):
+                return notification_response('Chat ID має некоректний формат.', False, 400)
+            values = {'bot_token': token, 'chat_id': chat_id, 'enabled': str(payload.get('enabled', '')).lower() in {'1', 'true', 'on', 'yes'}}
+        else:
+            host = str(payload.get('host') or '').strip().lower()
+            username = str(payload.get('username') or '').strip()
+            password = str(payload.get('password') or '')
+            sender = str(payload.get('sender') or '').strip()
+            recipients = [item.strip() for item in str(payload.get('recipients') or '').split(',') if item.strip()]
+            encryption = str(payload.get('encryption') or 'tls').lower()
+            try:
+                port = int(payload.get('port') or 0)
+            except (TypeError, ValueError):
+                port = 0
+            effective_password = password or existing.get('password') or os.environ.get('SMTP_PASSWORD', '')
+            if not re.fullmatch(r'(?=.{1,253}$)[A-Za-z0-9.-]+', host) or '..' in host:
+                return notification_response('Вкажіть коректний SMTP host.', False, 400)
+            if port < 1 or port > 65535:
+                return notification_response('SMTP port має бути від 1 до 65535.', False, 400)
+            if not valid_notification_email(sender) or not recipients or len(recipients) > 10 or not all(valid_notification_email(item) for item in recipients):
+                return notification_response('Перевірте From Email та адреси отримувачів.', False, 400)
+            if encryption not in {'tls', 'ssl', 'none'}:
+                return notification_response('Непідтримуваний тип шифрування SMTP.', False, 400)
+            if username and not effective_password:
+                return notification_response('Для SMTP username потрібен пароль.', False, 400)
+            values = {'host': host, 'port': port, 'username': username, 'password': password,
+                      'sender': sender, 'recipients': recipients, 'encryption': encryption,
+                      'enabled': str(payload.get('enabled', '')).lower() in {'1', 'true', 'on', 'yes'}}
+        notification_config_store().update_provider(provider, values)
+        log_action(f'notification.{provider}.configure', 'credentials updated; secrets omitted')
+        return notification_response('Налаштування збережено. Виконайте реальний тест підключення.')
+    except NotificationConfigError:
+        return notification_response('Не вдалося безпечно зберегти налаштування.', False, 500)
+
+
+@app.route('/api/admin/notifications/<provider>/toggle', methods=['POST'])
+@admin_required
+def api_notification_toggle(provider):
+    if provider not in {'telegram', 'smtp'}:
+        abort(404)
+    payload = request.get_json(silent=True) if request.is_json else request.form
+    enabled = str((payload or {}).get('enabled', '')).lower() in {'1', 'true', 'on', 'yes'}
+    rows = {item['provider']: item for item in notification_statuses()}
+    if enabled and not rows[provider]['credentials_saved']:
+        return notification_response('Спочатку збережіть повні налаштування provider.', False, 400)
+    notification_config_store().set_enabled(provider, enabled)
+    log_action(f"notification.{provider}.{'enable' if enabled else 'disable'}", 'provider state changed')
+    return notification_response('Provider увімкнено.' if enabled else 'Provider вимкнено.')
+
+
+@app.route('/api/admin/notifications/<provider>/test', methods=['POST'])
+@admin_required
+def api_notification_test(provider):
+    if provider not in {'telegram', 'smtp'}:
+        abort(404)
+    if not notification_test_rate_allowed(provider):
+        return notification_response('Забагато тестів. Повторіть пізніше.', False, 429)
+    rows = {item['provider']: item for item in notification_statuses()}
+    if not rows[provider]['credentials_saved']:
+        return notification_response(f"Спочатку налаштуйте {'Telegram' if provider == 'telegram' else 'SMTP'}.", False, 400)
+    settings = notification_settings()
+    temporary_settings = json.loads(json.dumps(settings))
+    temporary_settings.setdefault(provider, {})['enabled'] = True
+    service = NotificationService.from_env(
+        os.path.join(app.instance_path, 'notification_state.json'), stored_settings=temporary_settings
+    )
+    message = 'MyH: тестове сповіщення успішно доставлено.'
+    result = service.send(message, level='test', force=True, provider_name=provider)
+    succeeded = bool(result.get('delivered'))
+    notification_config_store().record_test(provider, succeeded, datetime.now(timezone.utc).isoformat())
+    log_action(f'notification.{provider}.test', f"result={'success' if succeeded else 'failed'}")
+    if succeeded:
+        return notification_response('Тестове сповіщення фактично доставлено provider-ом.')
+    return notification_response('Provider не підтвердив доставку. Перевірте credentials і мережеві параметри.', False, 502)
 
 
 @app.route('/api/webhook/notify', methods=['POST'])

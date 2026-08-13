@@ -12,12 +12,19 @@ import app as panel_app
 
 class AdminPlatformStatusTests(unittest.TestCase):
     def setUp(self):
+        panel_app.app.config['TESTING'] = True
+        panel_app.app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
         self.context = panel_app.app.app_context()
         self.context.push()
+        panel_app.db.session.remove()
+        panel_app.db.engine.dispose()
+        panel_app.db.create_all()
         self.request_context = panel_app.app.test_request_context('/')
         self.request_context.push()
 
     def tearDown(self):
+        panel_app.db.session.remove()
+        panel_app.db.drop_all()
         self.request_context.pop()
         self.context.pop()
 

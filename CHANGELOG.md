@@ -2,6 +2,27 @@
 
 MyH follows Semantic Versioning. Entries below are reconstructed from the actual Git history, code, configuration, UI and recorded tests; they do not create synthetic historical commits or tags.
 
+## [2.7.0] - 2026-08-13
+
+### Added
+
+- Added in-panel Telegram Bot Token and Chat ID configuration with enable/disable and provider-specific delivery tests.
+- Added standard SMTP host, port, authentication, sender, recipients and None/TLS/SSL configuration with provider-specific delivery tests.
+- Added admin-only notification settings/configure/toggle/test endpoints and localized provider lifecycle states.
+
+### Changed
+
+- Notification settings are loaded dynamically, so configuration changes do not require a service restart.
+- Operational notification delivery uses UI-managed settings when present and remains compatible with existing environment configuration.
+- The dashboard considers a provider configured only after an enabled provider passes a real delivery test.
+
+### Security
+
+- Secrets are encrypted at rest with authenticated Fernet encryption using a key derived from the existing application master secret.
+- Configuration writes are validated, locked, backed up, atomic and mode `0600`; unrelated provider settings are preserved.
+- Bot Tokens and SMTP passwords are never returned by the API or rendered into HTML, and blank secret fields preserve existing values.
+- Added CSRF, admin-only authorization, five-tests-per-ten-minutes rate limiting and secret-free audit events.
+
 ## [2.6.0] - 2026-08-13
 
 ### Added
